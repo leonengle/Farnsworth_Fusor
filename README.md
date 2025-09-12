@@ -1,1 +1,4 @@
-Will include everything necessary to help the user integrate the repo in your system
+**1. Clone and enter the folder**
+``` git clone https://github.com/leonengle/Farnsworth_Fusor/
+cd Farnsworth_Fusor
+```
