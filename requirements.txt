@@ -1,1 +1,2 @@
-
+PySimpleGUI==4.60.4
+paramiko==3.1.0
