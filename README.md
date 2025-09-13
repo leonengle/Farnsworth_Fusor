@@ -39,6 +39,7 @@ Close out of powershell and redo the command. You should be good!
 If you are using powershell to activate your visual environment, make sure to close out and open back the powershell command prompt (not admin)
 
 **4. Download all dependencies**
+
 After getting in the virtual environment, it is important for everyone involved to be on the same version so there are less environment-related surprises 
 ```
 pip install -r requirements.txt
