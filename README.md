@@ -33,6 +33,12 @@ After getting in the virtual environment, it is important for everyone involved 
 ```
 pip install -r requirements.txt
 ```
+### 5. Verify the environment (Optional)
+
+Run the test script to make sure your environment is working
+```
+python testEnv.py
+```
 **Note: Everytime you open a new terminal session after the virtual environment is integrated, only run step 3 in the guide!**
 ## Common Errors while implementing your virtual environment
 ### 1. Permission Error
