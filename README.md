@@ -46,6 +46,7 @@ then:
       ```
       Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
       ```
+  - Type in "Y" in the prompt
 Close out of powershell and redo the command. You should be good!
 
 If you are using powershell to activate your visual environment, make sure to close out and open back the powershell command prompt (not admin)
