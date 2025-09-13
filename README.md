@@ -26,7 +26,7 @@ On windows (Powershell):
 ```
 venv/Scripts/Activate.psl
 ```
-**Note: Everytime you open a new terminal session after the virtual environment is integrated, only run step 3 in the guide!**
+**NOTE: Everytime you open a new terminal session after the virtual environment is integrated, only run step 3 in the guide!**
 
 ### 4. Download all dependencies
 
@@ -34,6 +34,16 @@ After getting in the virtual environment, it is important for everyone involved 
 ```
 pip install -r requirements.txt
 ```
+**NOTE: PySimpleGUI is hosted on a private PyPI server. If you're using the old version, it is recommended to get the private version of the library since it is more up-to-date and maintained. The user is required to run these commands to uninstall any existing versions for this project:**
+```
+python -m pip uninstall PySimpleGUI
+python -m pip cache purge
+```
+**Now you can download all dependencies: 
+```
+pip install -r requirements.txt
+```
+
 ### 5. Verify the environment (Optional)
 
 Run the test script to make sure your environment is working
