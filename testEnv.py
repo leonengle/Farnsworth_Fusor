@@ -4,13 +4,9 @@ import warnings
 
 def importChecker():
     failed = False
-
-    # Suppress warnings (like deprecation warnings from paramiko)
     warnings.filterwarnings("ignore")
-
-    # Redirect stdout to suppress PySimpleGUI's installation message
     original_stdout = sys.stdout
-    sys.stdout = open(os.devnull, 'w')  # Redirect to null device
+    sys.stdout = open(os.devnull, 'w')
 
     try:
         import PySimpleGUI
@@ -28,6 +24,16 @@ def importChecker():
     except ImportError:
         sys.stdout = original_stdout
         print("Paramiko import failed!")
+        failed = True
+        
+    try:
+        from Adafruit_GPIO import SPI
+        import Adafruit_MCP3008
+        sys.stdout = original_stdout
+        print("Adafruit GPIO/MCP3008 imported successfully!")
+    except ImportError:
+        sys.stdout = original_stdout
+        print("Adafruit GPIO/MCP3008 import failed!")
         failed = True
 
     if failed:

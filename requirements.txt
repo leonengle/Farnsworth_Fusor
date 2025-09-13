@@ -3,6 +3,7 @@ PySimpleGUI==5.0.8.3
 paramiko==3.1.0
 
 # Raspberry Pi / Adafruit libraries
-RPi.GPIO
-Adafruit-GPIO
-Adafruit-MCP3008
+#the raspberry pi gpio library only works on a RPi so uncomment when deploying on a RPi
+#RPi.GPIO
+Adafruit-GPIO==1.0.3
+Adafruit-MCP3008==1.0.2
