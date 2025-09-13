@@ -33,6 +33,7 @@ After getting in the virtual environment, it is important for everyone involved 
 ```
 pip install -r requirements.txt
 ```
+**Note: Everytime you open a new terminal session after the virtual environment is integrated, only run step 3 in the guide!**
 ## Common Errors while implementing your virtual environment
 ### 1. Permission Error
 If you are getting this error:
@@ -46,6 +47,7 @@ then:
       Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
       ```
 Close out of powershell and redo the command. You should be good!
+
 If you are using powershell to activate your visual environment, make sure to close out and open back the powershell command prompt (not admin)
 
 
