@@ -1,4 +1,4 @@
-# Quickstart
+# Quickstart: **Setup Instructions**
 
 ## First Time Access
 
