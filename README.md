@@ -13,6 +13,7 @@ cd Farnsworth_Fusor
 python -m venv venv
 ```
 **3. Activate the virtual environment **
+
 On macOS/Linux:
 ```
 source venv/bin/activate
