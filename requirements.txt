@@ -1,2 +1,8 @@
+--extra-index-url https://PySimpleGUI.net/install
 PySimpleGUI==5.0.8.3
 paramiko==3.1.0
+
+# Raspberry Pi / Adafruit libraries
+RPi.GPIO
+Adafruit-GPIO
+Adafruit-MCP3008
