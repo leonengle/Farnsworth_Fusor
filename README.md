@@ -39,7 +39,7 @@ pip install -r requirements.txt
 python -m pip uninstall PySimpleGUI
 python -m pip cache purge
 ```
-**Now you can download all dependencies: 
+**Now you can download all dependencies:** 
 ```
 pip install -r requirements.txt
 ```
