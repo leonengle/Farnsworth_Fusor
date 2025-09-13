@@ -26,7 +26,9 @@ On windows (Powershell):
 venv/Scripts/Activate.psl
 ```
 If you are getting this error:
+
 <img width="674" height="119" alt="image" src="https://github.com/user-attachments/assets/1cd02b3c-e6d6-4a73-b65d-c0ed6d0ee4c6" />
+
 then:
   - Open Powershell as administrator
   - Run this command:
