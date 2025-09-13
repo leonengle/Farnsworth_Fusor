@@ -2,7 +2,7 @@
 
 ## First Time Access
 
-**### 1. Clone and enter the folder**
+###**1. Clone and enter the folder**
 If you have the previous versions of the repository cloned, delete the folder and clone the new version
 ```
 git clone https://github.com/leonengle/Farnsworth_Fusor/
