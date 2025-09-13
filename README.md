@@ -45,7 +45,7 @@ After getting in the virtual environment, it is important for everyone involved 
 pip install -r requirements.txt
 ```
 
-###Everytime you open a new terminal session after the virtual environment is integrated, only run step 3 in the guide!###
+### Everytime you open a new terminal session after the virtual environment is integrated, only run step 3 in the guide!
 
 
 
