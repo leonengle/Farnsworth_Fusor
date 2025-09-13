@@ -43,7 +43,7 @@ python testEnv.py
 
 ## Common Errors while implementing your virtual environment
 ### 1. Permission Error
-If you are getting this error:
+If you are getting this error while running Step 3:
 
 <img width="674" height="119" alt="image" src="https://github.com/user-attachments/assets/1cd02b3c-e6d6-4a73-b65d-c0ed6d0ee4c6" />
 
