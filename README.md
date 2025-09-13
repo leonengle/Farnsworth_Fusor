@@ -1,5 +1,46 @@
+#Quickstart
+##First time access
 **1. Clone and enter the folder**
-``` g
-it clone https://github.com/leonengle/Farnsworth_Fusor/
+If you have the previous versions of the repository cloned, delete the folder and clone the new version
+```
+git clone https://github.com/leonengle/Farnsworth_Fusor/
 cd Farnsworth_Fusor
 ```
+**2. Create the virtual environment**
+```
+python -m venv venv
+```
+**3. Activate the virtual environment **
+On macOS/Linux:
+```
+source venv/bin/activate
+```
+On windows (command prompt):
+```
+venv/Scripts/activate
+```
+On windows (Powershell):
+```
+venv/Scripts/Activate.psl
+```
+If you are getting this error:
+<img width="674" height="119" alt="image" src="https://github.com/user-attachments/assets/1cd02b3c-e6d6-4a73-b65d-c0ed6d0ee4c6" />
+then:
+  - Open Powershell as administrator
+  - Run this command:
+      ```
+      Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+      ```
+Close out of powershell and redo the command. You should be good!
+If you are using powershell to activate your visual environment, make sure to close out and open back the powershell command prompt (not admin)
+
+**4. Download all dependencies**
+After getting in the virtual environment, it is important for everyone involved to be on the same version so there are less environment-related surprises 
+```
+pip install -r requirements.txt
+```
+
+###Everytime you open a new terminal session after the virtual environment is integrated, only run step 3 in the guide!###
+
+
+
