@@ -1,7 +1,20 @@
 # Quickstart: **Setup Instructions**
 
 ## First Time Access
+### 0.5 Installing virtual environment
+For windows:
+```
+pip install virtualenv
+```
+For RPi:
+```
+sudo apt install virtualenv
+```
+**NOTE: To install any library on RPi, don't use pip because you will get the following:
 
+<img width="438" height="175" alt="image" src="https://github.com/user-attachments/assets/6fb0b4df-e1db-43d6-99c5-16a5e9ce0754" />
+
+Use "sudo apt install..." to install any external libraries.
 ### 1. Clone and enter the folder
 If you have the previous versions of the repository cloned, delete the folder and clone the new version
 ```
