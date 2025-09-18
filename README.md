@@ -14,7 +14,7 @@ python -m venv venv
 ```
 ### 3. Activate the virtual environment
 
-On macOS/Linux:
+On macOS/Linux (RPI as well):
 ```
 source venv/bin/activate
 ```
@@ -34,6 +34,7 @@ After getting in the virtual environment, it is important for everyone involved 
 ```
 pip install -r requirements.txt
 ```
+
 **NOTE: PySimpleGUI is hosted on a private PyPI server. If you're using the old version, it is recommended to get the private version of the library since it is more up-to-date and maintained. The user is required to run these commands to uninstall any existing versions for this project:**
 ```
 python -m pip uninstall PySimpleGUI
