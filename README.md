@@ -10,7 +10,7 @@ For RPi:
 ```
 sudo apt install virtualenv
 ```
-**NOTE: To install any library on RPi, don't use pip because you will get the following:
+**NOTE: To install any library on RPi, don't use pip because you will get the following:**
 
 <img width="438" height="175" alt="image" src="https://github.com/user-attachments/assets/6fb0b4df-e1db-43d6-99c5-16a5e9ce0754" />
 
