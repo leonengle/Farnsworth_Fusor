@@ -1,9 +1,17 @@
 import time
 import sys
+import RPi.GPIO as GPIO
 from Adafruit_GPIO import SPI
 import Adafruit_MCP3008
 import argparse
 
+PIN = 16
+PIN2 = 23 
+PIN3 = 26
+GPIO.setmode(GPIO.BCM)
+GPIO.setup(PIN, GPIO.OUT)
+GPIO.setup(PIN2, GPIO.OUT)
+GPIO.setup(PIN3, GPIO.OUT)
 HW_SPI_PORT = 0
 HW_SPI_DEV = 0
 mcp = Adafruit_MCP3008.MCP3008(spi=SPI.SpiDev(HW_SPI_PORT, HW_SPI_DEV))
@@ -20,9 +28,22 @@ def read_adc(channel: int):
     try:
         while True:
             value = mcp.read_adc(channel)
+            if value > 0 and value < 341:
+                GPIO.output(PIN,GPIO.HIGH)
+                GPIO.output(PIN2,GPIO.LOW)
+                GPIO.output(PIN3,GPIO.LOW)
+            elif value >= 341 and value < 682:
+                GPIO.output(PIN, GPIO.LOW)
+                GPIO.output(PIN2, GPIO.HIGH)
+                GPIO.output(PIN3, GPIO.LOW)
+            elif value >= 682 and value <= 1023:
+                GPIO.output(PIN, GPIO.LOW)
+                GPIO.output(PIN2, GPIO.LOW)
+                GPIO.output(PIN3, GPIO.HIGH)
             print(f"Value: {value}")
             time.sleep(0.5)
     except KeyboardInterrupt:
+        GPIO.cleanup()
         print("\nExiting")
 
 def main():
