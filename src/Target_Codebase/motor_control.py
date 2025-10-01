@@ -1,4 +1,4 @@
-import pigpio #haven't included in requirements.txt
+import pigpio
 import threading
 import queue
 
