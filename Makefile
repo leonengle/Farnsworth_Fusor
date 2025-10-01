@@ -14,9 +14,9 @@ help: ## 📖 Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "💡 Quick Start:"
-	@echo "   make dev          # First time setup"
+	@echo "   make dev-setup    # First time setup"
 	@echo "   make run          # Run the application"
-	@echo "   make check        # Check code before committing"
+	@echo "   make check-all    # Check code before committing"
 	@echo ""
 
 install: ## 📦 Install all dependencies
@@ -35,6 +35,9 @@ format: ## 🎨 Format code with black
 	@echo "Formatting code with black..."
 	black src/
 
+format-check: ## ✅ Check if code is formatted correctly
+	@echo "Checking code formatting..."
+	black --check src/
 
 test-env: ## 🧪 Test environment setup
 	@echo "Testing environment..."
@@ -73,18 +76,26 @@ run: ## 🚀 Run the main fusor application
 	@echo "Starting Farnsworth Fusor application..."
 	python src/Host_Codebase/fusor_main.py
 
-check: format lint test-env ## 🔍 Run all checks (format, lint, test)
+run-target: ## 🎯 Run the target codebase server
+	@echo "Starting Target Codebase server..."
+	python src/Target_Codebase/target_ssh_server.py
+
+test-target: ## 🧪 Test target codebase functionality
+	@echo "Testing Target Codebase..."
+	python src/Target_Codebase/target_test.py
+
+check-all: format-check lint test-env ## 🔍 Run all checks (format, lint, test)
 	@echo ""
 	@echo "✅ All checks completed!"
 
 # Development workflow
-dev: install pre-commit-install ## 🎯 Complete development setup (USE THIS FIRST!)
+dev-setup: install pre-commit-install ## 🎯 Complete development setup (USE THIS FIRST!)
 	@echo ""
 	@echo "🎉 Development environment ready!"
 	@echo ""
 	@echo "Next steps:"
 	@echo "  make run          # Run the application"
-	@echo "  make check        # Check your code"
+	@echo "  make check-all    # Check your code"
 	@echo "  make clean        # Clean up when done"
 	@echo ""
 
@@ -93,7 +104,7 @@ quick-check: format lint ## ⚡ Quick code check (format + lint only)
 	@echo "Quick check completed!"
 
 # CI/CD helpers
-ci-check: format lint test-env ## 🤖 Run checks suitable for CI/CD
+ci-check: format-check lint test-env ## 🤖 Run checks suitable for CI/CD
 	@echo "CI checks completed!"
 
 # Test commands
@@ -105,8 +116,8 @@ test-commands: ## 🧪 Test if all make commands work
 	@make install > /dev/null 2>&1 && echo "✓ install command works" || echo "✗ install command failed"
 	@echo "✓ make test-env"
 	@make test-env > /dev/null 2>&1 && echo "✓ test-env command works" || echo "✗ test-env command failed"
-	@echo "✓ make format"
-	@make format > /dev/null 2>&1 && echo "✓ format command works" || echo "✗ format command failed"
+	@echo "✓ make format-check"
+	@make format-check > /dev/null 2>&1 && echo "✓ format-check command works" || echo "✗ format-check command failed"
 	@echo "✓ make lint"
 	@make lint > /dev/null 2>&1 && echo "✓ lint command works" || echo "✗ lint command failed"
 	@echo "✓ make clean"

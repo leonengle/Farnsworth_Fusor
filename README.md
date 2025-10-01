@@ -147,6 +147,8 @@ This project uses several Python libraries for different functionalities. Here's
 | Install dependencies | `pip install -r requirements.txt` | `make install` |
 | Set up development | `python setup_dev.py` | `make dev` |
 | Run the app | `python src/Host_Codebase/host_main.py` | `make run` |
+| Run target server | `python src/Target_Codebase/target_ssh_server.py` | `make run-target` |
+| Test target codebase | `python src/Target_Codebase/target_test.py` | `make test-target` |
 | Format code | `black src/` | `make format` |
 | Run linting | `pylint src/` | `make lint` |
 | Test environment | `python testEnv.py` | `make test-env` |

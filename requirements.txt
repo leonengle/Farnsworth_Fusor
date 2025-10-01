@@ -9,7 +9,6 @@ pycparser==2.23
 PyNaCl==1.6.0
 PySimpleGUI==5.0.8.3
 RPi.GPIO==0.7.1
-pigpio==1.78
 spidev==3.8
 
 
