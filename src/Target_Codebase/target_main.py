@@ -1,44 +1,189 @@
 """
-An example of using the Motor class to control two motors with different pulse widths,
-per ChatGPT. This also shows what I feel like is the ideal program structure, where
-all our classes are in their own files and the main program just creates instances
-and calls methods on them.
+Target Main Program - SSH Hello World Implementation
+This program implements the SSH datalink verification system as described in Figure 7.
+
+Features:
+- SSH server to receive commands from host
+- GPIO LED control for visual feedback when receiving commands
+- GPIO input reading (jumper wire to ground/5V)
+- Periodic SSH command sending every 1 second
+- Integration with existing motor control and ADC systems
 """
 
-import pigpio
-from motor_control import Motor
+import threading
+import time
+import argparse
+from ssh_hello_world import SSHHelloWorldServer, PeriodicDataSender
+from ssh_client import HostCommunicator
 from logging_setup import setup_logging, get_logger
 
 # Setup logging first
 setup_logging()
 logger = get_logger("TargetMain")
 
-try:
-    pi = pigpio.pi()
-    logger.info("pigpio initialized successfully")
-except Exception as e:
-    logger.error(f"Failed to initialize pigpio: {e}")
-    exit(1)
 
-# Motor 1 needs 5 µs pulse width
-motor1 = Motor(pi, step_pin=17, dir_pin=27, pulse_width=5)
-logger.info("Motor 1 initialized (step_pin=17, dir_pin=27, pulse_width=5µs)")
+class TargetSystem:
+    """
+    Main target system that integrates all components.
+    """
+    
+    def __init__(self, host_ip: str = "192.168.1.100", ssh_port: int = 2222,
+                 led_pin: int = 26, input_pin: int = 6, use_adc: bool = False):
+        """
+        Initialize the target system.
+        
+        Args:
+            host_ip: IP address of the host system
+            ssh_port: Port for SSH server
+            led_pin: GPIO pin for LED output
+            input_pin: GPIO pin for input reading
+            use_adc: Enable ADC functionality
+        """
+        self.host_ip = host_ip
+        self.ssh_port = ssh_port
+        self.led_pin = led_pin
+        self.input_pin = input_pin
+        self.use_adc = use_adc
+        
+        # Initialize components
+        self.ssh_server = SSHHelloWorldServer(
+            host="0.0.0.0", 
+            port=ssh_port,
+            led_pin=led_pin,
+            input_pin=input_pin,
+            use_adc=use_adc
+        )
+        
+        self.host_communicator = HostCommunicator(host_ip)
+        self.data_sender = None
+        
+        self.running = False
+        
+        logger.info(f"Target system initialized (Host: {host_ip}, SSH Port: {ssh_port})")
+    
+    def _host_callback(self, data: str):
+        """
+        Callback function to send data to host.
+        
+        Args:
+            data: Data string to send to host
+        """
+        if self.host_communicator.is_connected():
+            # Parse data and send appropriately
+            if data.startswith("GPIO_INPUT:"):
+                pin_value = int(data.split(":")[1])
+                self.host_communicator.send_gpio_data(pin_value)
+            elif data.startswith("ADC_DATA:"):
+                # Format: ADC_DATA:512,256,128,64,32,16,8,4
+                adc_values_str = data.split(":")[1]
+                adc_values = [int(x) for x in adc_values_str.split(",")]
+                self.host_communicator.send_adc_all_data(adc_values)
+            elif data.startswith("ADC_CH"):
+                # Format: ADC_CH0:512
+                parts = data.split(":")
+                channel = int(parts[0].split("CH")[1])
+                value = int(parts[1])
+                self.host_communicator.send_adc_data(channel, value)
+            else:
+                logger.warning(f"Unknown data format: {data}")
+        else:
+            logger.warning("Host communicator not connected, cannot send data")
+    
+    def start(self):
+        """Start the target system."""
+        if self.running:
+            logger.warning("Target system is already running")
+            return
+        
+        self.running = True
+        
+        try:
+            # Connect to host
+            logger.info("Connecting to host...")
+            if self.host_communicator.connect():
+                logger.info("Connected to host successfully")
+            else:
+                logger.warning("Failed to connect to host, continuing without host communication")
+            
+            # Set up host callback for SSH server
+            self.ssh_server.set_host_callback(self._host_callback)
+            
+            # Create and start periodic data sender
+            self.data_sender = PeriodicDataSender(self.ssh_server, self._host_callback, self.use_adc)
+            self.data_sender.start()
+            
+            logger.info("Target system started successfully")
+            logger.info("SSH Hello World system is now running!")
+            logger.info(f"Connect from host using: ssh pi@{self.host_ip} -p {self.ssh_port}")
+            logger.info("Send 'LED_ON' or 'LED_OFF' commands to control the LED")
+            
+            # Start SSH server (this will block)
+            self.ssh_server.start_server()
+            
+        except Exception as e:
+            logger.error(f"Error starting target system: {e}")
+            self.stop()
+    
+    def stop(self):
+        """Stop the target system."""
+        self.running = False
+        
+        logger.info("Stopping target system...")
+        
+        # Stop data sender
+        if self.data_sender:
+            self.data_sender.stop()
+        
+        # Stop SSH server
+        self.ssh_server.stop_server()
+        
+        # Disconnect from host
+        self.host_communicator.disconnect()
+        
+        # Cleanup
+        self.ssh_server.cleanup()
+        
+        logger.info("Target system stopped")
 
-# Motor 2 needs 20 µs pulse width
-motor2 = Motor(pi, step_pin=22, dir_pin=23, pulse_width=20)
-logger.info("Motor 2 initialized (step_pin=22, dir_pin=23, pulse_width=20µs)")
 
-# Queue moves (step_delay is full step period)
-logger.info("Starting motor movements...")
-motor1.move(1000, direction=1, step_delay=1000)   # 1 kHz stepping
-motor2.move(500, direction=0, step_delay=2000)    # 500 Hz stepping
+def main():
+    """Main function."""
+    parser = argparse.ArgumentParser(description="Target System - SSH Hello World")
+    parser.add_argument("--host", default="192.168.1.100", 
+                       help="Host IP address (default: 192.168.1.100)")
+    parser.add_argument("--ssh-port", type=int, default=2222,
+                       help="SSH server port (default: 2222)")
+    parser.add_argument("--led-pin", type=int, default=26,
+                       help="GPIO pin for LED (default: 26)")
+    parser.add_argument("--input-pin", type=int, default=6,
+                       help="GPIO pin for input reading (default: 6)")
+    parser.add_argument("--use-adc", action="store_true",
+                       help="Enable ADC functionality")
+    
+    args = parser.parse_args()
+    
+    logger.info("Starting Target System - SSH Hello World")
+    logger.info(f"Configuration: Host={args.host}, SSH Port={args.ssh_port}")
+    logger.info(f"GPIO: LED={args.led_pin}, Input={args.input_pin}")
+    logger.info(f"ADC: {'Enabled' if args.use_adc else 'Disabled'}")
+    
+    # Create and start target system
+    target_system = TargetSystem(
+        host_ip=args.host,
+        ssh_port=args.ssh_port,
+        led_pin=args.led_pin,
+        input_pin=args.input_pin,
+        use_adc=args.use_adc
+    )
+    
+    try:
+        target_system.start()
+    except KeyboardInterrupt:
+        logger.info("Received interrupt signal")
+    finally:
+        target_system.stop()
+        logger.info("Target system shutdown complete")
 
-logger.info("Waiting for motor movements to complete...")
-motor1.command_queue.join()
-motor2.command_queue.join()
 
-logger.info("Stopping motors and cleaning up...")
-motor1.stop()
-motor2.stop()
-pi.stop()
-logger.info("Target main program completed successfully")
+if __name__ == "__main__":
+    main()
