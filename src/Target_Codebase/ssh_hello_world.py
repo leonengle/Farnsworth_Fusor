@@ -3,8 +3,6 @@ import time
 import socket
 import paramiko
 import RPi.GPIO as GPIO
-import json
-from datetime import datetime
 from logging_setup import setup_logging, get_logger
 from typing import Optional, Callable
 from adc import MCP3008ADC
