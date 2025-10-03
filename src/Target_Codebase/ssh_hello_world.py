@@ -3,6 +3,8 @@ import time
 import socket
 import paramiko
 import RPi.GPIO as GPIO
+import json
+from datetime import datetime
 from logging_setup import setup_logging, get_logger
 from typing import Optional, Callable
 from adc import MCP3008ADC
@@ -261,12 +263,12 @@ class PeriodicDataSender:
         while self.running:
             try:
                 if self.use_adc and self.hello_world_server.adc:
-                    # send adc data instead of gpio
+                    # send adc data - simple format as per diagram
                     adc_values = self.hello_world_server.read_adc_all_channels()
-                    data_message = f"ADC_DATA:{','.join(map(str, adc_values))}"
-                    logger.debug(f"Sent ADC data: {adc_values}")
+                    data_message = f"ADC_DATA:{adc_values[0]}"
+                    logger.debug(f"Sent ADC data: {adc_values[0]}")
                 else:
-                    # send gpio data (original behavior)
+                    # send gpio data - simple format as per diagram
                     pin_value = self.hello_world_server.read_input_pin()
                     data_message = f"GPIO_INPUT:{pin_value}"
                     logger.debug(f"Sent GPIO data: {pin_value}")
