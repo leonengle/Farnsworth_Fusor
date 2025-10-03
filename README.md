@@ -1,6 +1,6 @@
 # 🚀 Farnsworth Fusor Control System
 
-Codebase which implements an automated startup & shutdown sequence, data acquisition, and manual control of a Farnsworth Fusor.
+Codebase which implements an automated startup & shutdown sequence, data acquisition system, and manual control of a Farnsworth Fusor.
 
 ## ⚠️ **IMPORTANT: Raspberry Pi Only**
 
