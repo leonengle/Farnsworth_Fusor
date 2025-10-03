@@ -1,6 +1,6 @@
 # 🚀 Farnsworth Fusor Control System
 
-A professional-grade control system for Farnsworth Fusor operations with comprehensive safety features, real-time monitoring, and modern development tools.
+Codebase which implements an automated startup & shutdown sequence, data acquisition, and manual control of a Farnsworth Fusor.
 
 ## ⚠️ **IMPORTANT: Raspberry Pi Only**
 
