@@ -1,12 +1,10 @@
 import paramiko
 import tkinter as tk
+from base_classes import CommunicationInterface
 
-class SSHClient:
+class SSHClient(CommunicationInterface):
     def __init__(self, host, port, username, password, command):
-        self.host = host
-        self.port = port
-        self.username = username
-        self.password = password
+        super().__init__(host, port, username, password, command)
         self.command = command
 
     def send_ssh_command(self, bitstring):

@@ -6,7 +6,7 @@ import communication as com
 
 RPi_3b = com.SSHClient("RPi_1_IP", 22, "username", "password", "command_to_send {}")
 turboPump = VC.TurboPump("name")
-supply27kV = PC.PowerSupply("Fusor Supply", maxVoltage=27000, maxCurrent=0.040)
+supply27kV = PC.PowerSupply("Fusor Supply", maxVoltage=28000, maxCurrent=0.040)
 
 root = tk.Tk()
 root.title("Fusor Control Panel")

@@ -1,0 +1,18 @@
+# Pre-commit configuration for Farnsworth Fusor project
+# See https://pre-commit.com for more information
+
+repos:
+- repo: local
+  hooks:
+  - id: black
+    name: black
+    entry: black
+    language: system
+    files: \.py$
+    args: [--line-length=88, --target-version=py311]
+  - id: pylint
+    name: pylint
+    entry: pylint
+    language: system
+    files: \.py$
+    args: [--rcfile=pylintrc]

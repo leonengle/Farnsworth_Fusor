@@ -1,15 +1,10 @@
 import communication as com
 import random #remove later
+from base_classes import PowerControlInterface
 
-class PowerSupply:
+class PowerSupply(PowerControlInterface):
     def __init__(self, name, maxVoltage, maxCurrent):
-        self.name = name
-        self.maxVoltage = maxVoltage
-        self.maxCurrent = maxCurrent
-        self.i = 0
-        self.v = 0
-        self.vDesired = 0
-        self.iDesired = 0
+        super().__init__(name, maxVoltage, maxCurrent)
     
     def set_voltage(self, voltageSetting):
         self.vDesired = voltageSetting
