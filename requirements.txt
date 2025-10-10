@@ -1,9 +1,19 @@
---extra-index-url https://PySimpleGUI.net/install
-PySimpleGUI==5.0.8.3
-paramiko==3.1.0
-
-# Raspberry Pi / Adafruit libraries
-#the raspberry pi gpio library only works on a RPi so uncomment when deploying on a RPi
-#RPi.GPIO
 Adafruit-GPIO==1.0.3
 Adafruit-MCP3008==1.0.2
+Adafruit-PureIO==1.1.11
+bcrypt==4.3.0
+cffi==2.0.0
+cryptography==46.0.1
+paramiko==3.1.0
+pycparser==2.23
+PyNaCl==1.6.0
+PySimpleGUI==5.0.8.3
+RPi.GPIO==0.7.1
+pigpio==1.78
+spidev==3.8
+
+
+# Development tools
+pylint==3.0.3
+black==23.12.1
+pre-commit==3.6.0

@@ -1,7 +1,8 @@
-class TurboPump:
+from base_classes import VacuumControlInterface
+
+class TurboPump(VacuumControlInterface):
     def __init__(self, name):
-        self.name = name
-        self.powerSetting = 0
+        super().__init__(name)
 
     def set_power(self, powerInput):
         self.powerSetting = max(0, min(100, powerInput)) #clamps powerInput between 0, 100
