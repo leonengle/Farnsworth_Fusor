@@ -1,20 +1,21 @@
 """
-Target Main Program - SSH Hello World Implementation
-This program implements the SSH datalink verification system as described in Figure 7.
+Target Main Program - SSH/TCP Hybrid Implementation
+This program implements the SSH/TCP hybrid communication system as described in the project diagram.
 
 Features:
-- SSH server to receive commands from host
+- SSH server to receive commands from host (port 2222)
+- TCP client to send sensor data to host (port 8888)
 - GPIO LED control for visual feedback when receiving commands
 - GPIO input reading (jumper wire to ground/5V)
-- Periodic SSH command sending every 1 second
+- Periodic TCP data sending every 1 second
 - Integration with existing motor control and ADC systems
 """
 
 import threading
 import time
 import argparse
+import os
 from ssh_hello_world import SSHHelloWorldServer, PeriodicDataSender
-from ssh_client import HostCommunicator
 from logging_setup import setup_logging, get_logger
 
 # Setup logging first
@@ -27,20 +28,26 @@ class TargetSystem:
     Main target system that integrates all components.
     """
     
-    def __init__(self, host_ip: str = "192.168.1.100", ssh_port: int = 2222,
+    def __init__(self, host_ip: str = None, ssh_port: int = 2222, tcp_port: int = 8888,
                  led_pin: int = 26, input_pin: int = 6, use_adc: bool = False):
         """
         Initialize the target system.
         
         Args:
-            host_ip: IP address of the host system
+            host_ip: IP address of the host system (defaults to environment variable or 192.168.1.100)
             ssh_port: Port for SSH server
+            tcp_port: Port for TCP data transmission
             led_pin: GPIO pin for LED output
             input_pin: GPIO pin for input reading
             use_adc: Enable ADC functionality
         """
+        # Get host IP from environment variable or use default
+        if host_ip is None:
+            host_ip = os.getenv('FUSOR_HOST_IP', '192.168.1.100')
+        
         self.host_ip = host_ip
         self.ssh_port = ssh_port
+        self.tcp_port = tcp_port
         self.led_pin = led_pin
         self.input_pin = input_pin
         self.use_adc = use_adc
@@ -54,40 +61,11 @@ class TargetSystem:
             use_adc=use_adc
         )
         
-        self.host_communicator = HostCommunicator(host_ip)
         self.data_sender = None
         
         self.running = False
         
         logger.info(f"Target system initialized (Host: {host_ip}, SSH Port: {ssh_port})")
-    
-    def _host_callback(self, data: str):
-        """
-        Callback function to send data to host.
-        
-        Args:
-            data: Data string to send to host
-        """
-        if self.host_communicator.is_connected():
-            # Parse data and send appropriately
-            if data.startswith("GPIO_INPUT:"):
-                pin_value = int(data.split(":")[1])
-                self.host_communicator.send_gpio_data(pin_value)
-            elif data.startswith("ADC_DATA:"):
-                # Format: ADC_DATA:512,256,128,64,32,16,8,4
-                adc_values_str = data.split(":")[1]
-                adc_values = [int(x) for x in adc_values_str.split(",")]
-                self.host_communicator.send_adc_all_data(adc_values)
-            elif data.startswith("ADC_CH"):
-                # Format: ADC_CH0:512
-                parts = data.split(":")
-                channel = int(parts[0].split("CH")[1])
-                value = int(parts[1])
-                self.host_communicator.send_adc_data(channel, value)
-            else:
-                logger.warning(f"Unknown data format: {data}")
-        else:
-            logger.warning("Host communicator not connected, cannot send data")
     
     def start(self):
         """Start the target system."""
@@ -98,24 +76,20 @@ class TargetSystem:
         self.running = True
         
         try:
-            # Connect to host
-            logger.info("Connecting to host...")
-            if self.host_communicator.connect():
-                logger.info("Connected to host successfully")
-            else:
-                logger.warning("Failed to connect to host, continuing without host communication")
-            
-            # Set up host callback for SSH server
-            self.ssh_server.set_host_callback(self._host_callback)
-            
-            # Create and start periodic data sender
-            self.data_sender = PeriodicDataSender(self.ssh_server, self._host_callback, self.use_adc)
+            # Create and start periodic data sender with TCP
+            self.data_sender = PeriodicDataSender(
+                self.ssh_server, 
+                host=self.host_ip, 
+                port=self.tcp_port,  # Use configurable TCP port
+                use_adc=self.use_adc
+            )
             self.data_sender.start()
             
             logger.info("Target system started successfully")
             logger.info("SSH Hello World system is now running!")
             logger.info(f"Connect from host using: ssh pi@{self.host_ip} -p {self.ssh_port}")
             logger.info("Send 'LED_ON' or 'LED_OFF' commands to control the LED")
+            logger.info(f"Sending sensor data to host via TCP on port 8888")
             
             # Start SSH server (this will block)
             self.ssh_server.start_server()
@@ -137,9 +111,6 @@ class TargetSystem:
         # Stop SSH server
         self.ssh_server.stop_server()
         
-        # Disconnect from host
-        self.host_communicator.disconnect()
-        
         # Cleanup
         self.ssh_server.cleanup()
         
@@ -148,11 +119,13 @@ class TargetSystem:
 
 def main():
     """Main function."""
-    parser = argparse.ArgumentParser(description="Target System - SSH Hello World")
-    parser.add_argument("--host", default="192.168.1.100", 
-                       help="Host IP address (default: 192.168.1.100)")
+    parser = argparse.ArgumentParser(description="Target System - SSH/TCP Hybrid")
+    parser.add_argument("--host", default=None, 
+                       help="Host IP address (default: from FUSOR_HOST_IP env var or 192.168.1.100)")
     parser.add_argument("--ssh-port", type=int, default=2222,
                        help="SSH server port (default: 2222)")
+    parser.add_argument("--tcp-port", type=int, default=8888,
+                       help="TCP data port (default: 8888)")
     parser.add_argument("--led-pin", type=int, default=26,
                        help="GPIO pin for LED (default: 26)")
     parser.add_argument("--input-pin", type=int, default=6,
@@ -162,15 +135,19 @@ def main():
     
     args = parser.parse_args()
     
-    logger.info("Starting Target System - SSH Hello World")
-    logger.info(f"Configuration: Host={args.host}, SSH Port={args.ssh_port}")
+    # Get host IP from environment variable or command line
+    host_ip = args.host or os.getenv('FUSOR_HOST_IP', '192.168.1.100')
+    
+    logger.info("Starting Target System - SSH/TCP Hybrid")
+    logger.info(f"Configuration: Host={host_ip}, SSH Port={args.ssh_port}, TCP Port={args.tcp_port}")
     logger.info(f"GPIO: LED={args.led_pin}, Input={args.input_pin}")
     logger.info(f"ADC: {'Enabled' if args.use_adc else 'Disabled'}")
     
     # Create and start target system
     target_system = TargetSystem(
-        host_ip=args.host,
+        host_ip=host_ip,
         ssh_port=args.ssh_port,
+        tcp_port=args.tcp_port,
         led_pin=args.led_pin,
         input_pin=args.input_pin,
         use_adc=args.use_adc

@@ -6,6 +6,7 @@ import RPi.GPIO as GPIO
 from logging_setup import setup_logging, get_logger
 from typing import Optional, Callable
 from adc import MCP3008ADC
+from tcp_data_sender import TCPDataSender
 
 # setup logging for this module
 setup_logging()
@@ -224,16 +225,16 @@ class SSHServerInterface(paramiko.ServerInterface):
 
 
 class PeriodicDataSender:
-    # handles sending data to host every 1 second
+    # handles sending data to host every 1 second via TCP
     def __init__(self, hello_world_server: SSHHelloWorldServer, 
-                 send_callback: Callable[[str], None], use_adc: bool = False):
+                 host: str = "192.168.1.100", port: int = 8888, use_adc: bool = False):
         self.hello_world_server = hello_world_server
-        self.send_callback = send_callback
+        self.tcp_sender = TCPDataSender(host, port)
         self.use_adc = use_adc
         self.running = False
         self.sender_thread = None
         
-        logger.info(f"Periodic data sender initialized (ADC: {use_adc})")
+        logger.info(f"Periodic data sender initialized (Host: {host}, Port: {port}, ADC: {use_adc})")
     
     def start(self):
         # start the periodic data sending thread
@@ -254,26 +255,31 @@ class PeriodicDataSender:
         if self.sender_thread:
             self.sender_thread.join(timeout=2)
         
+        # disconnect TCP sender
+        self.tcp_sender.disconnect()
+        
         logger.info("Periodic data sender stopped")
     
     def _send_loop(self):
-        # main loop that sends data every second
+        # main loop that sends data every second via TCP
         while self.running:
             try:
                 if self.use_adc and self.hello_world_server.adc:
                     # send adc data - simple format as per diagram
                     adc_values = self.hello_world_server.read_adc_all_channels()
-                    data_message = f"ADC_DATA:{adc_values[0]}"
-                    logger.debug(f"Sent ADC data: {adc_values[0]}")
+                    success = self.tcp_sender.send_adc_data(adc_values[0])
+                    if success:
+                        logger.debug(f"Sent ADC data: {adc_values[0]}")
+                    else:
+                        logger.warning(f"Failed to send ADC data: {adc_values[0]}")
                 else:
                     # send gpio data - simple format as per diagram
                     pin_value = self.hello_world_server.read_input_pin()
-                    data_message = f"GPIO_INPUT:{pin_value}"
-                    logger.debug(f"Sent GPIO data: {pin_value}")
-                
-                # send data to host via callback
-                if self.send_callback:
-                    self.send_callback(data_message)
+                    success = self.tcp_sender.send_gpio_data(pin_value)
+                    if success:
+                        logger.debug(f"Sent GPIO data: {pin_value}")
+                    else:
+                        logger.warning(f"Failed to send GPIO data: {pin_value}")
                 
                 # wait 1 second before next send
                 time.sleep(1.0)

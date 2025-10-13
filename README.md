@@ -320,12 +320,61 @@ make format    # Fix formatting
 make lint      # Check linting issues
 ```
 
+## 📚 Documentation Strategy
+
+### **Jupyter Notebook Documentation**
+
+The team uses **Jupyter Notebooks** for comprehensive project documentation and analysis. This approach provides:
+
+- **Interactive Documentation**: Rich text formatting with markdown, code examples, and visual diagrams
+- **Technical Analysis**: Detailed system architecture explanations and implementation status
+- **Visual Communication**: ASCII diagrams and flowcharts for complex system interactions
+- **Version Control**: Notebooks are tracked in Git for collaborative documentation updates
+
+### **Current Documentation**
+
+- **`ssh_tcp_analysis.ipynb`**: Complete analysis of the SSH/TCP hybrid communication system
+  - System architecture overview
+  - Communication flow diagrams
+  - Implementation status tracking
+  - Network configuration details
+
+### **Documentation Standards**
+
+- **Markdown-Only Cells**: Documentation notebooks use markdown cells exclusively for clean, readable text
+- **No Code Execution**: Documentation notebooks contain no executable code to ensure portability
+- **Professional Formatting**: Consistent use of headers, bullet points, tables, and code blocks
+- **Visual Diagrams**: ASCII art diagrams for system architecture visualization
+
+### **Creating New Documentation**
+
+When adding new documentation:
+
+1. **Create a new `.ipynb` file** in the project root
+2. **Use markdown cells only** - no code execution cells
+3. **Follow naming convention**: `[topic]_analysis.ipynb`
+4. **Include comprehensive sections**:
+   - Overview and purpose
+   - Technical details
+   - Implementation status
+   - Visual diagrams (ASCII)
+   - Next steps or conclusions
+
+### **Documentation Dependencies**
+
+The following packages are included in `requirements.txt` for notebook functionality:
+
+- **`jupyter`**: Core Jupyter notebook functionality
+- **`ipykernel`**: Python kernel for notebook execution
+- **`notebook`**: Jupyter notebook interface
+
 ## 📝 Development Notes
 
 - **Virtual Environment**: Always work within the virtual environment
 - **Code Style**: Black formatting with 88-character line length
 - **Testing**: Run `make test-env` before committing
 - **Logging**: Comprehensive logging for debugging and monitoring
+- **Documentation**: Use Jupyter notebooks for technical documentation and analysis
 
 ---
 
