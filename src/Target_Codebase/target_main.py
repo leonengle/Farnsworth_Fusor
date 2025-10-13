@@ -89,7 +89,7 @@ class TargetSystem:
             logger.info("SSH Hello World system is now running!")
             logger.info(f"Connect from host using: ssh pi@{self.host_ip} -p {self.ssh_port}")
             logger.info("Send 'LED_ON' or 'LED_OFF' commands to control the LED")
-            logger.info(f"Sending sensor data to host via TCP on port 8888")
+            logger.info(f"Sending sensor data to host via TCP on port {self.tcp_port}")
             
             # Start SSH server (this will block)
             self.ssh_server.start_server()

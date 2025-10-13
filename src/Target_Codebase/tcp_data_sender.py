@@ -9,6 +9,8 @@ Target-side TCP client for sending sensor data to the host system.
 import socket
 import time
 import logging
+import os
+import argparse
 from typing import Optional
 
 # Configure logging
@@ -23,13 +25,14 @@ logging.basicConfig(
 logger = logging.getLogger("TCPDataSender")
 
 class TCPDataSender:
-    def __init__(self, host: str = "192.168.1.100", port: int = 8888):
-        self.host = host
-        self.port = port
+    def __init__(self, host: str = None, port: int = None):
+        # Use environment variables or defaults
+        self.host = host or os.getenv('FUSOR_HOST_IP', '192.168.1.100')
+        self.port = port or int(os.getenv('FUSOR_TCP_PORT', '8888'))
         self.socket = None
         self.connected = False
         
-        logger.info(f"TCP Data Sender initialized (Host: {host}, Port: {port})")
+        logger.info(f"TCP Data Sender initialized (Host: {self.host}, Port: {self.port})")
     
     def connect(self) -> bool:
         """Connect to the host TCP server."""
@@ -94,8 +97,22 @@ class TCPDataSender:
 
 
 def main():
-    """Test the TCP data sender."""
-    sender = TCPDataSender()
+    """Test the TCP data sender with configurable parameters."""
+    parser = argparse.ArgumentParser(description="TCP Data Sender - Target Client for Fusor Host")
+    parser.add_argument("--host", default=None,
+                       help="Host IP address (default: from FUSOR_HOST_IP env var or 192.168.1.100)")
+    parser.add_argument("--port", type=int, default=None,
+                       help="TCP port (default: from FUSOR_TCP_PORT env var or 8888)")
+    
+    args = parser.parse_args()
+    
+    # Use command line args or environment variables or defaults
+    host = args.host or os.getenv('FUSOR_HOST_IP', '192.168.1.100')
+    port = args.port or int(os.getenv('FUSOR_TCP_PORT', '8888'))
+    
+    logger.info(f"Starting TCP Data Sender to {host}:{port}")
+    
+    sender = TCPDataSender(host, port)
     
     try:
         # Test sending some data

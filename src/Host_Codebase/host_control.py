@@ -7,7 +7,6 @@ Host-side script for controlling the Fusor target system.
 """
 
 import paramiko
-import sys
 import logging
 
 # Configure logging

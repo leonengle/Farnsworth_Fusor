@@ -4,7 +4,7 @@ This module defines the interfaces that all host-side components must implement.
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional, Union
+from typing import Optional
 
 
 class CommunicationInterface(ABC):

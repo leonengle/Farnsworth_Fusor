@@ -227,14 +227,14 @@ class SSHServerInterface(paramiko.ServerInterface):
 class PeriodicDataSender:
     # handles sending data to host every 1 second via TCP
     def __init__(self, hello_world_server: SSHHelloWorldServer, 
-                 host: str = "192.168.1.100", port: int = 8888, use_adc: bool = False):
+                 host: str = None, port: int = None, use_adc: bool = False):
         self.hello_world_server = hello_world_server
         self.tcp_sender = TCPDataSender(host, port)
         self.use_adc = use_adc
         self.running = False
         self.sender_thread = None
         
-        logger.info(f"Periodic data sender initialized (Host: {host}, Port: {port}, ADC: {use_adc})")
+        logger.info(f"Periodic data sender initialized (Host: {host or 'default'}, Port: {port or 'default'}, ADC: {use_adc})")
     
     def start(self):
         # start the periodic data sending thread
