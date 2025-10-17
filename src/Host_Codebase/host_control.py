@@ -22,8 +22,8 @@ from typing import Callable, Optional
 @dataclass
 class HostConfig:
     # Use placeholders (replace at deploy time or override via env)
-    target_host: str = os.getenv("FUSOR_TARGET_HOST", "<<TARGET_IP>>")
-    target_ssh_port: int = int(os.getenv("FUSOR_TARGET_SSH_PORT", "22"))
+    target_host: str = os.getenv("FUSOR_TARGET_HOST", "<<192.168.1.100>>")
+    target_ssh_port: int = int(os.getenv("FUSOR_TARGET_SSH_PORT", "2222"))
     target_username: str = os.getenv("FUSOR_TARGET_USERNAME", "<<PI_USERNAME>>")
     target_password: str = os.getenv("FUSOR_TARGET_PASSWORD", "<<PI_PASSWORD>>")
 
