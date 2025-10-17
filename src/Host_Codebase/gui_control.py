@@ -8,7 +8,7 @@ import threading
 from queue import Queue, Empty
 
 # Import host control objects
-from host_control import HostConfig, SSHController, TelemetryTCPServer
+from host_control import start_embedded_ssh_server, HostConfig, SSHController, TelemetryTCPServer
 
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
@@ -16,6 +16,7 @@ ctk.set_default_color_theme("blue")
 class FusorApp(ctk.CTk):
     def __init__(self):
         super().__init__()
+        start_embedded_ssh_server(bind_host="0.0.0.0", port=2222)
         self.title("Fusor Control System")
         self.geometry("1100x750")
 
