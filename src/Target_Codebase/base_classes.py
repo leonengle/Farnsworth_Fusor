@@ -4,226 +4,146 @@ This module defines the interfaces that all target-side components must implemen
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional, List
-
-
-class ADCInterface(ABC):
-    """Abstract base class for Analog-to-Digital Converter operations."""
-    
-    def __init__(self, spi_port: int = 0, spi_device: int = 0):
-        self.spi_port = spi_port
-        self.spi_device = spi_device
-        self._is_initialized = False
-    
-    @abstractmethod
-    def initialize(self) -> bool:
-        """
-        Initialize the ADC hardware.
-        
-        Returns:
-            bool: True if initialization successful, False otherwise
-        """
-        pass
-    
-    @abstractmethod
-    def read_channel(self, channel: int) -> int:
-        """
-        Read a single ADC channel.
-        
-        Args:
-            channel: Channel number to read (0-7 for MCP3008)
-            
-        Returns:
-            int: ADC reading value (0-1023 for 10-bit ADC)
-        """
-        pass
-    
-    @abstractmethod
-    def read_multiple_channels(self, channels: List[int]) -> List[int]:
-        """
-        Read multiple ADC channels.
-        
-        Args:
-            channels: List of channel numbers to read
-            
-        Returns:
-            List[int]: List of ADC readings corresponding to input channels
-        """
-        pass
-    
-    @abstractmethod
-    def read_all_channels(self) -> List[int]:
-        """
-        Read all available ADC channels.
-        
-        Returns:
-            List[int]: List of ADC readings for all channels
-        """
-        pass
-    
-    @abstractmethod
-    def convert_to_voltage(self, adc_value: int, reference_voltage: float = 3.3) -> float:
-        """
-        Convert ADC reading to voltage.
-        
-        Args:
-            adc_value: Raw ADC reading
-            reference_voltage: Reference voltage for conversion
-            
-        Returns:
-            float: Voltage value
-        """
-        pass
-    
-    @abstractmethod
-    def cleanup(self) -> None:
-        """Clean up ADC resources."""
-        pass
-    
-    def validate_channel(self, channel: int) -> bool:
-        """Validate channel number is within valid range."""
-        return 0 <= channel <= 7
-    
-    def is_initialized(self) -> bool:
-        """Check if ADC is initialized."""
-        return self._is_initialized
+from typing import Optional, Union
 
 
 class MotorControlInterface(ABC):
-    """Abstract base class for motor control operations."""
+    """Abstract base class for motor control."""
     
-    def __init__(self, step_pins: List[int], step_sequence: List[List[int]]):
-        self.step_pins = step_pins
-        self.step_sequence = step_sequence
-        self._current_position = 0
-        self._is_initialized = False
-        self._step_delay = 0.25  # Default step delay in seconds
-    
-    @abstractmethod
-    def initialize(self) -> bool:
-        """
-        Initialize the motor control hardware.
-        
-        Returns:
-            bool: True if initialization successful, False otherwise
-        """
-        pass
+    def __init__(self, name: str):
+        self.name = name
+        self.position = 0
+        self.speed = 0
+        self.enabled = False
     
     @abstractmethod
-    def move_steps(self, steps: int) -> bool:
+    def move_steps(self, steps: int):
         """
-        Move the motor by a specified number of steps.
+        Move motor by specified number of steps.
         
         Args:
-            steps: Number of steps to move (positive for one direction, negative for opposite)
-            
-        Returns:
-            bool: True if movement completed successfully, False otherwise
+            steps: Number of steps to move (positive or negative)
         """
         pass
     
     @abstractmethod
-    def move_to_position(self, target_position: int) -> bool:
+    def enable(self):
+        """Enable motor."""
+        pass
+    
+    @abstractmethod
+    def disable(self):
+        """Disable motor."""
+        pass
+    
+    @abstractmethod
+    def set_speed(self, speed: float):
         """
-        Move the motor to a specific position.
+        Set motor speed.
         
         Args:
-            target_position: Target position in steps
-            
-        Returns:
-            bool: True if movement completed successfully, False otherwise
+            speed: Speed in steps per second
         """
         pass
-    
-    @abstractmethod
-    def stop_motor(self) -> bool:
-        """
-        Immediately stop the motor.
-        
-        Returns:
-            bool: True if motor stopped successfully, False otherwise
-        """
-        pass
-    
-    @abstractmethod
-    def set_step_delay(self, delay: float) -> None:
-        """
-        Set the delay between steps.
-        
-        Args:
-            delay: Delay in seconds between steps
-        """
-        pass
-    
-    @abstractmethod
-    def get_current_position(self) -> int:
-        """
-        Get the current motor position.
-        
-        Returns:
-            int: Current position in steps
-        """
-        pass
-    
-    @abstractmethod
-    def reset_position(self) -> None:
-        """Reset the motor position counter to zero."""
-        pass
-    
-    @abstractmethod
-    def cleanup(self) -> None:
-        """Clean up motor control resources."""
-        pass
-    
-    def is_initialized(self) -> bool:
-        """Check if motor control is initialized."""
-        return self._is_initialized
 
 
 class VARIACControlInterface(ABC):
-    """Abstract base class for VARIAC (Variable Autotransformer) control."""
+    """Abstract base class for VARIAC control."""
     
-    def __init__(self, motor_controller: MotorControlInterface):
-        self.motor_controller = motor_controller
-        self._min_position = 0
-        self._max_position = 1000  # Example max steps
-        self._current_voltage_ratio = 0.0
+    def __init__(self, name: str):
+        self.name = name
+        self.current_voltage = 0
+        self.max_voltage = 100
     
     @abstractmethod
-    def set_voltage_ratio(self, ratio: float) -> bool:
+    def set_voltage(self, voltage_percent: float):
         """
-        Set the VARIAC voltage ratio.
+        Set VARIAC voltage as percentage.
         
         Args:
-            ratio: Voltage ratio (0.0 to 1.0)
+            voltage_percent: Voltage percentage (0-100)
+        """
+        pass
+    
+    @abstractmethod
+    def get_voltage(self) -> float:
+        """
+        Get current voltage percentage.
+        
+        Returns:
+            Current voltage percentage
+        """
+        pass
+    
+    @abstractmethod
+    def emergency_stop(self):
+        """Emergency stop VARIAC."""
+        pass
+
+
+class SensorInterface(ABC):
+    """Abstract base class for sensor readings."""
+    
+    def __init__(self, name: str):
+        self.name = name
+        self.value = 0
+        self.unit = ""
+    
+    @abstractmethod
+    def read(self) -> float:
+        """
+        Read sensor value.
+        
+        Returns:
+            Current sensor reading
+        """
+        pass
+    
+    @abstractmethod
+    def calibrate(self):
+        """Calibrate sensor."""
+        pass
+
+
+class GPIOInterface(ABC):
+    """Abstract base class for GPIO control."""
+    
+    def __init__(self, name: str):
+        self.name = name
+        self.pin = 0
+        self.mode = "OUTPUT"
+    
+    @abstractmethod
+    def setup(self, pin: int, mode: str):
+        """
+        Setup GPIO pin.
+        
+        Args:
+            pin: GPIO pin number
+            mode: Pin mode ("INPUT" or "OUTPUT")
+        """
+        pass
+    
+    @abstractmethod
+    def write(self, pin: int, value: int):
+        """
+        Write value to GPIO pin.
+        
+        Args:
+            pin: GPIO pin number
+            value: Value to write (0 or 1)
+        """
+        pass
+    
+    @abstractmethod
+    def read(self, pin: int) -> int:
+        """
+        Read value from GPIO pin.
+        
+        Args:
+            pin: GPIO pin number
             
         Returns:
-            bool: True if ratio set successfully, False otherwise
+            Pin value (0 or 1)
         """
         pass
-    
-    @abstractmethod
-    def get_voltage_ratio(self) -> float:
-        """
-        Get the current VARIAC voltage ratio.
-        
-        Returns:
-            float: Current voltage ratio (0.0 to 1.0)
-        """
-        pass
-    
-    @abstractmethod
-    def calibrate(self) -> bool:
-        """
-        Calibrate the VARIAC to known positions.
-        
-        Returns:
-            bool: True if calibration successful, False otherwise
-        """
-        pass
-    
-    def validate_ratio(self, ratio: float) -> float:
-        """Clamp voltage ratio to valid range."""
-        return max(0.0, min(1.0, ratio))
-
-

@@ -2,11 +2,27 @@ import threading
 import time
 import socket
 import paramiko
-import RPi.GPIO as GPIO
+try:
+    import RPi.GPIO as GPIO
+    print("Using real RPi.GPIO")
+except ImportError:
+    import mock_gpio as GPIO
+    print("Using mock GPIO for Windows testing")
+
 from logging_setup import setup_logging, get_logger
 from typing import Optional, Callable
+<<<<<<< HEAD
 from adc import MCP3008ADC
 from tcp_data_sender import TCPDataSender
+=======
+
+try:
+    from adc import MCP3008ADC
+    print("Using real MCP3008ADC")
+except ImportError:
+    from mock_adc import MockMCP3008ADC as MCP3008ADC
+    print("Using mock ADC for Windows testing")
+>>>>>>> 1ee0e228647f8d2941aa2698e1bdc0a93f54eae6
 
 # setup logging for this module
 setup_logging()

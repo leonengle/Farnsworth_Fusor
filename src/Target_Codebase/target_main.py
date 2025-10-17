@@ -16,6 +16,10 @@ import time
 import argparse
 import os
 from ssh_hello_world import SSHHelloWorldServer, PeriodicDataSender
+<<<<<<< HEAD
+=======
+from tcp_client import TargetTCPCommunicator
+>>>>>>> 1ee0e228647f8d2941aa2698e1bdc0a93f54eae6
 from logging_setup import setup_logging, get_logger
 
 # Setup logging first
@@ -61,12 +65,67 @@ class TargetSystem:
             use_adc=use_adc
         )
         
+<<<<<<< HEAD
+=======
+        self.host_communicator = TargetTCPCommunicator(host_ip, 12345)
+>>>>>>> 1ee0e228647f8d2941aa2698e1bdc0a93f54eae6
         self.data_sender = None
         
         self.running = False
         
         logger.info(f"Target system initialized (Host: {host_ip}, SSH Port: {ssh_port})")
     
+<<<<<<< HEAD
+=======
+    def _host_callback(self, data: str):
+        """
+        Callback function to send data to host.
+        
+        Args:
+            data: Data string to send to host
+        """
+        if self.host_communicator.is_connected():
+            # Parse data and send appropriately
+            if data.startswith("GPIO_INPUT:"):
+                pin_value = int(data.split(":")[1])
+                self.host_communicator.send_gpio_data(pin_value)
+            elif data.startswith("ADC_DATA:"):
+                # Format: ADC_DATA:512,256,128,64,32,16,8,4
+                adc_values_str = data.split(":")[1]
+                adc_values = [int(x) for x in adc_values_str.split(",")]
+                self.host_communicator.send_adc_all_data(adc_values)
+            elif data.startswith("ADC_CH"):
+                # Format: ADC_CH0:512
+                parts = data.split(":")
+                channel = int(parts[0].split("CH")[1])
+                value = int(parts[1])
+                self.host_communicator.send_adc_data(channel, value)
+            else:
+                logger.warning(f"Unknown data format: {data}")
+        else:
+            logger.warning("Host communicator not connected, cannot send data")
+    
+    def _get_periodic_data(self) -> str:
+        """
+        Get periodic data to send to host.
+        
+        Returns:
+            Data string to send
+        """
+        try:
+            if self.use_adc and self.ssh_server.adc:
+                # Send ADC data
+                adc_value = self.ssh_server.read_adc_channel(0)  # Use channel 0
+                return f"ADC_DATA:{adc_value}"
+            else:
+                # Send GPIO data
+                pin_value = self.ssh_server.read_input_pin()
+                return f"GPIO_INPUT:{pin_value}"
+        except Exception as e:
+            logger.error(f"Error getting periodic data: {e}")
+            return ""
+    
+>>>>>>> 1ee0e228647f8d2941aa2698e1bdc0a93f54eae6
     def start(self):
         """Start the target system."""
         if self.running:
@@ -85,9 +144,12 @@ class TargetSystem:
             )
             self.data_sender.start()
             
+            # Start TCP periodic sending
+            self.host_communicator.start_periodic_sending(self._get_periodic_data, 1.0)
+            
             logger.info("Target system started successfully")
             logger.info("SSH Hello World system is now running!")
-            logger.info(f"Connect from host using: ssh pi@{self.host_ip} -p {self.ssh_port}")
+            logger.info(f"Connect from host using: ssh mdali@{self.host_ip} -p {self.ssh_port}")
             logger.info("Send 'LED_ON' or 'LED_OFF' commands to control the LED")
             logger.info(f"Sending sensor data to host via TCP on port {self.tcp_port}")
             
@@ -107,6 +169,9 @@ class TargetSystem:
         # Stop data sender
         if self.data_sender:
             self.data_sender.stop()
+        
+        # Stop TCP periodic sending
+        self.host_communicator.stop_periodic_sending()
         
         # Stop SSH server
         self.ssh_server.stop_server()
