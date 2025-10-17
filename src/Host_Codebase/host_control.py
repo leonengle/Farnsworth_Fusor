@@ -17,15 +17,64 @@ import paramiko
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+class SimpleSSHServer(paramiko.ServerInterface):
+    def check_auth_password(self, username, password):
+        # For development only — replace with real authentication later
+        print(f"[SSH SERVER] Auth attempt: {username}/{password}")
+        return paramiko.AUTH_SUCCESSFUL
+
+    def check_channel_request(self, kind, chanid):
+        if kind == "session":
+            return paramiko.OPEN_SUCCEEDED
+        return paramiko.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
+
+
+def start_embedded_ssh_server(bind_host="0.0.0.0", port=2222):
+    """Launch a minimal SSH server that target devices can connect to."""
+    host_key = paramiko.RSAKey.generate(2048)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind((bind_host, port))
+    sock.listen(100)
+    print(f"[SSH SERVER] Listening on {bind_host}:{port}")
+
+    def server_loop():
+        while True:
+            client, addr = sock.accept()
+            print(f"[SSH SERVER] Connection from {addr}")
+            t = paramiko.Transport(client)
+            t.add_server_key(host_key)
+            server = SimpleSSHServer()
+            try:
+                t.start_server(server=server)
+                chan = t.accept(20)
+                if chan is None:
+                    continue
+                chan.send(b"Welcome to Fusor Host SSH.\n")
+                while True:
+                    data = chan.recv(1024)
+                    if not data:
+                        break
+                    text = data.decode().strip()
+                    print(f"[SSH SERVER] Received: {text}")
+                    # Simple echo/ack
+                    chan.send(f"ACK: {text}\n".encode())
+            except Exception as e:
+                print(f"[SSH SERVER] Error: {e}")
+            finally:
+                t.close()
+
+    threading.Thread(target=server_loop, daemon=True).start()
+
 # ---------- Config ----------
 
 @dataclass
 class HostConfig:
     # Use placeholders (replace at deploy time or override via env)
-    target_host: str = os.getenv("FUSOR_TARGET_HOST", "<<192.168.1.100>>")
+    target_host: str = os.getenv("FUSOR_TARGET_HOST", "<<172.20.10.6>>")
     target_ssh_port: int = int(os.getenv("FUSOR_TARGET_SSH_PORT", "2222"))
-    target_username: str = os.getenv("FUSOR_TARGET_USERNAME", "<<PI_USERNAME>>")
-    target_password: str = os.getenv("FUSOR_TARGET_PASSWORD", "<<PI_PASSWORD>>")
+    #target_username: str = os.getenv("FUSOR_TARGET_USERNAME", "<<pi")
+    #target_password: str = os.getenv("FUSOR_TARGET_PASSWORD", "<<password>>")
 
     # Telemetry: host runs a TCP server; target connects and streams lines
     telemetry_bind_host: str = os.getenv("FUSOR_TELEM_BIND_HOST", "0.0.0.0")
