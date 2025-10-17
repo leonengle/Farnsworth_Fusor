@@ -1,66 +1,63 @@
 #!/usr/bin/env python3
 """
 Development setup script for Farnsworth Fusor project.
-This script helps set up the development environment with pre-commit hooks.
+This script sets up the development environment and installs dependencies.
 """
 
-import subprocess
-import sys
 import os
-from pathlib import Path
+import sys
+import subprocess
+import platform
 
 def run_command(command, description):
     """Run a command and handle errors."""
-    print(f"🔄 {description}...")
+    print(f"Running: {description}")
     try:
         result = subprocess.run(command, shell=True, check=True, capture_output=True, text=True)
-        print(f"✅ {description} completed successfully")
+        print(f"✓ {description} completed successfully")
         return True
     except subprocess.CalledProcessError as e:
-        print(f"❌ {description} failed:")
-        print(f"   Error: {e.stderr}")
+        print(f"✗ {description} failed: {e}")
+        print(f"Error output: {e.stderr}")
         return False
 
 def main():
     """Main setup function."""
-    print("🚀 Setting up Farnsworth Fusor development environment...")
-    print("=" * 60)
+    print("Farnsworth Fusor Development Setup")
+    print("=" * 40)
     
-    # Check if we're in a virtual environment
-    if not hasattr(sys, 'real_prefix') and not (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix):
-        print("⚠️  Warning: You don't appear to be in a virtual environment.")
-        print("   It's recommended to activate your virtual environment first.")
-        response = input("   Continue anyway? (y/N): ")
-        if response.lower() != 'y':
-            print("   Setup cancelled.")
-            return False
+    # Check Python version
+    if sys.version_info < (3, 7):
+        print("Error: Python 3.7 or higher is required")
+        sys.exit(1)
     
-    # Install development dependencies
-    if not run_command("pip install -r requirements.txt", "Installing dependencies"):
-        return False
+    print(f"Python version: {sys.version}")
+    print(f"Platform: {platform.system()} {platform.release()}")
     
-    # Install pre-commit hooks
-    if not run_command("pre-commit install", "Installing pre-commit hooks"):
-        return False
+    # Install dependencies
+    if not run_command("pip install -r requirements.txt", "Installing Python dependencies"):
+        print("Failed to install dependencies")
+        sys.exit(1)
     
-    # Run pre-commit on all files to set up the environment
-    if not run_command("pre-commit run --all-files", "Running pre-commit on all files"):
-        print("⚠️  Some pre-commit checks failed. This is normal for the first run.")
-        print("   The hooks are now installed and will run on future commits.")
+    # Create necessary directories
+    directories = ["logs", "data", "tests"]
+    for directory in directories:
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+            print(f"✓ Created directory: {directory}")
     
-    print("\n" + "=" * 60)
-    print("🎉 Development environment setup complete!")
+    # Set up pre-commit hooks if available
+    if run_command("pre-commit install", "Setting up pre-commit hooks"):
+        print("✓ Pre-commit hooks installed")
+    else:
+        print("⚠ Pre-commit not available, skipping hooks setup")
+    
+    print("\n" + "=" * 40)
+    print("Development setup completed successfully!")
     print("\nNext steps:")
-    print("1. Make your changes to the code")
-    print("2. Commit your changes - pre-commit hooks will run automatically")
-    print("3. If hooks fail, fix the issues and commit again")
-    print("\nManual commands:")
-    print("• Run linting: pylint src/")
-    print("• Format code: black src/")
-    print("• Run pre-commit: pre-commit run --all-files")
-    
-    return True
+    print("1. Run tests: python -m pytest tests/")
+    print("2. Start development: python src/Host_Codebase/ssh_datalink_host.py")
+    print("3. Check code quality: pylint src/")
 
 if __name__ == "__main__":
-    success = main()
-    sys.exit(0 if success else 1)
+    main()

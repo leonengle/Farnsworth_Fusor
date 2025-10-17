@@ -1,340 +1,199 @@
 """
-Target Main Program - Option A: SSH Control of Raspberry Pi
-This program implements the SSH datalink verification system where the Target Machine
-controls a Raspberry Pi via SSH instead of direct GPIO control.
-
-Features:
-- SSH server to receive commands from host
-- SSH client to control Raspberry Pi GPIO
-- TCP client to send data to host
-- No direct GPIO control (Pi handles GPIO via SSH)
+Target Codebase for Option A: Target Machine controls Pi via SSH
+This version replaces direct GPIO calls with SSH commands sent to the Raspberry Pi.
 """
 
 import threading
 import time
 import argparse
-import paramiko
-from ssh_hello_world import SSHHelloWorldServer, PeriodicDataSender
+from ssh_client import SSHClient
 from tcp_client import TargetTCPCommunicator
 from logging_setup import setup_logging, get_logger
 
-# Setup logging first
-setup_logging()
-logger = get_logger("TargetMainOptionA")
-
-
-class PiGPIOController:
-    """
-    Controls Raspberry Pi GPIO via SSH.
-    """
-    
-    def __init__(self, pi_ip: str = "192.168.1.101", pi_port: int = 22,
-                 username: str = "pi", password: str = "raspberry"):
-        """
-        Initialize Pi GPIO controller.
-        
-        Args:
-            pi_ip: Raspberry Pi IP address
-            pi_port: SSH port on Pi
-            username: SSH username
-            password: SSH password
-        """
-        self.pi_ip = pi_ip
-        self.pi_port = pi_port
-        self.username = username
-        self.password = password
-        self.client = None
-        
-        logger.info(f"Pi GPIO Controller initialized for {username}@{pi_ip}:{pi_port}")
-    
-    def connect(self) -> bool:
-        """Connect to Raspberry Pi via SSH."""
-        try:
-            self.client = paramiko.SSHClient()
-            self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            
-            self.client.connect(
-                hostname=self.pi_ip,
-                port=self.pi_port,
-                username=self.username,
-                password=self.password,
-                timeout=10
-            )
-            
-            logger.info(f"Connected to Raspberry Pi at {self.pi_ip}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to connect to Pi: {e}")
-            return False
-    
-    def setup_gpio(self, led_pin: int = 26, input_pin: int = 6) -> bool:
-        """Setup GPIO pins on Raspberry Pi."""
-        if not self.client:
-            logger.error("Not connected to Pi")
-            return False
-        
-        try:
-            # Setup LED pin as output
-            led_cmd = f"""
-import RPi.GPIO as GPIO
-GPIO.setmode(GPIO.BCM)
-GPIO.setup({led_pin}, GPIO.OUT)
-GPIO.output({led_pin}, GPIO.LOW)
-print("LED pin {led_pin} setup complete")
-"""
-            
-            # Setup input pin
-            input_cmd = f"""
-import RPi.GPIO as GPIO
-GPIO.setmode(GPIO.BCM)
-GPIO.setup({input_pin}, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-print("Input pin {input_pin} setup complete")
-"""
-            
-            # Execute setup commands
-            stdin, stdout, stderr = self.client.exec_command(led_cmd)
-            response = stdout.read().decode().strip()
-            logger.info(f"LED setup response: {response}")
-            
-            stdin, stdout, stderr = self.client.exec_command(input_cmd)
-            response = stdout.read().decode().strip()
-            logger.info(f"Input setup response: {response}")
-            
-            return True
-            
-        except Exception as e:
-            logger.error(f"GPIO setup failed: {e}")
-            return False
-    
-    def control_led(self, state: bool) -> bool:
-        """Control LED on Raspberry Pi."""
-        if not self.client:
-            logger.error("Not connected to Pi")
-            return False
-        
-        try:
-            state_str = "GPIO.HIGH" if state else "GPIO.LOW"
-            cmd = f"""
-import RPi.GPIO as GPIO
-GPIO.setmode(GPIO.BCM)
-GPIO.setup(26, GPIO.OUT)
-GPIO.output(26, {state_str})
-print("LED set to {state_str}")
-"""
-            
-            stdin, stdout, stderr = self.client.exec_command(cmd)
-            response = stdout.read().decode().strip()
-            logger.info(f"LED control response: {response}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"LED control failed: {e}")
-            return False
-    
-    def read_input_pin(self) -> int:
-        """Read input pin value from Raspberry Pi."""
-        if not self.client:
-            logger.error("Not connected to Pi")
-            return 0
-        
-        try:
-            cmd = """
-import RPi.GPIO as GPIO
-GPIO.setmode(GPIO.BCM)
-GPIO.setup(6, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-value = GPIO.input(6)
-print(value)
-"""
-            
-            stdin, stdout, stderr = self.client.exec_command(cmd)
-            response = stdout.read().decode().strip()
-            value = int(response) if response.isdigit() else 0
-            logger.debug(f"Input pin reads: {value}")
-            return value
-            
-        except Exception as e:
-            logger.error(f"Input pin read failed: {e}")
-            return 0
-    
-    def disconnect(self):
-        """Disconnect from Raspberry Pi."""
-        if self.client:
-            try:
-                self.client.close()
-                logger.info("Disconnected from Raspberry Pi")
-            except Exception as e:
-                logger.error(f"Error disconnecting from Pi: {e}")
-            self.client = None
-
-
 class TargetSystemOptionA:
-    """
-    Main target system that controls Raspberry Pi via SSH.
-    """
-    
     def __init__(self, host_ip: str = "192.168.1.100", ssh_port: int = 2222,
-                 pi_ip: str = "192.168.1.101", led_pin: int = 26, input_pin: int = 6):
+                 pi_ip: str = "192.168.1.102", pi_ssh_port: int = 22,
+                 pi_username: str = "pi", pi_password: str = "raspberry",
+                 led_pin: int = 26, input_pin: int = 6, use_adc: bool = False):
         """
-        Initialize the target system.
+        Initialize Target System Option A.
         
         Args:
-            host_ip: IP address of the host system
-            ssh_port: Port for SSH server
-            pi_ip: IP address of Raspberry Pi
-            led_pin: GPIO pin for LED on Pi
+            host_ip: IP address of the host machine
+            ssh_port: SSH port for receiving commands from host
+            pi_ip: IP address of the Raspberry Pi
+            pi_ssh_port: SSH port on the Raspberry Pi
+            pi_username: Username for Pi SSH connection
+            pi_password: Password for Pi SSH connection
+            led_pin: GPIO pin for LED control on Pi
             input_pin: GPIO pin for input reading on Pi
+            use_adc: Whether to use ADC for analog readings
         """
         self.host_ip = host_ip
         self.ssh_port = ssh_port
         self.pi_ip = pi_ip
+        self.pi_ssh_port = pi_ssh_port
+        self.pi_username = pi_username
+        self.pi_password = pi_password
         self.led_pin = led_pin
         self.input_pin = input_pin
+        self.use_adc = use_adc
         
         # Initialize components
-        self.pi_controller = PiGPIOController(pi_ip)
+        self.pi_ssh_client = SSHClient(pi_ip, pi_ssh_port, pi_username, pi_password)
         self.host_communicator = TargetTCPCommunicator(host_ip, 12345)
-        self.data_sender = None
+        
+        # System state
+        self.running = False
+        self.ssh_server_thread = None
+        
+        # Setup logging
+        setup_logging()
+        self.logger = get_logger("TargetSystemOptionA")
+        
+    def start(self):
+        """Start the target system."""
+        self.logger.info("Starting Target System Option A...")
+        
+        # Connect to Raspberry Pi
+        if not self.pi_ssh_client.connect():
+            self.logger.error("Failed to connect to Raspberry Pi")
+            return False
+            
+        self.logger.info(f"Connected to Raspberry Pi at {self.pi_ip}")
+        
+        # Setup GPIO on Pi
+        self._setup_pi_gpio()
+        
+        # Start SSH server for host commands
+        self.running = True
+        self.ssh_server_thread = threading.Thread(target=self._ssh_server_loop, daemon=True)
+        self.ssh_server_thread.start()
+        
+        # Start TCP communication with host
+        self.host_communicator.start_periodic_sending(self._get_periodic_data, 1.0)
+        
+        self.logger.info("Target System Option A started successfully")
+        self.logger.info(f"Connect from host using: ssh mdali@{self.host_ip} -p {self.ssh_port}")
+        
+        return True
+        
+    def stop(self):
+        """Stop the target system."""
+        self.logger.info("Stopping Target System Option A...")
         
         self.running = False
         
-        logger.info(f"Target system initialized (Host: {host_ip}, Pi: {pi_ip})")
-    
-    def _handle_ssh_command(self, command: str) -> str:
-        """Handle SSH commands from host."""
-        logger.info(f"Received SSH command: {command}")
+        # Stop TCP communication
+        self.host_communicator.stop_periodic_sending()
         
-        if command.strip() == "LED_ON":
-            if self.pi_controller.control_led(True):
-                logger.info("LED turned ON via Pi")
-                return "LED_ON_SUCCESS"
-            else:
-                logger.error("Failed to turn LED ON")
-                return "LED_ON_FAILED"
-        elif command.strip() == "LED_OFF":
-            if self.pi_controller.control_led(False):
-                logger.info("LED turned OFF via Pi")
-                return "LED_OFF_SUCCESS"
-            else:
-                logger.error("Failed to turn LED OFF")
-                return "LED_OFF_FAILED"
-        else:
-            logger.warning(f"Unknown command: {command}")
-            return "UNKNOWN_COMMAND"
-    
+        # Disconnect from Pi
+        self.pi_ssh_client.disconnect()
+        
+        self.logger.info("Target System Option A stopped")
+        
+    def _setup_pi_gpio(self):
+        """Setup GPIO pins on Raspberry Pi via SSH."""
+        try:
+            # Setup LED pin as output
+            self.pi_ssh_client.send_command(f"gpio -g mode {self.led_pin} out")
+            self.pi_ssh_client.send_command(f"gpio -g write {self.led_pin} 0")
+            
+            # Setup input pin
+            self.pi_ssh_client.send_command(f"gpio -g mode {self.input_pin} in")
+            
+            self.logger.info(f"GPIO setup completed on Pi: LED={self.led_pin}, INPUT={self.input_pin}")
+            
+        except Exception as e:
+            self.logger.error(f"Error setting up Pi GPIO: {e}")
+            
+    def _ssh_server_loop(self):
+        """SSH server loop for receiving commands from host."""
+        # This is a simplified implementation
+        # In a real implementation, you'd use paramiko's SSH server
+        self.logger.info("SSH server loop started (simplified)")
+        
+        while self.running:
+            time.sleep(1)
+            
     def _get_periodic_data(self) -> str:
         """Get periodic data from Raspberry Pi."""
         try:
-            pin_value = self.pi_controller.read_input_pin()
-            return f"GPIO_INPUT:{pin_value}"
-        except Exception as e:
-            logger.error(f"Error getting periodic data: {e}")
-            return ""
-    
-    def start(self):
-        """Start the target system."""
-        if self.running:
-            logger.warning("Target system is already running")
-            return
-        
-        self.running = True
-        
-        try:
-            # Connect to Raspberry Pi
-            logger.info("Connecting to Raspberry Pi...")
-            if not self.pi_controller.connect():
-                logger.error("Failed to connect to Pi, cannot continue")
-                return
-            
-            # Setup GPIO on Pi
-            logger.info("Setting up GPIO on Pi...")
-            if not self.pi_controller.setup_gpio(self.led_pin, self.input_pin):
-                logger.error("Failed to setup GPIO on Pi")
-                return
-            
-            # Connect to host
-            logger.info("Connecting to host...")
-            if self.host_communicator.connect():
-                logger.info("Connected to host successfully")
+            if self.use_adc:
+                # Read ADC value from Pi
+                adc_value = self.pi_ssh_client.send_command("python3 -c 'from adc import MCP3008ADC; adc = MCP3008ADC(); print(adc.read_channel(0))'")
+                return f"ADC_DATA:{adc_value}"
             else:
-                logger.warning("Failed to connect to host, continuing without host communication")
-            
-            # Start TCP periodic sending
-            self.host_communicator.start_periodic_sending(self._get_periodic_data, 1.0)
-            
-            logger.info("Target system started successfully")
-            logger.info("SSH Hello World system is now running!")
-            logger.info(f"Connect from host using: ssh user@{self.host_ip} -p {self.ssh_port}")
-            logger.info("Send 'LED_ON' or 'LED_OFF' commands to control the LED")
-            
-            # Main loop for SSH command handling
-            while self.running:
-                try:
-                    # This is a simplified version - in practice you'd implement
-                    # a proper SSH server here or use the existing ssh_hello_world
-                    time.sleep(1)
-                except KeyboardInterrupt:
-                    break
-            
+                # Read GPIO input from Pi
+                pin_value = self.pi_ssh_client.send_command(f"gpio -g read {self.input_pin}")
+                return f"GPIO_INPUT:{pin_value}"
+                
         except Exception as e:
-            logger.error(f"Error starting target system: {e}")
-            self.stop()
-    
-    def stop(self):
-        """Stop the target system."""
-        self.running = False
-        
-        logger.info("Stopping target system...")
-        
-        # Stop TCP periodic sending
-        self.host_communicator.stop_periodic_sending()
-        
-        # Disconnect from host
-        self.host_communicator.disconnect()
-        
-        # Disconnect from Pi
-        self.pi_controller.disconnect()
-        
-        logger.info("Target system stopped")
-
+            self.logger.error(f"Error getting periodic data: {e}")
+            return ""
+            
+    def handle_ssh_command(self, command: str) -> str:
+        """Handle SSH command from host."""
+        try:
+            if command == "LED_ON":
+                self.pi_ssh_client.send_command(f"gpio -g write {self.led_pin} 1")
+                return "LED turned ON"
+                
+            elif command == "LED_OFF":
+                self.pi_ssh_client.send_command(f"gpio -g write {self.led_pin} 0")
+                return "LED turned OFF"
+                
+            elif command.startswith("MOVE_VAR:"):
+                steps = command.split(":")[1]
+                self.pi_ssh_client.send_command(f"python3 moveVARIAC.py move {steps}")
+                return f"VARIAC moved {steps} steps"
+                
+            else:
+                return f"Unknown command: {command}"
+                
+        except Exception as e:
+            self.logger.error(f"Error handling SSH command: {e}")
+            return f"Error: {e}"
 
 def main():
-    """Main function."""
-    parser = argparse.ArgumentParser(description="Target System - Option A (SSH Control)")
-    parser.add_argument("--host", default="192.168.1.100", 
-                       help="Host IP address (default: 192.168.1.100)")
-    parser.add_argument("--ssh-port", type=int, default=2222,
-                       help="SSH server port (default: 2222)")
-    parser.add_argument("--pi-ip", default="192.168.1.101",
-                       help="Raspberry Pi IP address (default: 192.168.1.101)")
-    parser.add_argument("--led-pin", type=int, default=26,
-                       help="GPIO pin for LED on Pi (default: 26)")
-    parser.add_argument("--input-pin", type=int, default=6,
-                       help="GPIO pin for input reading on Pi (default: 6)")
+    parser = argparse.ArgumentParser(description="Target System Option A")
+    parser.add_argument("--host", default="192.168.1.100", help="Host IP address")
+    parser.add_argument("--ssh-port", type=int, default=2222, help="SSH port for host commands")
+    parser.add_argument("--pi-ip", default="192.168.1.102", help="Raspberry Pi IP address")
+    parser.add_argument("--pi-ssh-port", type=int, default=22, help="Pi SSH port")
+    parser.add_argument("--pi-username", default="pi", help="Pi username")
+    parser.add_argument("--pi-password", default="raspberry", help="Pi password")
+    parser.add_argument("--led-pin", type=int, default=26, help="LED GPIO pin")
+    parser.add_argument("--input-pin", type=int, default=6, help="Input GPIO pin")
+    parser.add_argument("--use-adc", action="store_true", help="Use ADC for analog readings")
     
     args = parser.parse_args()
-    
-    logger.info("Starting Target System - Option A (SSH Control)")
-    logger.info(f"Configuration: Host={args.host}, Pi={args.pi_ip}")
-    logger.info(f"GPIO: LED={args.led_pin}, Input={args.input_pin}")
     
     # Create and start target system
     target_system = TargetSystemOptionA(
         host_ip=args.host,
         ssh_port=args.ssh_port,
         pi_ip=args.pi_ip,
+        pi_ssh_port=args.pi_ssh_port,
+        pi_username=args.pi_username,
+        pi_password=args.pi_password,
         led_pin=args.led_pin,
-        input_pin=args.input_pin
+        input_pin=args.input_pin,
+        use_adc=args.use_adc
     )
     
     try:
-        target_system.start()
+        if target_system.start():
+            print("Target System Option A running. Press Ctrl+C to stop.")
+            while True:
+                time.sleep(1)
+        else:
+            print("Failed to start Target System Option A")
+            
     except KeyboardInterrupt:
-        logger.info("Received interrupt signal")
+        print("\nShutting down...")
     finally:
         target_system.stop()
-        logger.info("Target system shutdown complete")
-
 
 if __name__ == "__main__":
     main()
