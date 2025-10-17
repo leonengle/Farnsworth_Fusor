@@ -18,60 +18,138 @@ class Motor:
         self.pi = pi
         self.step_pin = step_pin
         self.dir_pin = dir_pin
-        self.pulse_width = pulse_width  # µs
-
-        # Setup pins
+        self.pulse_width = pulse_width
+        
+        # Set up pins
         self.pi.set_mode(step_pin, pigpio.OUTPUT)
         self.pi.set_mode(dir_pin, pigpio.OUTPUT)
-
-        # Command queue
+        
+        # Initialize pins
+        self.pi.write(step_pin, 0)
+        self.pi.write(dir_pin, 0)
+        
+        # Motor state
+        self.position = 0
+        self.target_position = 0
+        self.speed = 1000  # steps per second
+        self.running = False
+        
+        # Threading
         self.command_queue = queue.Queue()
-
-        # Worker thread
-        self._stop_event = threading.Event()
-        self.thread = threading.Thread(target=self._worker, daemon=True)
-        self.thread.start()
-
-    def move(self, steps, direction=1, step_delay=1000):
-        """
-        Queue a move command.
-        steps     : number of step pulses
-        direction : 1=forward, 0=reverse
-        step_delay: total period of one step (µs).
-                    Must be >= pulse_width.
-        """
-        if step_delay < self.pulse_width:
-            raise ValueError("step_delay must be >= pulse_width")
-        self.command_queue.put((steps, direction, step_delay))
-
-    def _worker(self):
-        while not self._stop_event.is_set():
+        self.motor_thread = threading.Thread(target=self._motor_loop, daemon=True)
+        self.motor_thread.start()
+    
+    def _motor_loop(self):
+        """Main motor control loop running in separate thread"""
+        while True:
             try:
-                steps, direction, step_delay = self.command_queue.get(timeout=0.1)
+                # Get command from queue (blocking)
+                command = self.command_queue.get(timeout=1.0)
+                
+                if command[0] == "move":
+                    steps = command[1]
+                    self._move_steps(steps)
+                elif command[0] == "stop":
+                    self.running = False
+                elif command[0] == "set_speed":
+                    self.speed = command[1]
+                    
+                self.command_queue.task_done()
+                
             except queue.Empty:
                 continue
-
-            self.pi.write(self.dir_pin, direction)
-
-            # Build waveform for this move
-            pulses = []
-            low_time = step_delay - self.pulse_width
-            for _ in range(steps):
-                pulses.append(pigpio.pulse(1 << self.step_pin, 0, self.pulse_width))
-                pulses.append(pigpio.pulse(0, 1 << self.step_pin, low_time))
-
-            self.pi.wave_clear()
-            self.pi.wave_add_generic(pulses)
-            wid = self.pi.wave_create()
-
-            if wid >= 0:
-                self.pi.wave_send_once(wid)
-                while self.pi.wave_tx_busy():
-                    pass
-                self.pi.wave_delete(wid)
-
-            self.command_queue.task_done()
-
+            except Exception as e:
+                print(f"Motor error: {e}")
+    
+    def _move_steps(self, steps):
+        """Move motor by specified number of steps"""
+        if steps == 0:
+            return
+            
+        self.running = True
+        
+        # Set direction
+        direction = 1 if steps > 0 else 0
+        self.pi.write(self.dir_pin, direction)
+        
+        # Calculate step delay
+        step_delay = 1.0 / self.speed
+        
+        # Move steps
+        for _ in range(abs(steps)):
+            if not self.running:
+                break
+                
+            # Generate step pulse
+            self.pi.write(self.step_pin, 1)
+            self.pi.gpio_delay(self.pulse_width)
+            self.pi.write(self.step_pin, 0)
+            
+            # Update position
+            self.position += 1 if steps > 0 else -1
+            
+            # Wait for next step
+            time.sleep(step_delay)
+    
+    def move_relative(self, steps):
+        """Move motor relative to current position"""
+        self.command_queue.put(("move", steps))
+    
+    def move_absolute(self, position):
+        """Move motor to absolute position"""
+        steps = position - self.position
+        self.move_relative(steps)
+    
     def stop(self):
-        self._stop_event.set()
-        self.thread.join()
+        """Stop motor immediately"""
+        self.command_queue.put(("stop",))
+    
+    def set_speed(self, speed):
+        """Set motor speed in steps per second"""
+        self.command_queue.put(("set_speed", speed))
+    
+    def get_position(self):
+        """Get current motor position"""
+        return self.position
+    
+    def home(self):
+        """Home motor to position 0"""
+        self.move_absolute(0)
+
+# Example usage
+if __name__ == "__main__":
+    pi = pigpio.pi()
+    
+    # Create motor instance
+    motor = Motor(pi, step_pin=18, dir_pin=19)
+    
+    try:
+        print("Motor control ready. Commands: move <steps>, home, stop, speed <steps/sec>")
+        
+        while True:
+            command = input("Motor> ").strip().lower()
+            
+            if command == "stop":
+                motor.stop()
+            elif command == "home":
+                motor.home()
+            elif command.startswith("move "):
+                try:
+                    steps = int(command.split()[1])
+                    motor.move_relative(steps)
+                except ValueError:
+                    print("Invalid steps value")
+            elif command.startswith("speed "):
+                try:
+                    speed = int(command.split()[1])
+                    motor.set_speed(speed)
+                except ValueError:
+                    print("Invalid speed value")
+            else:
+                print("Unknown command")
+                
+    except KeyboardInterrupt:
+        print("\nShutting down...")
+    finally:
+        motor.stop()
+        pi.stop()

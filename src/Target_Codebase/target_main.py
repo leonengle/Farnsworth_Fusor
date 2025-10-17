@@ -14,7 +14,7 @@ import threading
 import time
 import argparse
 from ssh_hello_world import SSHHelloWorldServer, PeriodicDataSender
-from ssh_client import HostCommunicator
+from tcp_client import TargetTCPCommunicator
 from logging_setup import setup_logging, get_logger
 
 # Setup logging first
@@ -54,7 +54,7 @@ class TargetSystem:
             use_adc=use_adc
         )
         
-        self.host_communicator = HostCommunicator(host_ip)
+        self.host_communicator = TargetTCPCommunicator(host_ip, 12345)
         self.data_sender = None
         
         self.running = False
@@ -89,6 +89,26 @@ class TargetSystem:
         else:
             logger.warning("Host communicator not connected, cannot send data")
     
+    def _get_periodic_data(self) -> str:
+        """
+        Get periodic data to send to host.
+        
+        Returns:
+            Data string to send
+        """
+        try:
+            if self.use_adc and self.ssh_server.adc:
+                # Send ADC data
+                adc_value = self.ssh_server.read_adc_channel(0)  # Use channel 0
+                return f"ADC_DATA:{adc_value}"
+            else:
+                # Send GPIO data
+                pin_value = self.ssh_server.read_input_pin()
+                return f"GPIO_INPUT:{pin_value}"
+        except Exception as e:
+            logger.error(f"Error getting periodic data: {e}")
+            return ""
+    
     def start(self):
         """Start the target system."""
         if self.running:
@@ -112,6 +132,9 @@ class TargetSystem:
             self.data_sender = PeriodicDataSender(self.ssh_server, self._host_callback, self.use_adc)
             self.data_sender.start()
             
+            # Start TCP periodic sending
+            self.host_communicator.start_periodic_sending(self._get_periodic_data, 1.0)
+            
             logger.info("Target system started successfully")
             logger.info("SSH Hello World system is now running!")
             logger.info(f"Connect from host using: ssh mdali@{self.host_ip} -p {self.ssh_port}")
@@ -133,6 +156,9 @@ class TargetSystem:
         # Stop data sender
         if self.data_sender:
             self.data_sender.stop()
+        
+        # Stop TCP periodic sending
+        self.host_communicator.stop_periodic_sending()
         
         # Stop SSH server
         self.ssh_server.stop_server()
