@@ -24,9 +24,9 @@ logging.basicConfig(
 logger = logging.getLogger("HostControl")
 
 # SSH Config
-PI_HOST = "172.20.10.6"  # Target Pi IP
+PI_HOST = "172.20.10.5"  # Target Pi IP
 PI_PORT = 2222
-PI_USERNAME = "mdali"
+PI_USERNAME = "pi"
 PI_PASSWORD = "raspberry"
 
 class SSHController:

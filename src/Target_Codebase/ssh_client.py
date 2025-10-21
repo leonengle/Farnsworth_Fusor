@@ -11,7 +11,7 @@ logger = get_logger("SSHClient")
 
 class SSHClient:
     # ssh client for sending commands to the host system
-    def __init__(self, host: str = "192.168.1.100", port: int = 22, 
+    def __init__(self, host: str = "172.20.10.5", port: int = 22, 
                  username: str = "pi", password: str = "raspberry"):
         self.host = host
         self.port = port
@@ -89,7 +89,7 @@ class SSHClient:
 
 class HostCommunicator:
     # high-level interface for sending data to the host system
-    def __init__(self, host: str = "192.168.1.100", port: int = 22,
+    def __init__(self, host: str = "172.20.10.5", port: int = 22,
                  username: str = "pi", password: str = "raspberry"):
         self.ssh_client = SSHClient(host, port, username, password)
         self.max_retries = 3
