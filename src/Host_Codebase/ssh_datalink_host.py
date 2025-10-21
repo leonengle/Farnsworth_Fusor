@@ -61,62 +61,41 @@ class SSHDatalinkHost:
         self._start_tcp_listener()
         
     def _setup_ui(self):
-        """Setup the Tkinter UI with button and read-only field."""
+        """Setup the Tkinter UI with button and read-only field as per architecture diagram."""
         self.root = tk.Tk()
         self.root.title("SSH Datalink Host")
-        self.root.geometry("400x200")
+        self.root.geometry("500x300")
         
-        # Button frame for multiple commands
-        self.button_frame = tk.Frame(self.root)
-        self.button_frame.pack(pady=10)
+        # Main frame for horizontal layout
+        self.main_frame = tk.Frame(self.root)
+        self.main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
         
-        # LED control buttons
-        self.led_on_button = tk.Button(
-            self.button_frame, 
-            text="LED ON", 
+        # Button (left side)
+        self.button = tk.Button(
+            self.main_frame, 
+            text="Send SSH Command", 
             command=lambda: self._send_ssh_command("LED_ON"),
-            font=("Arial", 10),
-            bg="lightgreen",
-            width=10
-        )
-        self.led_on_button.pack(side=tk.LEFT, padx=5)
-        
-        self.led_off_button = tk.Button(
-            self.button_frame, 
-            text="LED OFF", 
-            command=lambda: self._send_ssh_command("LED_OFF"),
-            font=("Arial", 10),
-            bg="lightcoral",
-            width=10
-        )
-        self.led_off_button.pack(side=tk.LEFT, padx=5)
-        
-        # Motor control button
-        self.motor_button = tk.Button(
-            self.button_frame, 
-            text="MOVE MOTOR", 
-            command=lambda: self._send_ssh_command("MOVE_VAR:100"),
-            font=("Arial", 10),
+            font=("Arial", 12),
             bg="lightblue",
-            width=10
+            height=3,
+            width=15
         )
-        self.motor_button.pack(side=tk.LEFT, padx=5)
+        self.button.pack(side=tk.LEFT, padx=10, fill=tk.Y, expand=True)
         
-        # Read-only field for displaying TCP data
+        # Read-only field (right side)
         self.readonly_field = tk.Text(
-            self.root,
-            height=6,
-            width=50,
+            self.main_frame,
             state=tk.DISABLED,
             font=("Courier", 10),
-            bg="lightgray"
+            bg="white",
+            wrap=tk.WORD
         )
-        self.readonly_field.pack(pady=10, padx=20, fill=tk.BOTH, expand=True)
+        self.readonly_field.pack(side=tk.LEFT, padx=10, fill=tk.BOTH, expand=True)
         
         # Status label
         self.status_label = tk.Label(
             self.root,
-            text="Ready - Click buttons to control target system",
+            text="Ready - Click button to send SSH command to target",
             font=("Arial", 10),
             fg="green"
         )
