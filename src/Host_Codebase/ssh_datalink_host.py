@@ -22,9 +22,9 @@ class SSHDatalinkHost:
     Main host application that implements the SSH datalink system.
     """
     
-    def __init__(self, target_ip: str = "192.168.1.101", target_ssh_port: int = 2222,
+    def __init__(self, target_ip: str = "172.20.10.6", target_ssh_port: int = 2222,
                  tcp_port: int = 12345, target_username: str = "mdali", 
-                 target_password: str = "password"):
+                 target_password: str = "raspberry"):
         """
         Initialize the SSH Datalink Host.
         
@@ -66,16 +66,41 @@ class SSHDatalinkHost:
         self.root.title("SSH Datalink Host")
         self.root.geometry("400x200")
         
-        # Button for sending SSH commands
-        self.button = tk.Button(
-            self.root, 
-            text="Send SSH Command", 
-            command=self._send_ssh_command,
-            font=("Arial", 12),
-            bg="lightblue",
-            height=2
+        # Button frame for multiple commands
+        self.button_frame = tk.Frame(self.root)
+        self.button_frame.pack(pady=10)
+        
+        # LED control buttons
+        self.led_on_button = tk.Button(
+            self.button_frame, 
+            text="LED ON", 
+            command=lambda: self._send_ssh_command("LED_ON"),
+            font=("Arial", 10),
+            bg="lightgreen",
+            width=10
         )
-        self.button.pack(pady=20)
+        self.led_on_button.pack(side=tk.LEFT, padx=5)
+        
+        self.led_off_button = tk.Button(
+            self.button_frame, 
+            text="LED OFF", 
+            command=lambda: self._send_ssh_command("LED_OFF"),
+            font=("Arial", 10),
+            bg="lightcoral",
+            width=10
+        )
+        self.led_off_button.pack(side=tk.LEFT, padx=5)
+        
+        # Motor control button
+        self.motor_button = tk.Button(
+            self.button_frame, 
+            text="MOVE MOTOR", 
+            command=lambda: self._send_ssh_command("MOVE_VAR:100"),
+            font=("Arial", 10),
+            bg="lightblue",
+            width=10
+        )
+        self.motor_button.pack(side=tk.LEFT, padx=5)
         
         # Read-only field for displaying TCP data
         self.readonly_field = tk.Text(
@@ -91,7 +116,7 @@ class SSHDatalinkHost:
         # Status label
         self.status_label = tk.Label(
             self.root,
-            text="Ready - Click button to send SSH command",
+            text="Ready - Click buttons to control target system",
             font=("Arial", 10),
             fg="green"
         )
@@ -108,7 +133,7 @@ class SSHDatalinkHost:
         """Update the status label."""
         self.status_label.config(text=message, fg=color)
         
-    def _send_ssh_command(self):
+    def _send_ssh_command(self, command: str):
         """Send SSH command to target when button is pressed."""
         try:
             # Create SSH client
@@ -124,12 +149,12 @@ class SSHDatalinkHost:
                 timeout=10
             )
             
-            # Send LED_ON command
-            stdin, stdout, stderr = self.ssh_client.exec_command("LED_ON")
+            # Send the specified command
+            stdin, stdout, stderr = self.ssh_client.exec_command(command)
             response = stdout.read().decode().strip()
             
             # Update status
-            self._update_status(f"SSH command sent: LED_ON - Response: {response}", "green")
+            self._update_status(f"SSH command sent: {command} - Response: {response}", "green")
             
             # Close SSH connection
             self.ssh_client.close()
@@ -215,11 +240,11 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description="SSH Datalink Host")
-    parser.add_argument("--target-ip", default="192.168.1.101", help="Target IP address")
+    parser.add_argument("--target-ip", default="172.20.10.6", help="Target IP address")
     parser.add_argument("--target-ssh-port", type=int, default=2222, help="Target SSH port")
     parser.add_argument("--tcp-port", type=int, default=12345, help="TCP port for receiving data")
     parser.add_argument("--username", default="mdali", help="SSH username")
-    parser.add_argument("--password", default="password", help="SSH password")
+    parser.add_argument("--password", default="raspberry", help="SSH password")
     
     args = parser.parse_args()
     

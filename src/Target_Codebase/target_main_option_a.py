@@ -11,7 +11,7 @@ from tcp_client import TargetTCPCommunicator
 from logging_setup import setup_logging, get_logger
 
 class TargetSystemOptionA:
-    def __init__(self, host_ip: str = "192.168.1.69", ssh_port: int = 2222,
+    def __init__(self, host_ip: str = "172.20.10.3", ssh_port: int = 2222,
                  pi_ip: str = "192.168.1.102", pi_ssh_port: int = 22,
                  pi_username: str = "pi", pi_password: str = "raspberry",
                  led_pin: int = 26, input_pin: int = 6, use_adc: bool = False):
@@ -157,7 +157,7 @@ class TargetSystemOptionA:
 
 def main():
     parser = argparse.ArgumentParser(description="Target System Option A")
-    parser.add_argument("--host", default="192.168.1.69", help="Host IP address")
+    parser.add_argument("--host", default="172.20.10.3", help="Host IP address")
     parser.add_argument("--ssh-port", type=int, default=2222, help="SSH port for host commands")
     parser.add_argument("--pi-ip", default="192.168.1.102", help="Raspberry Pi IP address")
     parser.add_argument("--pi-ssh-port", type=int, default=22, help="Pi SSH port")

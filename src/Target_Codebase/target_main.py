@@ -27,7 +27,7 @@ class TargetSystem:
     Main target system that integrates all components.
     """
     
-    def __init__(self, host_ip: str = "192.168.1.69", ssh_port: int = 2222,
+    def __init__(self, host_ip: str = "172.20.10.3", ssh_port: int = 2222,
                  led_pin: int = 26, input_pin: int = 6, use_adc: bool = False):
         """
         Initialize the target system.
@@ -175,8 +175,8 @@ class TargetSystem:
 def main():
     """Main function."""
     parser = argparse.ArgumentParser(description="Target System - SSH Hello World")
-    parser.add_argument("--host", default="192.168.1.69", 
-                       help="Host IP address (default: 192.168.1.69)")
+    parser.add_argument("--host", default="172.20.10.3", 
+                       help="Host IP address (default: 172.20.10.3)")
     parser.add_argument("--ssh-port", type=int, default=2222,
                        help="SSH server port (default: 2222)")
     parser.add_argument("--led-pin", type=int, default=26,
