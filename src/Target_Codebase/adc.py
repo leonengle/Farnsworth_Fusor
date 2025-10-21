@@ -1,23 +1,26 @@
 import time
 import sys
+import argparse
 import RPi.GPIO as GPIO
 from Adafruit_GPIO import SPI
 import Adafruit_MCP3008
-import argparse
 from base_classes import ADCInterface
 
 PIN = 16
 PIN2 = 23 
 PIN3 = 26
+
+# Setup GPIO pins
 GPIO.setmode(GPIO.BCM)
 GPIO.setup(PIN, GPIO.OUT)
 GPIO.setup(PIN2, GPIO.OUT)
 GPIO.setup(PIN3, GPIO.OUT)
+
 HW_SPI_PORT = 0
 HW_SPI_DEV = 0
 
 class MCP3008ADC(ADCInterface):
-    """MCP3008 ADC implementation."""
+    """MCP3008 ADC implementation for real hardware."""
     
     def __init__(self, spi_port=0, spi_device=0):
         super().__init__(spi_port, spi_device)
@@ -28,6 +31,7 @@ class MCP3008ADC(ADCInterface):
         try:
             self.mcp = Adafruit_MCP3008.MCP3008(spi=SPI.SpiDev(self.spi_port, self.spi_device))
             self._is_initialized = True
+            print("MCP3008 ADC initialized successfully")
             return True
         except Exception as e:
             print(f"Failed to initialize ADC: {e}")
@@ -75,25 +79,35 @@ class MCP3008ADC(ADCInterface):
 
 # Global instance for backward compatibility
 mcp_instance = MCP3008ADC(HW_SPI_PORT, HW_SPI_DEV)
-mcp_instance.initialize()
-mcp = mcp_instance.mcp
+if mcp_instance.initialize():
+    mcp = mcp_instance.mcp
+else:
+    mcp = None
+    print("Warning: ADC initialization failed")
 
 def validate_channel(channel: int):
     """Ensure channel is between 0 and 7."""
     if channel < 0 or channel > 7:
         print("ERROR: Value must be between 0 and 7!", file=sys.stderr)
-        sys.exit(1)
+        return False
+    return True
 
 def read_adc(channel: int):
     """Read from the specified ADC channel repeatedly."""
-    validate_channel(channel)
+    if not validate_channel(channel):
+        return
+    
+    if mcp is None:
+        print("ADC not available - cannot read")
+        return
+    
     try:
         while True:
             value = mcp.read_adc(channel)
             if value > 0 and value < 341:
-                GPIO.output(PIN,GPIO.HIGH)
-                GPIO.output(PIN2,GPIO.LOW)
-                GPIO.output(PIN3,GPIO.LOW)
+                GPIO.output(PIN, GPIO.HIGH)
+                GPIO.output(PIN2, GPIO.LOW)
+                GPIO.output(PIN3, GPIO.LOW)
             elif value >= 341 and value < 682:
                 GPIO.output(PIN, GPIO.LOW)
                 GPIO.output(PIN2, GPIO.HIGH)

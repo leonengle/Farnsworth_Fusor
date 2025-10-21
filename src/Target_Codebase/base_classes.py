@@ -147,3 +147,71 @@ class GPIOInterface(ABC):
             Pin value (0 or 1)
         """
         pass
+
+
+class ADCInterface(ABC):
+    """Abstract base class for ADC control."""
+    
+    def __init__(self, spi_port: int = 0, spi_device: int = 0):
+        self.spi_port = spi_port
+        self.spi_device = spi_device
+        self._is_initialized = False
+    
+    @abstractmethod
+    def initialize(self) -> bool:
+        """
+        Initialize the ADC hardware.
+        
+        Returns:
+            True if initialization successful, False otherwise
+        """
+        pass
+    
+    @abstractmethod
+    def read_channel(self, channel: int) -> int:
+        """
+        Read a single ADC channel.
+        
+        Args:
+            channel: ADC channel number (0-7)
+            
+        Returns:
+            ADC reading value (0-1023 for 10-bit ADC)
+        """
+        pass
+    
+    @abstractmethod
+    def read_all_channels(self) -> list:
+        """
+        Read all ADC channels.
+        
+        Returns:
+            List of ADC readings for all channels
+        """
+        pass
+    
+    def validate_channel(self, channel: int) -> bool:
+        """
+        Validate ADC channel number.
+        
+        Args:
+            channel: Channel number to validate
+            
+        Returns:
+            True if valid, False otherwise
+        """
+        return 0 <= channel <= 7
+    
+    def is_initialized(self) -> bool:
+        """
+        Check if ADC is initialized.
+        
+        Returns:
+            True if initialized, False otherwise
+        """
+        return self._is_initialized
+    
+    @abstractmethod
+    def cleanup(self):
+        """Clean up ADC resources."""
+        pass
