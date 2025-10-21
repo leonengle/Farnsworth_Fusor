@@ -106,23 +106,9 @@ class SSHHelloWorldServer:
             
             logger.info("SSH channel established")
             
-            # main command processing loop
-            while self.running:
-                try:
-                    # receive command from host
-                    command = channel.recv(1024).decode('utf-8').strip()
-                    if not command:
-                        break
-                    
-                    # process the command and get response
-                    response = self._handle_ssh_command(command)
-                    
-                    # send response back to host
-                    channel.send(response.encode('utf-8'))
-                    
-                except Exception as e:
-                    logger.error(f"Error in SSH session: {e}")
-                    break
+            # Keep connection alive until closed
+            while not channel.closed:
+                time.sleep(0.1)
             
             # cleanup ssh resources
             channel.close()
@@ -224,6 +210,19 @@ class SSHServerInterface(paramiko.ServerInterface):
     def check_channel_request(self, kind: str, chanid: int) -> int:
         # allow all channel requests
         return paramiko.OPEN_SUCCEEDED
+    
+    def check_channel_exec_request(self, channel, command: str) -> bool:
+        """Handle exec_command requests from host."""
+        logger.info(f"Exec command received: {command}")
+        
+        # Process the command
+        response = self.hello_world_server._handle_ssh_command(command)
+        
+        # Send response back
+        channel.send(response.encode('utf-8'))
+        channel.send_eof()
+        
+        return True
 
 
 class PeriodicDataSender:
