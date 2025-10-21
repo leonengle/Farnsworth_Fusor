@@ -71,13 +71,18 @@ class SSHHelloWorldServer:
         # process commands received from the host system
         logger.info(f"Received SSH command: {command}")
         
+        # Strip whitespace and convert to string if needed
+        if isinstance(command, bytes):
+            command = command.decode('utf-8')
+        command = command.strip()
+        
         # check for led control commands
-        if command.strip() == "LED_ON":
+        if command == "LED_ON":
             # turn on the led for visual feedback
             GPIO.output(self.led_pin, GPIO.HIGH)
             logger.info("LED turned ON")
             return "LED_ON_SUCCESS"
-        elif command.strip() == "LED_OFF":
+        elif command == "LED_OFF":
             # turn off the led
             GPIO.output(self.led_pin, GPIO.LOW)
             logger.info("LED turned OFF")
@@ -211,8 +216,12 @@ class SSHServerInterface(paramiko.ServerInterface):
         # allow all channel requests
         return paramiko.OPEN_SUCCEEDED
     
-    def check_channel_exec_request(self, channel, command: str) -> bool:
+    def check_channel_exec_request(self, channel, command) -> bool:
         """Handle exec_command requests from host."""
+        # Convert command to string if it's bytes
+        if isinstance(command, bytes):
+            command = command.decode('utf-8')
+        
         logger.info(f"Exec command received: {command}")
         
         # Process the command
@@ -220,7 +229,7 @@ class SSHServerInterface(paramiko.ServerInterface):
         
         # Send response back
         channel.send(response.encode('utf-8'))
-        channel.send_eof()
+        channel.shutdown_write()
         
         return True
 
