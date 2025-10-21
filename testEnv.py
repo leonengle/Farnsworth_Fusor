@@ -4,7 +4,7 @@ Test environment setup for Farnsworth Fusor project.
 This script sets up a test environment for local testing without hardware.
 """
 
-import os
+import osmmmm
 import sys
 import subprocess
 import tempfile
