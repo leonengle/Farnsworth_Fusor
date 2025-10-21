@@ -176,4 +176,3 @@ class HostCommunicator:
         # check if we're connected to the host
         return self.ssh_client.is_connected()
 
-

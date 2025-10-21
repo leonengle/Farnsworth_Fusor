@@ -22,7 +22,7 @@ class SSHDatalinkHost:
     Main host application that implements the SSH datalink system.
     """
     
-    def __init__(self, target_ip: str = "172.20.10.6", target_ssh_port: int = 2222,
+    def __init__(self, target_ip: str = "192.168.1.101", target_ssh_port: int = 2222,
                  tcp_port: int = 12345, target_username: str = "mdali", 
                  target_password: str = "password"):
         """
@@ -215,7 +215,7 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description="SSH Datalink Host")
-    parser.add_argument("--target-ip", default="172.20.10.6", help="Target IP address")
+    parser.add_argument("--target-ip", default="192.168.1.101", help="Target IP address")
     parser.add_argument("--target-ssh-port", type=int, default=2222, help="Target SSH port")
     parser.add_argument("--tcp-port", type=int, default=12345, help="TCP port for receiving data")
     parser.add_argument("--username", default="mdali", help="SSH username")
