@@ -13,6 +13,8 @@ Features:
 import threading
 import time
 import argparse
+import signal
+import sys
 from ssh_hello_world import SSHHelloWorldServer, PeriodicDataSender
 from tcp_client import TargetTCPCommunicator
 from logging_setup import setup_logging, get_logger
@@ -172,8 +174,28 @@ class TargetSystem:
         logger.info("Target system stopped")
 
 
+def signal_handler(signum, frame):
+    """Handle interrupt signals to ensure LED is turned off."""
+    logger.info(f"Received signal {signum}, shutting down gracefully...")
+    
+    # Turn off LED immediately
+    try:
+        import RPi.GPIO as GPIO
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setup(26, GPIO.OUT)  # Default LED pin
+        GPIO.output(26, GPIO.LOW)
+        logger.info("LED turned OFF due to interrupt")
+    except Exception as e:
+        logger.error(f"Could not turn off LED: {e}")
+    
+    sys.exit(0)
+
 def main():
     """Main function."""
+    # Set up signal handlers
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
     parser = argparse.ArgumentParser(description="Target System - SSH Hello World")
     parser.add_argument("--host", default="172.20.10.3", 
                        help="Host IP address (default: 172.20.10.3)")

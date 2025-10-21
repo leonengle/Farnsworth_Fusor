@@ -74,7 +74,7 @@ class SSHDatalinkHost:
         self.button = tk.Button(
             self.main_frame, 
             text="Send SSH Command", 
-            command=lambda: self._send_ssh_command("LED_ON"),
+            command=self._send_ssh_command_with_adc,
             font=("Arial", 12),
             bg="lightblue",
             height=3,
@@ -112,6 +112,39 @@ class SSHDatalinkHost:
         """Update the status label."""
         self.status_label.config(text=message, fg=color)
         
+    def _send_ssh_command_with_adc(self):
+        """Send SSH command and trigger ADC recording."""
+        try:
+            # Create SSH client
+            self.ssh_client = paramiko.SSHClient()
+            self.ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            
+            # Connect to target
+            self.ssh_client.connect(
+                hostname=self.target_ip,
+                port=self.target_ssh_port,
+                username=self.target_username,
+                password=self.target_password,
+                timeout=10
+            )
+            
+            # Send LED_ON command
+            stdin, stdout, stderr = self.ssh_client.exec_command("LED_ON")
+            response = stdout.read().decode().strip()
+            
+            # Update status
+            self._update_status(f"SSH command sent: LED_ON - Response: {response}", "green")
+            
+            # Add note about ADC data
+            self._update_readonly_field("=== SSH Command Sent - ADC Data Should Appear Below ===")
+            
+            # Close SSH connection
+            self.ssh_client.close()
+            
+        except Exception as e:
+            self._update_status(f"SSH Error: {e}", "red")
+            print(f"SSH Error: {e}")
+    
     def _send_ssh_command(self, command: str):
         """Send SSH command to target when button is pressed."""
         try:
@@ -205,12 +238,32 @@ class SSHDatalinkHost:
             self.stop()
             
     def stop(self):
-        """Stop the host application."""
+        """Stop the host application and turn off LED."""
         self.tcp_running = False
+        
+        # Send LED_OFF command before shutting down
+        try:
+            if self.ssh_client:
+                self.ssh_client.close()
+            
+            # Create new SSH client for shutdown command
+            shutdown_client = paramiko.SSHClient()
+            shutdown_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            shutdown_client.connect(
+                hostname=self.target_ip,
+                port=self.target_ssh_port,
+                username=self.target_username,
+                password=self.target_password,
+                timeout=5
+            )
+            shutdown_client.exec_command("LED_OFF")
+            shutdown_client.close()
+            print("LED turned OFF during shutdown")
+        except Exception as e:
+            print(f"Could not turn off LED during shutdown: {e}")
+        
         if self.tcp_server:
             self.tcp_server.close()
-        if self.ssh_client:
-            self.ssh_client.close()
         if self.root:
             self.root.quit()
 
