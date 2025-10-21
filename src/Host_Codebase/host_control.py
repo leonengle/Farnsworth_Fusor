@@ -271,4 +271,7 @@ def main():
         ssh.close()
 
 if __name__ == "__main__":
+    # Optionally enable telemetry log capture
+    # threading.Thread(target=telemetry_listener, daemon=True).start()
     main()
+

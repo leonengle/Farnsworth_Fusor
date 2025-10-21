@@ -294,4 +294,3 @@ class PeriodicDataSender:
                 logger.error(f"Error in periodic send loop: {e}")
                 time.sleep(1.0)
 
-
