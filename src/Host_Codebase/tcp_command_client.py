@@ -13,6 +13,7 @@ import logging
 from typing import Optional
 
 # Setup logging for this module
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("TCPCommandClient")
 
 
@@ -56,8 +57,34 @@ class TCPCommandClient:
             logger.info(f"TCP connection established to {self.target_ip}:{self.target_port}")
             return True
             
+        except socket.timeout:
+            logger.error(f"TCP connection timeout: Could not connect to {self.target_ip}:{self.target_port} within {self.connection_timeout}s")
+            self.connected = False
+            if self.socket:
+                self.socket.close()
+                self.socket = None
+            return False
+        except ConnectionRefusedError:
+            logger.error(f"TCP connection refused: {self.target_ip}:{self.target_port} - Is target running and listening?")
+            self.connected = False
+            if self.socket:
+                self.socket.close()
+                self.socket = None
+            return False
+        except OSError as e:
+            if e.errno == 10051:  # Windows: Network unreachable
+                logger.error(f"Network unreachable: Cannot reach {self.target_ip}:{self.target_port}")
+            elif e.errno == 10061:  # Windows: Connection refused
+                logger.error(f"TCP connection refused: {self.target_ip}:{self.target_port} - Is target running?")
+            else:
+                logger.error(f"TCP connection failed (OSError {e.errno}): {e}")
+            self.connected = False
+            if self.socket:
+                self.socket.close()
+                self.socket = None
+            return False
         except Exception as e:
-            logger.error(f"TCP connection failed: {e}")
+            logger.error(f"TCP connection failed ({type(e).__name__}): {e}")
             self.connected = False
             if self.socket:
                 self.socket.close()

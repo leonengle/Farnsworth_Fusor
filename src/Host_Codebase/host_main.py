@@ -4,7 +4,7 @@ Host Main Program - TCP/UDP Implementation
 This is the single entry point for the host application.
 
 Features:
-- Tkinter control panel with buttons for all commands
+- CustomTkinter control panel with buttons for all commands
 - TCP client to send commands to target (port 2222)
 - TCP client to connect and receive read-only data from target (port 12345)
 - UDP status/heartbeat communication
@@ -12,14 +12,17 @@ Features:
 - All buttons send commands to target which listens, takes action, and sends data back
 """
 
-import tkinter as tk
-from tkinter import ttk
+import customtkinter as ctk
 import threading
 import socket
 import time
 import argparse
 from tcp_command_client import TCPCommandClient
 from udp_status_client import UDPStatusClient, UDPStatusReceiver
+
+# Set appearance mode and color theme
+ctk.set_appearance_mode("dark")  # Options: "light", "dark", "system"
+ctk.set_default_color_theme("blue")  # Options: "blue", "green", "dark-blue"
 
 
 class FusorHostApp:
@@ -82,183 +85,223 @@ class FusorHostApp:
         self.udp_status_receiver.start()
     
     def _setup_ui(self):
-        """Setup the Tkinter control panel with all buttons wired to send commands."""
-        self.root = tk.Tk()
+        """Setup the CustomTkinter control panel with all buttons wired to send commands."""
+        self.root = ctk.CTk()
         self.root.title("Fusor Control Panel - TCP/UDP")
         self.root.geometry("900x700")
         
         # Main container
-        main_frame = tk.Frame(self.root, padx=10, pady=10)
-        main_frame.pack(fill=tk.BOTH, expand=True)
+        main_frame = ctk.CTkFrame(self.root)
+        main_frame.pack(fill="both", expand=True, padx=10, pady=10)
         
         # Title
-        title_label = tk.Label(
+        title_label = ctk.CTkLabel(
             main_frame,
             text="Farnsworth Fusor Control Panel",
-            font=("Arial", 16, "bold")
+            font=ctk.CTkFont(size=20, weight="bold")
         )
         title_label.pack(pady=10)
         
         # LED Control Section
-        led_frame = tk.LabelFrame(main_frame, text="LED Control", font=("Arial", 10, "bold"))
-        led_frame.pack(fill=tk.X, padx=10, pady=5)
+        led_frame = ctk.CTkFrame(main_frame)
+        led_frame.pack(fill="x", padx=10, pady=5)
         
-        led_on_button = tk.Button(
-            led_frame,
+        led_label = ctk.CTkLabel(led_frame, text="LED Control", font=ctk.CTkFont(size=14, weight="bold"))
+        led_label.pack(pady=5)
+        
+        led_button_frame = ctk.CTkFrame(led_frame)
+        led_button_frame.pack(pady=5)
+        
+        led_on_button = ctk.CTkButton(
+            led_button_frame,
             text="LED ON",
             command=lambda: self._send_command("LED_ON"),
-            bg="lightgreen",
-            font=("Arial", 12),
-            width=15,
-            height=2
+            font=ctk.CTkFont(size=14),
+            width=150,
+            height=40,
+            fg_color="green",
+            hover_color="darkgreen"
         )
-        led_on_button.pack(side=tk.LEFT, padx=10, pady=10)
+        led_on_button.pack(side="left", padx=10, pady=10)
         
-        led_off_button = tk.Button(
-            led_frame,
+        led_off_button = ctk.CTkButton(
+            led_button_frame,
             text="LED OFF",
             command=lambda: self._send_command("LED_OFF"),
-            bg="lightcoral",
-            font=("Arial", 12),
-            width=15,
-            height=2
+            font=ctk.CTkFont(size=14),
+            width=150,
+            height=40,
+            fg_color="red",
+            hover_color="darkred"
         )
-        led_off_button.pack(side=tk.LEFT, padx=10, pady=10)
+        led_off_button.pack(side="left", padx=10, pady=10)
         
         # Power Control Section
-        power_frame = tk.LabelFrame(main_frame, text="Power Control", font=("Arial", 10, "bold"))
-        power_frame.pack(fill=tk.X, padx=10, pady=5)
+        power_frame = ctk.CTkFrame(main_frame)
+        power_frame.pack(fill="x", padx=10, pady=5)
         
-        voltage_label = tk.Label(
-            power_frame,
+        power_label = ctk.CTkLabel(power_frame, text="Power Control", font=ctk.CTkFont(size=14, weight="bold"))
+        power_label.pack(pady=5)
+        
+        power_control_frame = ctk.CTkFrame(power_frame)
+        power_control_frame.pack(pady=5)
+        
+        voltage_label = ctk.CTkLabel(
+            power_control_frame,
             text="Desired Voltage (V):",
-            font=("Arial", 10)
+            font=ctk.CTkFont(size=12)
         )
-        voltage_label.pack(side=tk.LEFT, padx=5)
+        voltage_label.pack(side="left", padx=5)
         
-        self.voltage_scale = tk.Scale(
-            power_frame,
+        self.voltage_value_label = ctk.CTkLabel(
+            power_control_frame,
+            text="0",
+            font=ctk.CTkFont(size=12),
+            width=60
+        )
+        self.voltage_value_label.pack(side="left", padx=5)
+        
+        self.voltage_scale = ctk.CTkSlider(
+            power_control_frame,
             from_=0,
             to=28000,
-            orient=tk.HORIZONTAL,
-            length=300,
-            font=("Arial", 9)
+            width=300,
+            command=self._update_voltage_label
         )
-        self.voltage_scale.pack(side=tk.LEFT, padx=5)
+        self.voltage_scale.pack(side="left", padx=5)
         
-        voltage_button = tk.Button(
-            power_frame,
+        voltage_button = ctk.CTkButton(
+            power_control_frame,
             text="Set Voltage",
             command=self._set_voltage,
-            font=("Arial", 10),
-            width=12
+            font=ctk.CTkFont(size=12),
+            width=120
         )
-        voltage_button.pack(side=tk.LEFT, padx=5)
+        voltage_button.pack(side="left", padx=5)
         
         # Vacuum Control Section
-        vacuum_frame = tk.LabelFrame(main_frame, text="Vacuum Control", font=("Arial", 10, "bold"))
-        vacuum_frame.pack(fill=tk.X, padx=10, pady=5)
+        vacuum_frame = ctk.CTkFrame(main_frame)
+        vacuum_frame.pack(fill="x", padx=10, pady=5)
         
-        pump_label = tk.Label(
-            vacuum_frame,
+        vacuum_label = ctk.CTkLabel(vacuum_frame, text="Vacuum Control", font=ctk.CTkFont(size=14, weight="bold"))
+        vacuum_label.pack(pady=5)
+        
+        vacuum_control_frame = ctk.CTkFrame(vacuum_frame)
+        vacuum_control_frame.pack(pady=5)
+        
+        pump_label = ctk.CTkLabel(
+            vacuum_control_frame,
             text="Pump Power (%):",
-            font=("Arial", 10)
+            font=ctk.CTkFont(size=12)
         )
-        pump_label.pack(side=tk.LEFT, padx=5)
+        pump_label.pack(side="left", padx=5)
         
-        self.pump_power_scale = tk.Scale(
-            vacuum_frame,
+        self.pump_value_label = ctk.CTkLabel(
+            vacuum_control_frame,
+            text="0",
+            font=ctk.CTkFont(size=12),
+            width=60
+        )
+        self.pump_value_label.pack(side="left", padx=5)
+        
+        self.pump_power_scale = ctk.CTkSlider(
+            vacuum_control_frame,
             from_=0,
             to=100,
-            orient=tk.HORIZONTAL,
-            length=300,
-            font=("Arial", 9)
+            width=300,
+            command=self._update_pump_label
         )
-        self.pump_power_scale.pack(side=tk.LEFT, padx=5)
+        self.pump_power_scale.pack(side="left", padx=5)
         
-        pump_button = tk.Button(
-            vacuum_frame,
+        pump_button = ctk.CTkButton(
+            vacuum_control_frame,
             text="Set Pump Power",
             command=self._set_pump_power,
-            font=("Arial", 10),
-            width=12
+            font=ctk.CTkFont(size=12),
+            width=120
         )
-        pump_button.pack(side=tk.LEFT, padx=5)
+        pump_button.pack(side="left", padx=5)
         
         # Motor Control Section
-        motor_frame = tk.LabelFrame(main_frame, text="Motor Control", font=("Arial", 10, "bold"))
-        motor_frame.pack(fill=tk.X, padx=10, pady=5)
+        motor_frame = ctk.CTkFrame(main_frame)
+        motor_frame.pack(fill="x", padx=10, pady=5)
         
-        steps_label = tk.Label(
-            motor_frame,
+        motor_label = ctk.CTkLabel(motor_frame, text="Motor Control", font=ctk.CTkFont(size=14, weight="bold"))
+        motor_label.pack(pady=5)
+        
+        motor_control_frame = ctk.CTkFrame(motor_frame)
+        motor_control_frame.pack(pady=5)
+        
+        steps_label = ctk.CTkLabel(
+            motor_control_frame,
             text="Steps:",
-            font=("Arial", 10)
+            font=ctk.CTkFont(size=12)
         )
-        steps_label.pack(side=tk.LEFT, padx=5)
+        steps_label.pack(side="left", padx=5)
         
-        self.steps_entry = tk.Entry(motor_frame, width=10, font=("Arial", 10))
-        self.steps_entry.pack(side=tk.LEFT, padx=5)
+        self.steps_entry = ctk.CTkEntry(motor_control_frame, width=100, font=ctk.CTkFont(size=12))
+        self.steps_entry.pack(side="left", padx=5)
         self.steps_entry.insert(0, "100")
         
-        motor_button = tk.Button(
-            motor_frame,
+        motor_button = ctk.CTkButton(
+            motor_control_frame,
             text="Move Motor",
             command=self._move_motor,
-            font=("Arial", 10),
-            width=12
+            font=ctk.CTkFont(size=12),
+            width=120
         )
-        motor_button.pack(side=tk.LEFT, padx=5)
+        motor_button.pack(side="left", padx=5)
         
         # Read Data Section
-        read_frame = tk.LabelFrame(main_frame, text="Read Data", font=("Arial", 10, "bold"))
-        read_frame.pack(fill=tk.X, padx=10, pady=5)
+        read_frame = ctk.CTkFrame(main_frame)
+        read_frame.pack(fill="x", padx=10, pady=5)
         
-        read_input_button = tk.Button(
-            read_frame,
+        read_label = ctk.CTkLabel(read_frame, text="Read Data", font=ctk.CTkFont(size=14, weight="bold"))
+        read_label.pack(pady=5)
+        
+        read_button_frame = ctk.CTkFrame(read_frame)
+        read_button_frame.pack(pady=5)
+        
+        read_input_button = ctk.CTkButton(
+            read_button_frame,
             text="Read GPIO Input",
             command=lambda: self._send_command("READ_INPUT"),
-            font=("Arial", 10),
-            width=15
+            font=ctk.CTkFont(size=12),
+            width=150
         )
-        read_input_button.pack(side=tk.LEFT, padx=5)
+        read_input_button.pack(side="left", padx=5)
         
-        read_adc_button = tk.Button(
-            read_frame,
+        read_adc_button = ctk.CTkButton(
+            read_button_frame,
             text="Read ADC",
             command=lambda: self._send_command("READ_ADC"),
-            font=("Arial", 10),
-            width=15
+            font=ctk.CTkFont(size=12),
+            width=150
         )
-        read_adc_button.pack(side=tk.LEFT, padx=5)
+        read_adc_button.pack(side="left", padx=5)
         
         # Data Display Section
-        data_frame = tk.LabelFrame(main_frame, text="Data Display (Read-Only from Target)", font=("Arial", 10, "bold"))
-        data_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        data_frame = ctk.CTkFrame(main_frame)
+        data_frame.pack(fill="both", expand=True, padx=10, pady=5)
         
-        # Text display with scrollbar
-        text_frame = tk.Frame(data_frame)
-        text_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        data_label = ctk.CTkLabel(data_frame, text="Data Display (Read-Only from Target)", font=ctk.CTkFont(size=14, weight="bold"))
+        data_label.pack(pady=5)
         
-        self.data_display = tk.Text(
-            text_frame,
-            state=tk.DISABLED,
-            font=("Courier", 9),
-            bg="white",
-            wrap=tk.WORD
+        # Text display with built-in scrolling
+        self.data_display = ctk.CTkTextbox(
+            data_frame,
+            font=ctk.CTkFont(size=11, family="Courier"),
+            wrap="word",
+            height=200
         )
-        self.data_display.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        
-        scrollbar = tk.Scrollbar(text_frame, orient=tk.VERTICAL, command=self.data_display.yview)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.data_display.config(yscrollcommand=scrollbar.set)
+        self.data_display.pack(fill="both", expand=True, padx=5, pady=5)
         
         # Status label
-        self.status_label = tk.Label(
+        self.status_label = ctk.CTkLabel(
             main_frame,
             text="Ready - Waiting for commands",
-            font=("Arial", 10),
-            fg="blue",
-            bg="lightgray"
+            font=ctk.CTkFont(size=12),
+            text_color="blue"
         )
         self.status_label.pack(pady=5)
         
@@ -303,6 +346,14 @@ class FusorHostApp:
             self._update_status(f"Error sending command: {e}", "red")
             self._update_data_display(f"[ERROR] Command {command} failed: {e}")
     
+    def _update_voltage_label(self, value):
+        """Update voltage label when slider moves."""
+        self.voltage_value_label.configure(text=str(int(value)))
+    
+    def _update_pump_label(self, value):
+        """Update pump power label when slider moves."""
+        self.pump_value_label.configure(text=f"{int(value)}%")
+    
     def _set_voltage(self):
         """Set voltage - sends command to target."""
         voltage = int(self.voltage_scale.get())
@@ -331,15 +382,14 @@ class FusorHostApp:
     
     def _update_data_display(self, data: str):
         """Update the data display with new read-only data from target."""
-        self.data_display.config(state=tk.NORMAL)
         timestamp = time.strftime('%H:%M:%S')
-        self.data_display.insert(tk.END, f"{timestamp} - {data}\n")
-        self.data_display.see(tk.END)
-        self.data_display.config(state=tk.DISABLED)
+        self.data_display.insert("end", f"{timestamp} - {data}\n")
+        # Auto-scroll to bottom
+        self.data_display.see("end")
     
-    def _update_status(self, message: str, color: str = "black"):
+    def _update_status(self, message: str, color: str = "white"):
         """Update the status label."""
-        self.status_label.config(text=message, fg=color)
+        self.status_label.configure(text=message, text_color=color)
     
     def _start_tcp_data_client(self):
         """Start TCP data client thread to connect and receive read-only data from target."""
@@ -384,6 +434,32 @@ class FusorHostApp:
                 self.tcp_data_client = None
                 self._update_data_display(f"[TCP Data] Disconnected from target")
                 
+            except socket.timeout:
+                if self.tcp_data_running:
+                    self._update_data_display(f"[ERROR] TCP data connection timeout - target may not be ready")
+                    self._update_data_display(f"[System] Retrying connection in 5 seconds...")
+                    time.sleep(5)
+                else:
+                    break
+            except ConnectionRefusedError:
+                if self.tcp_data_running:
+                    self._update_data_display(f"[ERROR] TCP data connection refused - is target listening on port {self.tcp_data_port}?")
+                    self._update_data_display(f"[System] Retrying connection in 5 seconds...")
+                    time.sleep(5)
+                else:
+                    break
+            except OSError as e:
+                if self.tcp_data_running:
+                    if e.errno == 10051:  # Windows: Network unreachable
+                        self._update_data_display(f"[ERROR] Network unreachable - cannot reach {self.target_ip}:{self.tcp_data_port}")
+                    elif e.errno == 10061:  # Windows: Connection refused
+                        self._update_data_display(f"[ERROR] Connection refused - is target running on port {self.tcp_data_port}?")
+                    else:
+                        self._update_data_display(f"[ERROR] TCP data connection failed (OSError {e.errno}): {e}")
+                    self._update_data_display(f"[System] Retrying connection in 5 seconds...")
+                    time.sleep(5)
+                else:
+                    break
             except socket.error as e:
                 if self.tcp_data_running:
                     self._update_data_display(f"[ERROR] TCP data connection failed: {e}")
@@ -393,7 +469,8 @@ class FusorHostApp:
                     break
             except Exception as e:
                 if self.tcp_data_running:
-                    self._update_data_display(f"[ERROR] TCP data client error: {e}")
+                    self._update_data_display(f"[ERROR] TCP data client error ({type(e).__name__}): {e}")
+                    self._update_data_display(f"[System] Retrying connection in 5 seconds...")
                     time.sleep(5)
                 else:
                     break

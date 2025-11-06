@@ -449,12 +449,23 @@ python3 src/Target_Codebase/target_main.py --host 192.168.0.1 --tcp-command-port
 The RPi should run `target_main.py` automatically at boot. You have two options:
 
 **Option 1: Systemd Service (Recommended)**
+
+**Quick Setup (Automated):**
+```bash
+# Run the setup script (automatically installs and configures the service)
+sudo bash setup_service.sh
+```
+
+**Manual Setup:**
 ```bash
 # Copy the service file
 sudo cp farnsworth-fusor.service /etc/systemd/system/
 
-# Edit the service file to match your RPi paths
+# Edit the service file to match your RPi paths (if needed)
 sudo nano /etc/systemd/system/farnsworth-fusor.service
+
+# Reload systemd
+sudo systemctl daemon-reload
 
 # Enable and start the service
 sudo systemctl enable farnsworth-fusor.service
@@ -462,6 +473,21 @@ sudo systemctl start farnsworth-fusor.service
 
 # Check status
 sudo systemctl status farnsworth-fusor.service
+```
+
+**Service Management:**
+```bash
+# View logs (real-time)
+sudo journalctl -u farnsworth-fusor.service -f
+
+# Restart service
+sudo systemctl restart farnsworth-fusor.service
+
+# Stop service
+sudo systemctl stop farnsworth-fusor.service
+
+# Disable auto-start
+sudo systemctl disable farnsworth-fusor.service
 ```
 
 **Option 2: Add to rc.local**
