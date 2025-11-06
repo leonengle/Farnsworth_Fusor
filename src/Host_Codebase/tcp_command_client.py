@@ -9,12 +9,11 @@ Features:
 """
 
 import socket
+import logging
 from typing import Optional
-from logging_setup import setup_logging, get_logger
 
 # Setup logging for this module
-setup_logging()
-logger = get_logger("TCPCommandClient")
+logger = logging.getLogger("TCPCommandClient")
 
 
 class TCPCommandClient:

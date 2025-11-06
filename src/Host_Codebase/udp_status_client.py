@@ -9,12 +9,11 @@ Features:
 
 import socket
 import threading
+import logging
 from typing import Optional, Callable
-from logging_setup import setup_logging, get_logger
 
 # Setup logging for this module
-setup_logging()
-logger = get_logger("UDPStatusClient")
+logger = logging.getLogger("UDPStatusClient")
 
 
 class UDPStatusClient:
