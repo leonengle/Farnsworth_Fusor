@@ -105,4 +105,3 @@ class VacuumControlInterface(ABC):
         """
         pass
 
-

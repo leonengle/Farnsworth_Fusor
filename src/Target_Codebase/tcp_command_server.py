@@ -19,6 +19,8 @@ from typing import Optional, Callable
 
 # Import real ADC - no mock fallback
 from adc import MCP3008ADC
+# Import real ADC - no mock fallback
+from adc import MCP3008ADC
 
 # setup logging for this module
 setup_logging()
@@ -113,10 +115,12 @@ class TCPCommandServer:
         
         # check for led control commands
         if command == "LED_ON":
+        if command == "LED_ON":
             # turn on the led for visual feedback
             GPIO.output(self.led_pin, GPIO.HIGH)
             logger.info("LED turned ON")
             return "LED_ON_SUCCESS"
+        elif command == "LED_OFF":
         elif command == "LED_OFF":
             # turn off the led
             GPIO.output(self.led_pin, GPIO.LOW)
@@ -275,6 +279,14 @@ class TCPCommandServer:
     def cleanup(self):
         """Clean up all resources."""
         self.stop_server()
+        
+        # Turn off LED before cleanup
+        try:
+            GPIO.output(self.led_pin, GPIO.LOW)
+            logger.info("LED turned OFF during cleanup")
+        except Exception as e:
+            logger.error(f"Could not turn off LED during cleanup: {e}")
+        
         
         # Turn off LED before cleanup
         try:

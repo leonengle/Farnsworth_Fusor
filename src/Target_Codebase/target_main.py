@@ -16,7 +16,11 @@ import time
 import argparse
 import signal
 import sys
+<<<<<<< HEAD
 from tcp_command_server import TCPCommandServer, PeriodicDataSender
+=======
+from ssh_hello_world import SSHHelloWorldServer, PeriodicDataSender
+>>>>>>> 1ad104cc5265f0d49469e6b2ab60f5d17633eb15
 from tcp_client import TargetTCPCommunicator
 from udp_status_server import UDPStatusSender, UDPStatusReceiver
 from logging_setup import setup_logging, get_logger
@@ -31,7 +35,11 @@ class TargetSystem:
     Main target system that integrates all components.
     """
     
+<<<<<<< HEAD
     def __init__(self, host_ip: str = "192.168.0.1", tcp_command_port: int = 2222,
+=======
+    def __init__(self, host_ip: str = "172.20.10.5", ssh_port: int = 2222,
+>>>>>>> 1ad104cc5265f0d49469e6b2ab60f5d17633eb15
                  led_pin: int = 26, input_pin: int = 6, use_adc: bool = False):
         """
         Initialize the target system.
@@ -210,18 +218,29 @@ def signal_handler(signum, frame):
     
     sys.exit(0)
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> 1ad104cc5265f0d49469e6b2ab60f5d17633eb15
 def main():
     """Main function."""
     # Set up signal handlers
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
+<<<<<<< HEAD
     parser = argparse.ArgumentParser(description="Target System - TCP/UDP")
     parser.add_argument("--host", default="192.168.0.1", 
                        help="Host IP address (default: 192.168.0.1)")
     parser.add_argument("--tcp-command-port", type=int, default=2222,
                        help="TCP command server port (default: 2222)")
+=======
+    parser = argparse.ArgumentParser(description="Target System - SSH Hello World")
+    parser.add_argument("--host", default="172.20.10.5", 
+                       help="Host IP address (default: 172.20.10.5)")
+    parser.add_argument("--ssh-port", type=int, default=2222,
+                       help="SSH server port (default: 2222)")
+>>>>>>> 1ad104cc5265f0d49469e6b2ab60f5d17633eb15
     parser.add_argument("--led-pin", type=int, default=26,
                        help="GPIO pin for LED (default: 26)")
     parser.add_argument("--input-pin", type=int, default=6,
