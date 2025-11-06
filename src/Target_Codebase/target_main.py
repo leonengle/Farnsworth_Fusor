@@ -1,16 +1,3 @@
-"""
-Target Main Program - TCP/UDP Implementation
-This program implements the TCP/UDP communication system.
-
-Features:
-- TCP server to receive commands from host
-- GPIO LED control for visual feedback when receiving commands
-- GPIO input reading (jumper wire to ground/5V)
-- Periodic TCP data sending every 1 second
-- UDP status/heartbeat communication
-- Integration with existing motor control and ADC systems
-"""
-
 import threading
 import time
 import argparse
@@ -27,22 +14,8 @@ logger = get_logger("TargetMain")
 
 
 class TargetSystem:
-    """
-    Main target system that integrates all components.
-    """
-    
     def __init__(self, host_ip: str = "192.168.0.1", tcp_command_port: int = 2222,
                  led_pin: int = 26, input_pin: int = 6, use_adc: bool = False):
-        """
-        Initialize the target system.
-        
-        Args:
-            host_ip: IP address of the host system
-            tcp_command_port: Port for TCP command server
-            led_pin: GPIO pin for LED output
-            input_pin: GPIO pin for input reading
-            use_adc: Enable ADC functionality
-        """
         self.host_ip = host_ip
         self.tcp_command_port = tcp_command_port
         self.led_pin = led_pin
@@ -71,23 +44,12 @@ class TargetSystem:
         logger.info(f"Target system initialized (Host: {host_ip}, TCP Command Port: {tcp_command_port})")
     
     def _host_callback(self, data: str):
-        """
-        Callback function - data is sent via TCP data server automatically.
-        This is kept for compatibility but data goes through TCP data server.
-        """
-        # Send status via UDP
         try:
             self.udp_status_sender.send_status(f"STATUS:{data}")
         except Exception as e:
             logger.debug(f"UDP status send failed: {e}")
     
     def _get_periodic_data(self) -> str:
-        """
-        Get periodic data to send to host.
-        
-        Returns:
-            Data string to send
-        """
         try:
             if self.use_adc and self.tcp_command_server.adc:
                 # Send ADC data
@@ -102,8 +64,7 @@ class TargetSystem:
             return ""
     
     def start(self):
-        """Start the target system."""
-        if self.running:
+                if self.running:
             logger.warning("Target system is already running")
             return
         
@@ -141,8 +102,7 @@ class TargetSystem:
             self.stop()
     
     def stop(self):
-        """Stop the target system."""
-        self.running = False
+                self.running = False
         
         logger.info("Stopping target system...")
         
@@ -167,15 +127,14 @@ class TargetSystem:
 
 
 def signal_handler(signum, frame):
-    """Handle interrupt signals to ensure LED is turned off."""
-    logger.info(f"Received signal {signum}, shutting down gracefully...")
+        logger.info(f"Received signal {signum}, shutting down gracefully...")
     
-    # Turn off LED immediately
+    # Turn off LED immediately using GPIO handler
     try:
-        import RPi.GPIO as GPIO
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setup(26, GPIO.OUT)  # Default LED pin
-        GPIO.output(26, GPIO.LOW)
+        from gpio_handler import GPIOHandler
+        gpio = GPIOHandler(led_pin=26, input_pin=6)
+        gpio.led_off()
+        gpio.cleanup()
         logger.info("LED turned OFF due to interrupt")
     except Exception as e:
         logger.error(f"Could not turn off LED: {e}")
@@ -184,8 +143,7 @@ def signal_handler(signum, frame):
 
 
 def main():
-    """Main function."""
-    # Set up signal handlers
+        # Set up signal handlers
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
