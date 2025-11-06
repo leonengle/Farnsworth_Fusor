@@ -9,9 +9,9 @@ logger = logging.getLogger("TCPDataClient")
 
 
 class TCPDataClient(DataReceiverInterface):
-        def __init__(self, target_ip: str = "192.168.0.2", target_port: int = 12345,
+    def __init__(self, target_ip: str = "192.168.0.2", target_port: int = 12345,
                  data_callback: Optional[Callable[[str], None]] = None):
-                super().__init__(target_ip, target_port, data_callback)
+        super().__init__(target_ip, target_port, data_callback)
         self.socket: Optional[socket.socket] = None
         self.client_thread: Optional[threading.Thread] = None
         self.connection_timeout = 5
@@ -21,11 +21,11 @@ class TCPDataClient(DataReceiverInterface):
         logger.info(f"TCP Data Client initialized for {target_ip}:{target_port}")
     
     def set_data_callback(self, callback: Callable[[str], None]):
-                self.data_callback = callback
+        self.data_callback = callback
         logger.info("Data callback set")
     
     def start(self):
-                if self.running:
+        if self.running:
             logger.warning("TCP data client is already running")
             return
         
@@ -35,7 +35,7 @@ class TCPDataClient(DataReceiverInterface):
         logger.info("TCP data client started")
     
     def stop(self):
-                self.running = False
+        self.running = False
         if self.socket:
             try:
                 self.socket.close()
@@ -49,7 +49,7 @@ class TCPDataClient(DataReceiverInterface):
         logger.info("TCP data client stopped")
     
     def _client_loop(self):
-                while self.running:
+        while self.running:
             try:
                 # Connect to target's TCP data server
                 logger.info(f"Connecting to target data server at {self.target_ip}:{self.target_port}")
@@ -127,5 +127,5 @@ class TCPDataClient(DataReceiverInterface):
         logger.info("TCP data client loop ended")
     
     def is_connected(self) -> bool:
-                return self.socket is not None and self.running
+        return self.socket is not None and self.running
 
