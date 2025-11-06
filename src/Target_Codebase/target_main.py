@@ -16,12 +16,8 @@ import time
 import argparse
 import signal
 import sys
-<<<<<<< HEAD
 from tcp_command_server import TCPCommandServer, PeriodicDataSender
-=======
-from ssh_hello_world import SSHHelloWorldServer, PeriodicDataSender
->>>>>>> 1ad104cc5265f0d49469e6b2ab60f5d17633eb15
-from tcp_client import TargetTCPCommunicator
+from tcp_data_server import TCPDataServer
 from udp_status_server import UDPStatusSender, UDPStatusReceiver
 from logging_setup import setup_logging, get_logger
 
@@ -35,11 +31,7 @@ class TargetSystem:
     Main target system that integrates all components.
     """
     
-<<<<<<< HEAD
     def __init__(self, host_ip: str = "192.168.0.1", tcp_command_port: int = 2222,
-=======
-    def __init__(self, host_ip: str = "172.20.10.5", ssh_port: int = 2222,
->>>>>>> 1ad104cc5265f0d49469e6b2ab60f5d17633eb15
                  led_pin: int = 26, input_pin: int = 6, use_adc: bool = False):
         """
         Initialize the target system.
@@ -66,7 +58,8 @@ class TargetSystem:
             use_adc=use_adc
         )
         
-        self.host_communicator = TargetTCPCommunicator(host_ip, 12345)
+        # TCP data server - listens on port 12345 for host to connect
+        self.tcp_data_server = TCPDataServer(host="0.0.0.0", port=12345)
         self.data_sender = None
         
         # UDP status communication
@@ -79,37 +72,14 @@ class TargetSystem:
     
     def _host_callback(self, data: str):
         """
-        Callback function to send data to host.
-        
-        Args:
-            data: Data string to send to host
+        Callback function - data is sent via TCP data server automatically.
+        This is kept for compatibility but data goes through TCP data server.
         """
-        if self.host_communicator.is_connected():
-            # Parse data and send appropriately
-            if data.startswith("GPIO_INPUT:"):
-                pin_value = int(data.split(":")[1])
-                self.host_communicator.send_gpio_data(pin_value)
-            elif data.startswith("ADC_DATA:"):
-                # Format: ADC_DATA:512,256,128,64,32,16,8,4
-                adc_values_str = data.split(":")[1]
-                adc_values = [int(x) for x in adc_values_str.split(",")]
-                self.host_communicator.send_adc_all_data(adc_values)
-            elif data.startswith("ADC_CH"):
-                # Format: ADC_CH0:512
-                parts = data.split(":")
-                channel = int(parts[0].split("CH")[1])
-                value = int(parts[1])
-                self.host_communicator.send_adc_data(channel, value)
-            else:
-                logger.warning(f"Unknown data format: {data}")
-            
-            # Send status via UDP
-            try:
-                self.udp_status_sender.send_status(f"STATUS:{data}")
-            except Exception as e:
-                logger.debug(f"UDP status send failed: {e}")
-        else:
-            logger.warning("Host communicator not connected, cannot send data")
+        # Send status via UDP
+        try:
+            self.udp_status_sender.send_status(f"STATUS:{data}")
+        except Exception as e:
+            logger.debug(f"UDP status send failed: {e}")
     
     def _get_periodic_data(self) -> str:
         """
@@ -140,22 +110,18 @@ class TargetSystem:
         self.running = True
         
         try:
-            # Connect to host
-            logger.info("Connecting to host...")
-            if self.host_communicator.connect():
-                logger.info("Connected to host successfully")
-            else:
-                logger.warning("Failed to connect to host, continuing without host communication")
-            
             # Set up host callback for TCP command server
             self.tcp_command_server.set_host_callback(self._host_callback)
             
-            # Create and start periodic data sender
+            # Set up data callback for TCP data server
+            self.tcp_data_server.set_send_callback(self._get_periodic_data)
+            
+            # Create and start periodic data sender (for legacy support)
             self.data_sender = PeriodicDataSender(self.tcp_command_server, self._host_callback, self.use_adc)
             self.data_sender.start()
             
-            # Start TCP periodic sending
-            self.host_communicator.start_periodic_sending(self._get_periodic_data, 1.0)
+            # Start TCP data server (listens on port 12345, host connects)
+            self.tcp_data_server.start_server()
             
             # Start UDP status communication
             self.udp_status_sender.start()
@@ -164,6 +130,7 @@ class TargetSystem:
             logger.info("Target system started successfully")
             logger.info("TCP/UDP system is now running!")
             logger.info(f"TCP Command server listening on port {self.tcp_command_port}")
+            logger.info(f"TCP Data server listening on port 12345")
             logger.info(f"Send 'LED_ON' or 'LED_OFF' commands via TCP to control the LED")
             
             # Start TCP command server (this will block)
@@ -183,8 +150,8 @@ class TargetSystem:
         if self.data_sender:
             self.data_sender.stop()
         
-        # Stop TCP periodic sending
-        self.host_communicator.stop_periodic_sending()
+        # Stop TCP data server
+        self.tcp_data_server.stop_server()
         
         # Stop TCP command server
         self.tcp_command_server.stop_server()
@@ -192,9 +159,6 @@ class TargetSystem:
         # Stop UDP status communication
         self.udp_status_sender.stop()
         self.udp_status_receiver.stop()
-        
-        # Disconnect from host
-        self.host_communicator.disconnect()
         
         # Cleanup
         self.tcp_command_server.cleanup()
@@ -218,29 +182,18 @@ def signal_handler(signum, frame):
     
     sys.exit(0)
 
-<<<<<<< HEAD
 
-=======
->>>>>>> 1ad104cc5265f0d49469e6b2ab60f5d17633eb15
 def main():
     """Main function."""
     # Set up signal handlers
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
-<<<<<<< HEAD
     parser = argparse.ArgumentParser(description="Target System - TCP/UDP")
     parser.add_argument("--host", default="192.168.0.1", 
                        help="Host IP address (default: 192.168.0.1)")
     parser.add_argument("--tcp-command-port", type=int, default=2222,
                        help="TCP command server port (default: 2222)")
-=======
-    parser = argparse.ArgumentParser(description="Target System - SSH Hello World")
-    parser.add_argument("--host", default="172.20.10.5", 
-                       help="Host IP address (default: 172.20.10.5)")
-    parser.add_argument("--ssh-port", type=int, default=2222,
-                       help="SSH server port (default: 2222)")
->>>>>>> 1ad104cc5265f0d49469e6b2ab60f5d17633eb15
     parser.add_argument("--led-pin", type=int, default=26,
                        help="GPIO pin for LED (default: 26)")
     parser.add_argument("--input-pin", type=int, default=6,
