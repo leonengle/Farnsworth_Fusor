@@ -376,19 +376,34 @@ class FusorHostApp:
         self._update_data_display(f"[UDP Status] From {address[0]}: {message}")
     
     def _update_data_display(self, data: str):
-        timestamp = time.strftime('%H:%M:%S')
-        self.data_display.insert("end", f"{timestamp} - {data}\n")
-        # Auto-scroll to bottom
-        self.data_display.see("end")
+        if not self.data_display or not self.root:
+            return
+        try:
+            timestamp = time.strftime('%H:%M:%S')
+            self.data_display.insert("end", f"{timestamp} - {data}\n")
+            # Auto-scroll to bottom
+            self.data_display.see("end")
+        except Exception:
+            pass
     
     def _update_status(self, message: str, color: str = "white"):
-        self.status_label.configure(text=message, text_color=color)
+        if not self.status_label or not self.root:
+            return
+        try:
+            self.status_label.configure(text=message, text_color=color)
+        except Exception:
+            pass
     
     def _on_closing(self):
         # Send LED_OFF command before shutting down
         self._turn_off_led()
+        # Destroy root first to prevent UI update errors
+        if self.root:
+            try:
+                self.root.destroy()
+            except:
+                pass
         self.stop()
-        self.root.destroy()
     
     def _turn_off_led(self):
         # Try to send LED_OFF command - attempt multiple times if needed
@@ -400,11 +415,17 @@ class FusorHostApp:
             # Send LED_OFF command
             if self.tcp_command_client.is_connected():
                 self.tcp_command_client.send_command("LED_OFF")
-                self._update_data_display("[System] LED turned OFF during shutdown")
+                if self.data_display and self.root:
+                    self._update_data_display("[System] LED turned OFF during shutdown")
             else:
-                self._update_data_display("[WARNING] Could not connect to turn off LED")
+                if self.data_display and self.root:
+                    self._update_data_display("[WARNING] Could not connect to turn off LED")
         except Exception as e:
-            self._update_data_display(f"[ERROR] Could not turn off LED: {e}")
+            if self.data_display and self.root:
+                try:
+                    self._update_data_display(f"[ERROR] Could not turn off LED: {e}")
+                except:
+                    pass
             # Try one more time
             try:
                 if self.tcp_command_client.connect():
