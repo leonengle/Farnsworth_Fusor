@@ -21,23 +21,24 @@ git clone https://github.com/leonengle/Farnsworth_Fusor/
 cd Farnsworth_Fusor
 ```
 
-**Test if everything works:**
+**Verify setup:**
 ```
-# Test your environment
-python testEnv.py
+# Check Python version
+python --version
+# Should be Python 3.7 or higher
 ```
 
 **Quick Start Commands:**
 
 ```
 # First time setup (do this once)
-python setup_dev.py
+pip install -r requirements.txt
+pre-commit install  # Optional: for code quality checks
 
 # Run the host application
 python src/Host_Codebase/host_main.py
 
 # Check your code before committing
-python testEnv.py  # Test environment
 black --check src/ && pylint src/  # Check code quality
 ```
 
@@ -67,30 +68,25 @@ python3 -m venv venv
 source venv/bin/activate
 ```
 
-### 4. Complete Development Setup
+### 4. Install Dependencies
 ```
-python setup_dev.py
+pip install -r requirements.txt
 ```
 
-This single command:
-- Installs all dependencies
-- Sets up pre-commit hooks
-- Configures development tools
-- Runs initial checks
-
-### 5. Test Everything Works
+### 5. Set Up Pre-commit Hooks (Optional)
 ```
-# Test your environment
-python testEnv.py
+pre-commit install
+```
 
+This will enable automatic code quality checks before each commit.
+
+### 6. Run the Application
+```
 # Run the host application
 python src/Host_Codebase/host_main.py
 ```
 
-**Expected test results:**
-- **Before setup**: Some commands may fail (missing dependencies)
-- **After setup**: All commands should work perfectly
-- **File structure**: All required files should be present
+The control panel should open with all buttons available. If you see connection errors, check the network configuration.
 
 ## Dependencies Overview
 
@@ -141,14 +137,13 @@ This project uses several Python libraries for different functionalities. Here's
 | Task | Command | What it does |
 |------|---------|--------------|
 | Install dependencies | `pip install -r requirements.txt` | Install Python dependencies |
-| Set up development | `python setup_dev.py` | Set up development environment |
+| Set up pre-commit | `pre-commit install` | Set up pre-commit hooks (optional) |
 | Run host application | `python src/Host_Codebase/host_main.py` | Start GUI application |
 | Run target application | `python src/Target_Codebase/target_main.py` | Start target system (RPi) |
 | Run host control (CLI) | `python src/Host_Codebase/host_control.py` | Start command-line interface |
 | Format code | `black src/` | Format code with black |
 | Run linting | `pylint src/` | Check code quality |
-| Test environment | `python testEnv.py` | Test environment setup |
-| Run all checks | `black --check src/ && pylint src/ && python testEnv.py` | Run all checks |
+| Run all checks | `black --check src/ && pylint src/` | Run all checks |
 | Quick check | `black src/ && pylint src/` | Quick code check |
 | Clean up | `find . -name "*.pyc" -delete && rm -rf logs/` | Clean generated files |
 
@@ -156,20 +151,19 @@ This project uses several Python libraries for different functionalities. Here's
 
 ```
 # Start your day
-python testEnv.py                    # Test environment
 python src/Host_Codebase/host_main.py  # Run the host application
 
 # While developing
 black src/ && pylint src/            # Quick code check (format + lint)
 
 # Before committing
-black --check src/ && pylint src/ && python testEnv.py  # Full check
+black --check src/ && pylint src/  # Full check
 
 # End of day
 find . -name "*.pyc" -delete && rm -rf logs/  # Clean up temporary files
 ```
 
-**Pro tip:** Run `python testEnv.py` first to catch any issues early!
+**Pro tip:** Run `black --check src/ && pylint src/` before committing to catch issues early!
 
 ## Project Structure
 
@@ -196,8 +190,6 @@ Farnsworth_Fusor/
 │       ├── base_classes.py     # Abstract base classes
 │       └── logging_setup.py    # Logging system
 ├── requirements.txt            # Dependencies
-├── testEnv.py                  # Environment testing
-├── setup_dev.py                # Development setup
 ├── .pre-commit-config.yaml     # Pre-commit hooks
 └── pylintrc                    # Linting configuration
 ```
@@ -256,20 +248,23 @@ Pre-commit hooks will automatically run when you commit changes. If any checks f
 
 ## Troubleshooting
 
-### **Test Everything First**
+### **Check Everything First**
 ```
-# Test your environment
-python testEnv.py
+# Verify Python version
+python --version
 
 # Clean and reinstall if needed
 find . -name "*.pyc" -delete && rm -rf logs/
-python setup_dev.py
+pip install -r requirements.txt
+
+# Check code quality
+black --check src/ && pylint src/
 ```
 
-**Expected test results:**
-- **Before setup**: Some commands may fail (normal - missing dependencies)
-- **After setup**: All commands should work perfectly
-- **File missing**: Check if you're in the right directory
+**Expected results:**
+- **Python version**: Should be 3.7 or higher
+- **Dependencies**: All required packages installed
+- **Code quality**: No formatting or linting errors
 
 ### **Common Errors**
 
@@ -350,7 +345,7 @@ sudo nmcli con up "Wired connection 1"
 ```
 # Clean install
 find . -name "*.pyc" -delete && rm -rf logs/
-python setup_dev.py
+pip install -r requirements.txt
 
 # Or manual install
 pip install -r requirements.txt
@@ -492,10 +487,10 @@ python src/Host_Codebase/host_control.py
 
 - **Virtual Environment**: Always work within the virtual environment
 - **Code Style**: Black formatting with 88-character line length
-- **Testing**: Run `python testEnv.py` before committing
+- **Testing**: Run `black --check src/ && pylint src/` before committing
 - **Logging**: Comprehensive logging for debugging and monitoring
 - **Communication**: TCP/UDP protocol - no SSH dependencies required
 
 ---
 
-**Ready to start? Run `python testEnv.py` to verify everything works!**
+**Ready to start? Run `python src/Host_Codebase/host_main.py` to open the control panel!**
