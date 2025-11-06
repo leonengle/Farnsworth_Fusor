@@ -25,7 +25,7 @@ class TCPClient:
     TCP client for sending data from target to host system.
     """
     
-    def __init__(self, host: str = "192.168.1.100", port: int = 12345):
+    def __init__(self, host: str = "192.168.0.1", port: int = 12345):
         """
         Initialize the TCP client.
         
@@ -195,7 +195,7 @@ class TargetTCPCommunicator:
     High-level interface for TCP communication from target to host.
     """
     
-    def __init__(self, host: str = "192.168.1.100", port: int = 12345):
+    def __init__(self, host: str = "192.168.0.1", port: int = 12345):
         """
         Initialize the target TCP communicator.
         

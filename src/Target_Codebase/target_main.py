@@ -1,25 +1,24 @@
 """
-Target Main Program - SSH/TCP Hybrid Implementation
-This program implements the SSH/TCP hybrid communication system as described in the project diagram.
+Target Main Program - TCP/UDP Implementation
+This program implements the TCP/UDP communication system.
 
 Features:
-- SSH server to receive commands from host (port 2222)
-- TCP client to send sensor data to host (port 8888)
+- TCP server to receive commands from host
 - GPIO LED control for visual feedback when receiving commands
 - GPIO input reading (jumper wire to ground/5V)
 - Periodic TCP data sending every 1 second
+- UDP status/heartbeat communication
 - Integration with existing motor control and ADC systems
 """
 
 import threading
 import time
 import argparse
-import os
-from ssh_hello_world import SSHHelloWorldServer, PeriodicDataSender
-<<<<<<< HEAD
-=======
+import signal
+import sys
+from tcp_command_server import TCPCommandServer, PeriodicDataSender
 from tcp_client import TargetTCPCommunicator
->>>>>>> 1ee0e228647f8d2941aa2698e1bdc0a93f54eae6
+from udp_status_server import UDPStatusSender, UDPStatusReceiver
 from logging_setup import setup_logging, get_logger
 
 # Setup logging first
@@ -32,51 +31,44 @@ class TargetSystem:
     Main target system that integrates all components.
     """
     
-    def __init__(self, host_ip: str = None, ssh_port: int = 2222, tcp_port: int = 8888,
+    def __init__(self, host_ip: str = "192.168.0.1", tcp_command_port: int = 2222,
                  led_pin: int = 26, input_pin: int = 6, use_adc: bool = False):
         """
         Initialize the target system.
         
         Args:
-            host_ip: IP address of the host system (defaults to environment variable or 192.168.1.100)
-            ssh_port: Port for SSH server
-            tcp_port: Port for TCP data transmission
+            host_ip: IP address of the host system
+            tcp_command_port: Port for TCP command server
             led_pin: GPIO pin for LED output
             input_pin: GPIO pin for input reading
             use_adc: Enable ADC functionality
         """
-        # Get host IP from environment variable or use default
-        if host_ip is None:
-            host_ip = os.getenv('FUSOR_HOST_IP', '192.168.1.100')
-        
         self.host_ip = host_ip
-        self.ssh_port = ssh_port
-        self.tcp_port = tcp_port
+        self.tcp_command_port = tcp_command_port
         self.led_pin = led_pin
         self.input_pin = input_pin
         self.use_adc = use_adc
         
         # Initialize components
-        self.ssh_server = SSHHelloWorldServer(
+        self.tcp_command_server = TCPCommandServer(
             host="0.0.0.0", 
-            port=ssh_port,
+            port=tcp_command_port,
             led_pin=led_pin,
             input_pin=input_pin,
             use_adc=use_adc
         )
         
-<<<<<<< HEAD
-=======
         self.host_communicator = TargetTCPCommunicator(host_ip, 12345)
->>>>>>> 1ee0e228647f8d2941aa2698e1bdc0a93f54eae6
         self.data_sender = None
+        
+        # UDP status communication
+        self.udp_status_sender = UDPStatusSender(host_ip, 8888)
+        self.udp_status_receiver = UDPStatusReceiver(8889)
         
         self.running = False
         
-        logger.info(f"Target system initialized (Host: {host_ip}, SSH Port: {ssh_port})")
+        logger.info(f"Target system initialized (Host: {host_ip}, TCP Command Port: {tcp_command_port})")
     
-<<<<<<< HEAD
-=======
     def _host_callback(self, data: str):
         """
         Callback function to send data to host.
@@ -102,6 +94,12 @@ class TargetSystem:
                 self.host_communicator.send_adc_data(channel, value)
             else:
                 logger.warning(f"Unknown data format: {data}")
+            
+            # Send status via UDP
+            try:
+                self.udp_status_sender.send_status(f"STATUS:{data}")
+            except Exception as e:
+                logger.debug(f"UDP status send failed: {e}")
         else:
             logger.warning("Host communicator not connected, cannot send data")
     
@@ -113,19 +111,18 @@ class TargetSystem:
             Data string to send
         """
         try:
-            if self.use_adc and self.ssh_server.adc:
+            if self.use_adc and self.tcp_command_server.adc:
                 # Send ADC data
-                adc_value = self.ssh_server.read_adc_channel(0)  # Use channel 0
+                adc_value = self.tcp_command_server.read_adc_channel(0)  # Use channel 0
                 return f"ADC_DATA:{adc_value}"
             else:
                 # Send GPIO data
-                pin_value = self.ssh_server.read_input_pin()
+                pin_value = self.tcp_command_server.read_input_pin()
                 return f"GPIO_INPUT:{pin_value}"
         except Exception as e:
             logger.error(f"Error getting periodic data: {e}")
             return ""
     
->>>>>>> 1ee0e228647f8d2941aa2698e1bdc0a93f54eae6
     def start(self):
         """Start the target system."""
         if self.running:
@@ -135,26 +132,34 @@ class TargetSystem:
         self.running = True
         
         try:
-            # Create and start periodic data sender with TCP
-            self.data_sender = PeriodicDataSender(
-                self.ssh_server, 
-                host=self.host_ip, 
-                port=self.tcp_port,  # Use configurable TCP port
-                use_adc=self.use_adc
-            )
+            # Connect to host
+            logger.info("Connecting to host...")
+            if self.host_communicator.connect():
+                logger.info("Connected to host successfully")
+            else:
+                logger.warning("Failed to connect to host, continuing without host communication")
+            
+            # Set up host callback for TCP command server
+            self.tcp_command_server.set_host_callback(self._host_callback)
+            
+            # Create and start periodic data sender
+            self.data_sender = PeriodicDataSender(self.tcp_command_server, self._host_callback, self.use_adc)
             self.data_sender.start()
             
             # Start TCP periodic sending
             self.host_communicator.start_periodic_sending(self._get_periodic_data, 1.0)
             
-            logger.info("Target system started successfully")
-            logger.info("SSH Hello World system is now running!")
-            logger.info(f"Connect from host using: ssh mdali@{self.host_ip} -p {self.ssh_port}")
-            logger.info("Send 'LED_ON' or 'LED_OFF' commands to control the LED")
-            logger.info(f"Sending sensor data to host via TCP on port {self.tcp_port}")
+            # Start UDP status communication
+            self.udp_status_sender.start()
+            self.udp_status_receiver.start()
             
-            # Start SSH server (this will block)
-            self.ssh_server.start_server()
+            logger.info("Target system started successfully")
+            logger.info("TCP/UDP system is now running!")
+            logger.info(f"TCP Command server listening on port {self.tcp_command_port}")
+            logger.info(f"Send 'LED_ON' or 'LED_OFF' commands via TCP to control the LED")
+            
+            # Start TCP command server (this will block)
+            self.tcp_command_server.start_server()
             
         except Exception as e:
             logger.error(f"Error starting target system: {e}")
@@ -173,24 +178,50 @@ class TargetSystem:
         # Stop TCP periodic sending
         self.host_communicator.stop_periodic_sending()
         
-        # Stop SSH server
-        self.ssh_server.stop_server()
+        # Stop TCP command server
+        self.tcp_command_server.stop_server()
+        
+        # Stop UDP status communication
+        self.udp_status_sender.stop()
+        self.udp_status_receiver.stop()
+        
+        # Disconnect from host
+        self.host_communicator.disconnect()
         
         # Cleanup
-        self.ssh_server.cleanup()
+        self.tcp_command_server.cleanup()
         
         logger.info("Target system stopped")
 
 
+def signal_handler(signum, frame):
+    """Handle interrupt signals to ensure LED is turned off."""
+    logger.info(f"Received signal {signum}, shutting down gracefully...")
+    
+    # Turn off LED immediately
+    try:
+        import RPi.GPIO as GPIO
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setup(26, GPIO.OUT)  # Default LED pin
+        GPIO.output(26, GPIO.LOW)
+        logger.info("LED turned OFF due to interrupt")
+    except Exception as e:
+        logger.error(f"Could not turn off LED: {e}")
+    
+    sys.exit(0)
+
+
 def main():
     """Main function."""
-    parser = argparse.ArgumentParser(description="Target System - SSH/TCP Hybrid")
-    parser.add_argument("--host", default=None, 
-                       help="Host IP address (default: from FUSOR_HOST_IP env var or 192.168.1.100)")
-    parser.add_argument("--ssh-port", type=int, default=2222,
-                       help="SSH server port (default: 2222)")
-    parser.add_argument("--tcp-port", type=int, default=8888,
-                       help="TCP data port (default: 8888)")
+    # Set up signal handlers
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    parser = argparse.ArgumentParser(description="Target System - TCP/UDP")
+    parser.add_argument("--host", default="192.168.0.1", 
+                       help="Host IP address (default: 192.168.0.1)")
+    parser.add_argument("--tcp-command-port", type=int, default=2222,
+                       help="TCP command server port (default: 2222)")
     parser.add_argument("--led-pin", type=int, default=26,
                        help="GPIO pin for LED (default: 26)")
     parser.add_argument("--input-pin", type=int, default=6,
@@ -200,19 +231,15 @@ def main():
     
     args = parser.parse_args()
     
-    # Get host IP from environment variable or command line
-    host_ip = args.host or os.getenv('FUSOR_HOST_IP', '192.168.1.100')
-    
-    logger.info("Starting Target System - SSH/TCP Hybrid")
-    logger.info(f"Configuration: Host={host_ip}, SSH Port={args.ssh_port}, TCP Port={args.tcp_port}")
+    logger.info("Starting Target System - TCP/UDP")
+    logger.info(f"Configuration: Host={args.host}, TCP Command Port={args.tcp_command_port}")
     logger.info(f"GPIO: LED={args.led_pin}, Input={args.input_pin}")
     logger.info(f"ADC: {'Enabled' if args.use_adc else 'Disabled'}")
     
     # Create and start target system
     target_system = TargetSystem(
-        host_ip=host_ip,
-        ssh_port=args.ssh_port,
-        tcp_port=args.tcp_port,
+        host_ip=args.host,
+        tcp_command_port=args.tcp_command_port,
         led_pin=args.led_pin,
         input_pin=args.input_pin,
         use_adc=args.use_adc

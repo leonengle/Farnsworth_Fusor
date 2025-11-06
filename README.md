@@ -1,19 +1,19 @@
-# 🚀 Farnsworth Fusor Control System
+# Farnsworth Fusor Control System
 
-Codebase which implements an automated startup & shutdown sequence, data acquisition system, and manual control of a Farnsworth Fusor.
+Codebase which implements an automated startup & shutdown sequence, data acquisition system, and manual control of a Farnsworth Fusor using TCP/UDP communication.
 
-## ⚠️ **IMPORTANT: Raspberry Pi Only**
+## **IMPORTANT: Raspberry Pi Only**
 
 **This project is designed exclusively for Raspberry Pi environments.** It includes external libraries that only work within the Raspberry Pi ecosystem:
 
 - **RPi.GPIO**: Raspberry Pi GPIO control
-- **pigpio**: Advanced Raspberry Pi GPIO operations
-- **spidev**: Raspberry Pi SPI communication
+- **pigpio**: Advanced GPIO control with hardware PWM, servo control, I2C/SPI
+- **spidev**: SPI communication for ADC and other SPI devices
 - **Hardware-specific dependencies**: ADC, motor control, and sensor interfaces
 
 **This project will NOT run on Windows, macOS, or other Linux distributions** due to these hardware-specific dependencies.
 
-## 🎯 Quick Start (Recommended)
+## Quick Start (Recommended)
 
 **First, clone and enter the project:**
 ```
@@ -24,28 +24,24 @@ cd Farnsworth_Fusor
 **Test if everything works:**
 ```
 # Test your environment
-make test-env
+python testEnv.py
 ```
 
-**Then use the Makefile for everything!** It's much easier than remembering complex commands:
+**Quick Start Commands:**
 
 ```
 # First time setup (do this once)
-make dev
+python setup_dev.py
 
-# Run the application
-make run
+# Run the host application
+python src/Host_Codebase/host_main.py
 
 # Check your code before committing
-make check
-
-# Clean up when done
-make clean
+python testEnv.py  # Test environment
+black --check src/ && pylint src/  # Check code quality
 ```
 
-**⚠️ Important:** You must be inside the `Farnsworth_Fusor` directory to use `make` commands!
-
-## 📋 Complete Setup Guide
+## Complete Setup Guide
 
 ### 1. Clone the Repository
 ```
@@ -53,12 +49,12 @@ git clone https://github.com/leonengle/Farnsworth_Fusor/
 cd Farnsworth_Fusor
 ```
 
-**🔍 Verify you're in the right directory:**
+**Verify you're in the right directory:**
 ```
-# You should see the Makefile
-ls Makefile
+# You should see the src directory
+ls src/
 
-# If you see "Makefile", you're in the right place!
+# If you see "src", you're in the right place!
 ```
 
 ### 2. Create Virtual Environment
@@ -73,7 +69,7 @@ source venv/bin/activate
 
 ### 4. Complete Development Setup
 ```
-make dev
+python setup_dev.py
 ```
 
 This single command:
@@ -85,22 +81,22 @@ This single command:
 ### 5. Test Everything Works
 ```
 # Test your environment
-make test-env
+python testEnv.py
 
-# Run the application
-make run
+# Run the host application
+python src/Host_Codebase/host_main.py
 ```
 
 **Expected test results:**
-- ✅ **Before setup**: Some commands may fail (missing dependencies)
-- ✅ **After setup**: All commands should work perfectly
-- ✅ **File structure**: All required files should be present
+- **Before setup**: Some commands may fail (missing dependencies)
+- **After setup**: All commands should work perfectly
+- **File structure**: All required files should be present
 
-## 📦 Dependencies Overview
+## Dependencies Overview
 
 This project uses several Python libraries for different functionalities. Here's what each dependency does:
 
-### **🔧 Hardware Control Libraries**
+### **Hardware Control Libraries** (Raspberry Pi Only)
 | Library | Version | Purpose | Required On |
 |---------|---------|---------|-------------|
 | `RPi.GPIO` | 0.7.1 | Basic GPIO control for Raspberry Pi pins | Raspberry Pi only |
@@ -110,103 +106,103 @@ This project uses several Python libraries for different functionalities. Here's
 | `Adafruit-MCP3008` | 1.0.2 | MCP3008 ADC (Analog-to-Digital Converter) interface | Raspberry Pi only |
 | `Adafruit-PureIO` | 1.1.11 | Pure Python I/O operations for hardware | Raspberry Pi only |
 
-### **📡 Communication & Security**
+### **Communication Libraries**
 | Library | Version | Purpose | Required On |
 |---------|---------|---------|-------------|
-| `paramiko` | 3.1.0 | SSH client for secure communication with Raspberry Pi | All systems |
-| `cryptography` | 46.0.1 | Cryptographic operations and secure connections | All systems |
-| `bcrypt` | 4.3.0 | Password hashing and security | All systems |
-| `PyNaCl` | 1.6.0 | Cryptographic library for secure communications | All systems |
-| `cffi` | 2.0.0 | C Foreign Function Interface for cryptographic libraries | All systems |
-| `pycparser` | 2.23 | C parser for cffi | All systems |
+| `socket` | Built-in | TCP/UDP communication | All systems |
+| `threading` | Built-in | Multithreaded communication | All systems |
 
-### **🎛️ User Interface**
+### **User Interface** (Host Only)
 | Library | Version | Purpose | Required On |
 |---------|---------|---------|-------------|
-| `PySimpleGUI` | 5.0.8.3 | GUI framework for the control interface | All systems |
+| `tkinter` | Built-in | GUI framework for the control interface | Host systems |
+| `customtkinter` | 5.2.0 | Modern tkinter extension | Host systems (optional) |
 
-### **🛠️ Development Tools**
+### **Development Tools**
 | Library | Version | Purpose | Required On |
 |---------|---------|---------|-------------|
 | `pylint` | 3.0.3 | Code linting and style checking | Development only |
 | `black` | 23.12.1 | Automatic code formatting | Development only |
 | `pre-commit` | 3.6.0 | Git hooks for automated code quality checks | Development only |
+| `jupyter` | 1.0.0 | Jupyter notebook functionality | Documentation only |
+| `ipykernel` | 6.29.0 | Python kernel for notebook execution | Documentation only |
+| `notebook` | 7.0.6 | Jupyter notebook interface | Documentation only |
 
-### **📋 Installation Notes**
-- **Raspberry Pi**: Hardware libraries require system packages (`sudo apt install python3-pigpio python3-rpi.gpio python3-spidev`)
+### **Installation Notes**
+- **Raspberry Pi**: Hardware libraries require system packages (`sudo apt install python3-pigpio python3-rpi.gpio python3-spidev python3-dev`)
 - **Development Tools**: Only needed for code development, not for running the application
-- **Security Libraries**: Required for secure SSH communication between host and target systems
-- **GUI Library**: PySimpleGUI provides the main user interface for fusor control
+- **Communication**: Uses built-in Python socket library for TCP/UDP communication
+- **GUI Library**: tkinter is built into Python, no additional installation needed
 
-## 🛠️ Development Commands
+## Development Commands
 
-**Instead of complex commands, just use `make`:**
+**Common development tasks:**
 
 | Task | Command | What it does |
 |------|---------|--------------|
-| Install dependencies | `pip install -r requirements.txt` | `make install` |
-| Set up development | `python setup_dev.py` | `make dev` |
-| Run the app | `python src/Host_Codebase/host_main.py` | `make run` |
-| Run target server | `python src/Target_Codebase/target_ssh_server.py` | `make run-target` |
-| Test target codebase | `python src/Target_Codebase/target_test.py` | `make test-target` |
-| Format code | `black src/` | `make format` |
-| Run linting | `pylint src/` | `make lint` |
-| Test environment | `python testEnv.py` | `make test-env` |
-| Run all checks | `black --check src/ && pylint src/ && python testEnv.py` | `make check` |
-| Quick check | `black src/ && pylint src/` | `make quick-check` |
-| Clean up | `find . -name "*.pyc" -delete && rm -rf logs/` | `make clean` |
+| Install dependencies | `pip install -r requirements.txt` | Install Python dependencies |
+| Set up development | `python setup_dev.py` | Set up development environment |
+| Run host application | `python src/Host_Codebase/host_main.py` | Start GUI application |
+| Run target application | `python src/Target_Codebase/target_main.py` | Start target system (RPi) |
+| Run host control (CLI) | `python src/Host_Codebase/host_control.py` | Start command-line interface |
+| Format code | `black src/` | Format code with black |
+| Run linting | `pylint src/` | Check code quality |
+| Test environment | `python testEnv.py` | Test environment setup |
+| Run all checks | `black --check src/ && pylint src/ && python testEnv.py` | Run all checks |
+| Quick check | `black src/ && pylint src/` | Quick code check |
+| Clean up | `find . -name "*.pyc" -delete && rm -rf logs/` | Clean generated files |
 
-**See all available commands:**
-```
-make help
-```
-
-## 🔄 Daily Development Workflow
+## Daily Development Workflow
 
 ```
 # Start your day
-make test-env            # Test environment
-make run                 # Run the application
+python testEnv.py                    # Test environment
+python src/Host_Codebase/host_main.py  # Run the host application
 
 # While developing
-make quick-check         # Quick code check (format + lint)
+black src/ && pylint src/            # Quick code check (format + lint)
 
 # Before committing
-make check           # Full check (format + lint + test)
+black --check src/ && pylint src/ && python testEnv.py  # Full check
 
 # End of day
-make clean               # Clean up temporary files
+find . -name "*.pyc" -delete && rm -rf logs/  # Clean up temporary files
 ```
 
-**Pro tip:** Run `make test-env` first to catch any issues early!
+**Pro tip:** Run `python testEnv.py` first to catch any issues early!
 
-## 🏗️ Project Structure
+## Project Structure
 
 ```
 Farnsworth_Fusor/
 ├── src/
 │   ├── Host_Codebase/          # Main control application
-│   │   ├── host_main.py        # Main GUI application
+│   │   ├── host_main.py        # Main GUI application with TCP/UDP
+│   │   ├── host_control.py     # Command-line control interface
 │   │   ├── base_classes.py     # Abstract base classes
-│   │   ├── communication.py    # SSH communication
+│   │   ├── communication.py    # TCP communication module
 │   │   ├── power_control.py    # Power supply control
 │   │   ├── vacuum_control.py   # Vacuum pump control
-│   │   ├── config.py           # Configuration management
-│   │   └── logging_setup.py    # Logging system
-│   └── Target_Codebase/        # Raspberry Pi code
+│   │   ├── tcp_command_client.py  # TCP command client
+│   │   └── udp_status_client.py   # UDP status/heartbeat client
+│   └── Target_Codebase/         # Raspberry Pi code
+│       ├── target_main.py      # Main target application
+│       ├── tcp_command_server.py  # TCP command server
+│       ├── tcp_client.py      # TCP data client
+│       ├── udp_status_server.py   # UDP status/heartbeat server
 │       ├── adc.py              # ADC operations
-│       ├── moveVARIAC.py        # Motor control
-│       └── base_classes.py     # Abstract base classes
-├── Makefile                    # Development automation
+│       ├── motor_control.py    # Motor control
+│       ├── moveVARIAC.py       # VARIAC motor control
+│       ├── base_classes.py     # Abstract base classes
+│       └── logging_setup.py    # Logging system
 ├── requirements.txt            # Dependencies
 ├── testEnv.py                  # Environment testing
-├── test_makefile.py            # Makefile testing
 ├── setup_dev.py                # Development setup
 ├── .pre-commit-config.yaml     # Pre-commit hooks
 └── pylintrc                    # Linting configuration
 ```
 
-## 🎛️ Features
+## Features
 
 ### **Safety Systems**
 - Comprehensive safety validation for voltage, current, and pressure
@@ -218,13 +214,23 @@ Farnsworth_Fusor/
 - Modern tkinter interface with real-time status updates
 - Intuitive controls for power supply and vacuum pump
 - Live data display with safety indicators
-- Emergency stop button prominently displayed
+- LED control buttons for target system
 
 ### **Communication**
-- Secure SSH communication with Raspberry Pi
+- **TCP Command Communication**: Host sends commands to target on port 2222
+- **TCP Data Communication**: Target sends sensor data to host on port 12345
+- **UDP Status/Heartbeat**: Bidirectional status messages on ports 8888/8889
 - Robust error handling and connection management
 - Real-time command execution and response handling
 - Automatic reconnection capabilities
+
+### **Network Configuration**
+- **Host IP**: 192.168.0.1 (default)
+- **Target IP**: 192.168.0.2 (default)
+- **Subnet**: 255.255.255.0
+- **TCP Command Port**: 2222
+- **TCP Data Port**: 12345
+- **UDP Status Ports**: 8888 (host receive), 8889 (target receive)
 
 ### **Logging & Monitoring**
 - Multi-level logging (console, file, error-specific)
@@ -232,19 +238,13 @@ Farnsworth_Fusor/
 - Session-based logging for debugging
 - Structured logging format with timestamps
 
-### **Configuration Management**
-- JSON-based configuration with defaults
-- Runtime configuration updates
-- Safety limit configuration
-- Centralized settings management
-
 ### **Testing & Validation**
 - **Automated Testing**: Built-in test suite for environment validation
 - **Environment Validation**: Comprehensive environment setup verification
 - **Cross-platform Support**: Raspberry Pi compatibility
 - **Error Detection**: Early detection of configuration issues
 
-## 🔧 Code Quality Tools
+## Code Quality Tools
 
 This project uses several tools to maintain code quality:
 
@@ -254,38 +254,29 @@ This project uses several tools to maintain code quality:
 
 Pre-commit hooks will automatically run when you commit changes. If any checks fail, fix the issues and commit again.
 
-## 🚨 Troubleshooting
+## Troubleshooting
 
 ### **Test Everything First**
 ```
 # Test your environment
-make test-env
+python testEnv.py
 
 # Clean and reinstall if needed
-make clean
-make dev
+find . -name "*.pyc" -delete && rm -rf logs/
+python setup_dev.py
 ```
 
 **Expected test results:**
-- ✅ **Before setup**: Some commands may fail (normal - missing dependencies)
-- ✅ **After setup**: All commands should work perfectly
-- ❌ **File missing**: Check if you're in the right directory
+- **Before setup**: Some commands may fail (normal - missing dependencies)
+- **After setup**: All commands should work perfectly
+- **File missing**: Check if you're in the right directory
 
-### **Common Errors while implementing your virtual environment**
+### **Common Errors**
 
-#### **1) PySimpleGUI Installation Issues**
-**NOTE: PySimpleGUI is hosted on a private PyPI server. If you're using the old version, it is recommended to get the private version of the library since it is more up-to-date and maintained. The user is required to run these commands to uninstall any existing versions for this project:**
-```
-python -m pip uninstall PySimpleGUI
-python -m pip cache purge
-```
+#### **1) Raspberry Pi Installation Issues**
+**CRITICAL: This project ONLY works on Raspberry Pi!**
 
-#### **2) Raspberry Pi Installation Issues**
-**⚠️ CRITICAL: This project ONLY works on Raspberry Pi!**
-
-**NOTE: To install any library on RPi, don't use pip because you will get the following:**
-
-<img width="438" height="175" alt="image" src="https://github.com/user-attachments/assets/6fb0b4df-e1db-43d6-99c5-16a5e9ce0754" />
+**NOTE: To install any library on RPi, don't use pip because you will get errors.**
 
 **Use "sudo apt install..." to install any external libraries.**
 
@@ -298,84 +289,213 @@ sudo apt install python3-pigpio python3-rpi.gpio python3-spidev python3-dev
 **If you're trying to run this on Windows/macOS/Linux (non-RPi):**
 - The project will fail with import errors for RPi.GPIO, pigpio, and spidev
 - These libraries are Raspberry Pi-specific and cannot be installed on other systems
-- You must use a Raspberry Pi to run this project
+- You must use a Raspberry Pi to run the target application
+
+#### **2) Network Connection Issues**
+
+**Basic Connectivity:**
+- Verify IP addresses: Host (192.168.0.1) and Target (192.168.0.2)
+- Check network configuration: Subnet mask 255.255.255.0
+- Ensure firewall allows TCP ports 2222, 12345 and UDP ports 8888, 8889
+- Test connectivity: `ping` from host to target and vice versa
+
+**Windows Host Firewall:**
+If ping fails on Windows, run this command in PowerShell (as Administrator):
+```powershell
+netsh advfirewall firewall add rule name="Allow ICMPv4-In" protocol=icmpv4:any,any dir=in action=allow
+```
+
+**Network Interface Configuration on Windows:**
+- Ensure Ethernet adapter is named "Ethernet" (adjust commands if different)
+- Verify IP forwarding is enabled:
+```powershell
+Set-NetIPInterface -InterfaceAlias "Ethernet" -Forwarding Enabled
+Set-NetIPInterface -InterfaceAlias "Wi-Fi" -Forwarding Enabled
+```
+
+**NAT Configuration (Windows Host):**
+If RPi needs internet access through host, set up NAT:
+```powershell
+if (-not (Get-NetNat | Where-Object Name -eq "PiNat")) {
+    New-NetNat -Name "PiNat" -InternalIPInterfaceAddressPrefix 192.168.0.0/24
+}
+Get-NetNat
+```
+
+**Raspberry Pi Network Configuration:**
+- Ensure NetworkManager is installed: `sudo apt install network-manager`
+- Verify network interface name (may be "eth0" or "enp1s0" instead of "Wired connection 1"):
+```bash
+nmcli con show
+```
+- Set static IP (adjust interface name if different):
+```bash
+sudo nmcli con mod "Wired connection 1" ipv4.address 192.168.0.2/24
+sudo nmcli con mod "Wired connection 1" ipv4.gateway ""
+sudo nmcli con mod "Wired connection 1" ipv4.dns ""
+sudo nmcli con up "Wired connection 1"
+```
+
+**IP Address Conflicts:**
+- Ensure no other devices on the network use 192.168.0.1 or 192.168.0.2
+- Check for duplicate IP addresses: `ipconfig` (Windows) or `ip addr` (Linux)
+- Verify both machines are on the same physical network segment
+
+**Port Blocking:**
+- Windows Firewall may block TCP/UDP ports - add exceptions for ports 2222, 12345, 8888, 8889
+- Check if antivirus software is blocking connections
+- Verify router/firewall settings if using additional network hardware
 
 #### **3) Dependency Issues**
 ```
 # Clean install
-make clean
-make dev
+find . -name "*.pyc" -delete && rm -rf logs/
+python setup_dev.py
 
 # Or manual install
 pip install -r requirements.txt
 ```
 
-#### **4) Pre-commit Issues**
+#### **4) Service Management Issues (Raspberry Pi)**
+
+**Service Not Starting:**
+- Verify service name matches your installation (may be `fusor-target` or `farnsworth-fusor.service`)
+- Check service status:
+```bash
+sudo systemctl status fusor-target
+# or
+sudo systemctl status farnsworth-fusor.service
+```
+- View service logs:
+```bash
+sudo journalctl -u fusor-target -f
+# or
+sudo journalctl -u farnsworth-fusor.service -f
+```
+
+**Updating Target Codebase:**
+If you need to update the code on RPi:
+```bash
+# Stop the service
+sudo systemctl stop fusor-target
+
+# Update the repository
+cd ~/Farnsworth_Fusor
+git fetch
+git pull
+
+# Restart the service
+sudo systemctl start fusor-target
+sudo systemctl status fusor-target
+```
+
+**Service Permissions:**
+- Ensure service user has access to GPIO (usually requires `pi` user or `gpio` group)
+- Check file permissions: `ls -l /home/pi/Farnsworth_Fusor/src/Target_Codebase/`
+- Verify Python path in service file matches installed location
+
+**Service Not Auto-Starting:**
+- Verify service is enabled: `sudo systemctl enable fusor-target`
+- Check if service is masked: `sudo systemctl unmask fusor-target`
+- Ensure service file paths are absolute and correct
+
+#### **5) Pre-commit Issues**
 ```
 # Run pre-commit manually
-make pre-commit-all
+pre-commit run --all-files
 
 # Or fix specific issues
-make format    # Fix formatting
-make lint      # Check linting issues
+black src/    # Fix formatting
+pylint src/   # Check linting issues
 ```
 
-## 📚 Documentation Strategy
+#### **6) Git and Internet Access Issues (Raspberry Pi)**
 
-### **Jupyter Notebook Documentation**
+**RPi Needs Internet Access:**
+If RPi needs internet access for git/pip commands while connected to host:
+- Ensure Windows host has IP forwarding enabled (see Network Connection Issues above)
+- Verify NAT is configured correctly (see Network Connection Issues above)
+- Test internet access from RPi: `ping 8.8.8.8`
 
-The team uses **Jupyter Notebooks** for comprehensive project documentation and analysis. This approach provides:
+**Network Interface Names:**
+- Windows: Network interface may be named differently (e.g., "Ethernet 2", "Local Area Connection")
+  - Check actual name: `Get-NetAdapter | Select-Object Name, InterfaceAlias`
+  - Adjust PowerShell commands accordingly
+- Linux/RPi: Interface may be "eth0", "enp1s0", "enx..." instead of "Wired connection 1"
+  - Check actual name: `ip addr` or `nmcli con show`
+  - Adjust nmcli commands accordingly
 
-- **Interactive Documentation**: Rich text formatting with markdown, code examples, and visual diagrams
-- **Technical Analysis**: Detailed system architecture explanations and implementation status
-- **Visual Communication**: ASCII diagrams and flowcharts for complex system interactions
-- **Version Control**: Notebooks are tracked in Git for collaborative documentation updates
+## Running the Application
 
-### **Current Documentation**
+### **Host Application** (Control Computer - Your Laptop)
+```bash
+python src/Host_Codebase/host_main.py
+```
 
-- **`ssh_tcp_analysis.ipynb`**: Complete analysis of the SSH/TCP hybrid communication system
-  - System architecture overview
-  - Communication flow diagrams
-  - Implementation status tracking
-  - Network configuration details
+Or with custom IP addresses:
+```bash
+python src/Host_Codebase/host_main.py --target-ip 192.168.0.2 --target-tcp-command-port 2222
+```
 
-### **Documentation Standards**
+### **Target Application** (Raspberry Pi)
 
-- **Markdown-Only Cells**: Documentation notebooks use markdown cells exclusively for clean, readable text
-- **No Code Execution**: Documentation notebooks contain no executable code to ensure portability
-- **Professional Formatting**: Consistent use of headers, bullet points, tables, and code blocks
-- **Visual Diagrams**: ASCII art diagrams for system architecture visualization
+**For Development/Testing:**
+```bash
+python3 src/Target_Codebase/target_main.py
+```
 
-### **Creating New Documentation**
+Or with custom settings:
+```bash
+python3 src/Target_Codebase/target_main.py --host 192.168.0.1 --tcp-command-port 2222 --use-adc
+```
 
-When adding new documentation:
+**For Automatic Startup on Boot (Production):**
 
-1. **Create a new `.ipynb` file** in the project root
-2. **Use markdown cells only** - no code execution cells
-3. **Follow naming convention**: `[topic]_analysis.ipynb`
-4. **Include comprehensive sections**:
-   - Overview and purpose
-   - Technical details
-   - Implementation status
-   - Visual diagrams (ASCII)
-   - Next steps or conclusions
+The RPi should run `target_main.py` automatically at boot. You have two options:
 
-### **Documentation Dependencies**
+**Option 1: Systemd Service (Recommended)**
+```bash
+# Copy the service file
+sudo cp farnsworth-fusor.service /etc/systemd/system/
 
-The following packages are included in `requirements.txt` for notebook functionality:
+# Edit the service file to match your RPi paths
+sudo nano /etc/systemd/system/farnsworth-fusor.service
 
-- **`jupyter`**: Core Jupyter notebook functionality
-- **`ipykernel`**: Python kernel for notebook execution
-- **`notebook`**: Jupyter notebook interface
+# Enable and start the service
+sudo systemctl enable farnsworth-fusor.service
+sudo systemctl start farnsworth-fusor.service
 
-## 📝 Development Notes
+# Check status
+sudo systemctl status farnsworth-fusor.service
+```
+
+**Option 2: Add to rc.local**
+```bash
+# Edit rc.local
+sudo nano /etc/rc.local
+
+# Add before "exit 0":
+cd /home/pi/Farnsworth_Fusor/src/Target_Codebase
+python3 target_main.py &
+
+exit 0
+```
+
+**Note:** The RPi doesn't need a Makefile - it just needs `target_main.py` to run automatically at boot.
+
+### **Command-Line Control** (Alternative to GUI)
+```bash
+python src/Host_Codebase/host_control.py
+```
+
+## Development Notes
 
 - **Virtual Environment**: Always work within the virtual environment
 - **Code Style**: Black formatting with 88-character line length
-- **Testing**: Run `make test-env` before committing
+- **Testing**: Run `python testEnv.py` before committing
 - **Logging**: Comprehensive logging for debugging and monitoring
-- **Documentation**: Use Jupyter notebooks for technical documentation and analysis
+- **Communication**: TCP/UDP protocol - no SSH dependencies required
 
 ---
 
-**🚀 Ready to start? Run `make test-env` to verify everything works!**
+**Ready to start? Run `python testEnv.py` to verify everything works!**

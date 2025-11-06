@@ -55,9 +55,10 @@ def main():
     print("\n" + "=" * 40)
     print("Development setup completed successfully!")
     print("\nNext steps:")
-    print("1. Run tests: python -m pytest tests/")
-    print("2. Start development: python src/Host_Codebase/ssh_datalink_host.py")
-    print("3. Check code quality: pylint src/")
+    print("1. Test environment: make test-env")
+    print("2. Run host application: make run")
+    print("3. Run target application: make run-target (on Raspberry Pi)")
+    print("4. Check code quality: make check")
 
 if __name__ == "__main__":
     main()
