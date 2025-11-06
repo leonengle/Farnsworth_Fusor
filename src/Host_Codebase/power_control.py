@@ -1,4 +1,3 @@
-import communication as com
 import random #remove later
 from base_classes import PowerControlInterface
 

@@ -1,19 +1,28 @@
+# Farnsworth Fusor TCP/UDP Communication System
+# Requirements for both Host and Target codebases
+
+# GUI dependencies (Host side)
+customtkinter==5.2.0
+# tkinter - Built-in with Python
+
+# Raspberry Pi GPIO and hardware control (Target side only)
+RPi.GPIO==0.7.1
+pigpio==1.78
 Adafruit-GPIO==1.0.3
 Adafruit-MCP3008==1.0.2
 Adafruit-PureIO==1.1.11
-bcrypt==4.3.0
-cffi==2.0.0
-cryptography==46.0.1
-paramiko==3.1.0
-pycparser==2.23
-PyNaCl==1.6.0
-PySimpleGUI==5.0.8.3
-RPi.GPIO==0.7.1
-pigpio==1.78
 spidev==3.8
 
+# Legacy GUI (if needed)
+PySimpleGUI==5.0.8.3
 
-# Development tools
+# Development and documentation tools
 pylint==3.0.3
 black==23.12.1
 pre-commit==3.6.0
+jupyter==1.0.0
+ipykernel==6.29.0
+notebook==7.0.6
+
+# Built-in Python modules (listed for reference)
+# logging, threading, socket, time, argparse, os, sys, signal

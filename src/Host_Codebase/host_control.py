@@ -1,16 +1,14 @@
 # host_control.py
 """
 Host-side script for controlling the Fusor target system.
-- Connects to Raspberry Pi over SSH (port 2222)
+- Connects to Raspberry Pi over TCP (port 2222)
 - Sends LED and motor commands
-- Receives and logs telemetry sent by Pi via echo (future support)
+- Receives and logs telemetry sent by Pi via TCP (future support)
 """
 
-import paramiko
-import threading
-import time
 import sys
 import logging
+from tcp_command_client import TCPCommandClient
 
 # Configure logging
 logging.basicConfig(
@@ -23,54 +21,47 @@ logging.basicConfig(
 )
 logger = logging.getLogger("HostControl")
 
-# SSH Config
-PI_HOST = "172.20.10.5"  # Target Pi IP
+# TCP Config
+PI_HOST = "192.168.0.2"  # Target Pi IP
 PI_PORT = 2222
-PI_USERNAME = "pi"
-PI_PASSWORD = "raspberry"
 
-class SSHController:
-    def __init__(self, host, port, username, password):
-        self.client = paramiko.SSHClient()
-        self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+class TCPController:
+    def __init__(self, host, port):
+        self.client = TCPCommandClient(host, port)
         self.host = host
         self.port = port
-        self.username = username
-        self.password = password
 
     def connect(self):
         try:
-            self.client.connect(
-                hostname=self.host,
-                port=self.port,
-                username=self.username,
-                password=self.password,
-                timeout=10
-            )
-            logger.info(f"Connected to {self.host}:{self.port}")
-            return True
+            if self.client.connect():
+                logger.info(f"Connected to {self.host}:{self.port}")
+                return True
+            else:
+                logger.error(f"Failed to connect to target")
+                return False
         except Exception as e:
             logger.error(f"Failed to connect to target: {e}")
             return False
 
     def send_command(self, command):
         try:
-            channel = self.client.get_transport().open_session()
-            channel.exec_command(command)
-            response = channel.recv(1024).decode().strip()
-            logger.info(f"Target Response: {response}")
+            response = self.client.send_command(command)
+            if response:
+                logger.info(f"Target Response: {response}")
+            else:
+                logger.warning("No response from target")
             return response
         except Exception as e:
             logger.error(f"Error sending command: {e}")
             return None
 
     def disconnect(self):
-        self.client.close()
+        self.client.disconnect()
         logger.info("Disconnected from target")
 
 
 def telemetry_listener():
-    logger.info("Telemetry listener started (waiting for reverse SSH echo)...")
+    logger.info("Telemetry listener started (waiting for TCP data)...")
     try:
         with open("telemetry.log", "a") as logfile:
             while True:
@@ -86,7 +77,7 @@ def telemetry_listener():
 
 
 def main():
-    controller = SSHController(PI_HOST, PI_PORT, PI_USERNAME, PI_PASSWORD)
+    controller = TCPController(PI_HOST, PI_PORT)
     if not controller.connect():
         return
 

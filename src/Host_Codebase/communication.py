@@ -1,8 +1,5 @@
-import paramiko
-import threading
-import time
-import sys
 import logging
+from tcp_command_client import TCPCommandClient
 
 # Configure logging
 logging.basicConfig(
@@ -15,42 +12,38 @@ logging.basicConfig(
 )
 logger = logging.getLogger("Communication")
 
-class SSHClient:
-    def __init__(self, host, port, username, password, command_template):
+class TCPClient:
+    def __init__(self, host, port, command_template):
         self.host = host
         self.port = port
-        self.username = username
-        self.password = password
         self.command_template = command_template
         self.client = None
         
     def connect(self):
         try:
-            self.client = paramiko.SSHClient()
-            self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            self.client.connect(
-                hostname=self.host,
-                port=self.port,
-                username=self.username,
-                password=self.password,
-                timeout=10
-            )
-            logger.info(f"Connected to {self.host}:{self.port}")
-            return True
+            self.client = TCPCommandClient(self.host, self.port)
+            if self.client.connect():
+                logger.info(f"Connected to {self.host}:{self.port}")
+                return True
+            else:
+                logger.error(f"Failed to connect to {self.host}:{self.port}")
+                return False
         except Exception as e:
             logger.error(f"Failed to connect: {e}")
             return False
     
-    def send_ssh_command(self, bitstring):
-        if not self.client:
-            logger.error("Not connected to SSH server")
+    def send_tcp_command(self, bitstring):
+        if not self.client or not self.client.is_connected():
+            logger.error("Not connected to TCP server")
             return None
             
         try:
             command = self.command_template.format(bitstring)
-            stdin, stdout, stderr = self.client.exec_command(command)
-            response = stdout.read().decode().strip()
-            logger.info(f"Command sent: {command}, Response: {response}")
+            response = self.client.send_command(command)
+            if response:
+                logger.info(f"Command sent: {command}, Response: {response}")
+            else:
+                logger.warning(f"Command sent: {command}, No response")
             return response
         except Exception as e:
             logger.error(f"Error sending command: {e}")
@@ -58,5 +51,5 @@ class SSHClient:
     
     def disconnect(self):
         if self.client:
-            self.client.close()
-            logger.info("Disconnected from SSH server")
+            self.client.disconnect()
+            logger.info("Disconnected from TCP server")
