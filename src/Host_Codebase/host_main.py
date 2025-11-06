@@ -5,8 +5,8 @@ This is the single entry point for the host application.
 
 Features:
 - Tkinter control panel with buttons for all commands
-- TCP client to send commands to target
-- TCP server to receive read-only data from target
+- TCP client to send commands to target (port 2222)
+- TCP client to connect and receive read-only data from target (port 12345)
 - UDP status/heartbeat communication
 - Real-time data display showing all responses
 - All buttons send commands to target which listens, takes action, and sends data back
@@ -47,8 +47,8 @@ class FusorHostApp:
         # TCP command client - sends commands to target
         self.tcp_command_client = TCPCommandClient(target_ip, target_tcp_command_port)
         
-        # TCP data server - receives read-only data from target
-        self.tcp_data_server = None
+        # TCP data client - connects to target to receive read-only data
+        self.tcp_data_client = None
         self.tcp_data_running = False
         self.tcp_data_thread = None
         
@@ -74,8 +74,8 @@ class FusorHostApp:
             self._update_status("Connected to target", "green")
             self._update_data_display("[System] Connected to target successfully")
         
-        # Start TCP data listener to receive read-only data from target
-        self._start_tcp_data_listener()
+        # Start TCP data client to connect and receive read-only data from target
+        self._start_tcp_data_client()
         
         # Start UDP status communication
         self.udp_status_client.start()
@@ -269,13 +269,22 @@ class FusorHostApp:
         """
         Send command to target via TCP.
         Target listens, takes action, and sends response back.
+        Automatically retries connection if not connected.
         """
         try:
-            # Ensure connected
+            # Ensure connected - try to connect if not connected
             if not self.tcp_command_client.is_connected():
+                self._update_status(f"Connecting to {self.target_ip}:{self.target_tcp_command_port}...", "blue")
+                self._update_data_display(f"[System] Attempting to connect to target at {self.target_ip}:{self.target_tcp_command_port}")
+                
                 if not self.tcp_command_client.connect():
-                    self._update_status("Failed to connect to target", "red")
-                    self._update_data_display(f"[ERROR] Cannot send command {command} - not connected")
+                    self._update_status(f"Failed to connect to {self.target_ip}:{self.target_tcp_command_port}", "red")
+                    self._update_data_display(f"[ERROR] Cannot send command {command} - connection failed")
+                    self._update_data_display(f"[TROUBLESHOOTING] Check:")
+                    self._update_data_display(f"  - Is target running? (python src/Target_Codebase/target_main.py)")
+                    self._update_data_display(f"  - Is target IP correct? (Expected: {self.target_ip})")
+                    self._update_data_display(f"  - Can you ping target? (ping {self.target_ip})")
+                    self._update_data_display(f"  - Is firewall blocking port {self.target_tcp_command_port}?")
                     return
             
             # Send command
@@ -332,58 +341,62 @@ class FusorHostApp:
         """Update the status label."""
         self.status_label.config(text=message, fg=color)
     
-    def _start_tcp_data_listener(self):
-        """Start TCP data listener thread to receive read-only data from target."""
+    def _start_tcp_data_client(self):
+        """Start TCP data client thread to connect and receive read-only data from target."""
         self.tcp_data_running = True
-        self.tcp_data_thread = threading.Thread(target=self._tcp_data_listener, daemon=True)
+        self.tcp_data_thread = threading.Thread(target=self._tcp_data_client, daemon=True)
         self.tcp_data_thread.start()
     
-    def _tcp_data_listener(self):
+    def _tcp_data_client(self):
         """
-        TCP data listener - receives read-only data from target.
+        TCP data client - connects to target and receives read-only data.
         Target sends sensor data, ADC readings, GPIO states, etc.
         """
-        try:
-            self.tcp_data_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.tcp_data_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            self.tcp_data_server.bind(("0.0.0.0", self.tcp_data_port))
-            self.tcp_data_server.listen(1)
-            
-            self._update_status(f"TCP data server listening on port {self.tcp_data_port}", "blue")
-            self._update_data_display(f"[System] TCP data server listening on port {self.tcp_data_port} for read-only data from target")
-            
-            while self.tcp_data_running:
-                try:
-                    # Accept connection from target
-                    client_socket, client_address = self.tcp_data_server.accept()
-                    self._update_data_display(f"[TCP Data] Connection from target {client_address[0]}:{client_address[1]}")
-                    
-                    # Keep connection open and receive read-only data
-                    while self.tcp_data_running:
-                        try:
-                            data = client_socket.recv(1024).decode().strip()
-                            if data:
-                                # Display received read-only data from target
-                                self._update_data_display(f"[TCP Data] {data}")
-                                self._update_status(f"Received data from target", "green")
-                            else:
-                                break
-                        except socket.error as e:
+        while self.tcp_data_running:
+            try:
+                # Connect to target's TCP data server
+                self._update_data_display(f"[System] Connecting to target data server at {self.target_ip}:{self.tcp_data_port}")
+                self.tcp_data_client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.tcp_data_client.settimeout(5)
+                self.tcp_data_client.connect((self.target_ip, self.tcp_data_port))
+                
+                self._update_status(f"Connected to target data server", "green")
+                self._update_data_display(f"[TCP Data] Connected to target at {self.target_ip}:{self.tcp_data_port}")
+                
+                # Keep connection open and receive read-only data
+                while self.tcp_data_running:
+                    try:
+                        data = self.tcp_data_client.recv(1024).decode().strip()
+                        if data:
+                            # Display received read-only data from target
+                            self._update_data_display(f"[TCP Data] {data}")
+                            self._update_status(f"Received data from target", "green")
+                        else:
                             break
-                    
-                    client_socket.close()
-                    self._update_data_display(f"[TCP Data] Connection closed from {client_address[0]}")
-                    
-                except socket.error as e:
-                    if self.tcp_data_running:
-                        self._update_data_display(f"[ERROR] TCP data server error: {e}")
+                    except socket.timeout:
+                        # Timeout is expected, continue to check connection
+                        continue
+                    except socket.error as e:
+                        self._update_data_display(f"[TCP Data] Connection error: {e}")
                         break
-                        
-        except Exception as e:
-            self._update_data_display(f"[ERROR] TCP data listener error: {e}")
-        finally:
-            if self.tcp_data_server:
-                self.tcp_data_server.close()
+                
+                self.tcp_data_client.close()
+                self.tcp_data_client = None
+                self._update_data_display(f"[TCP Data] Disconnected from target")
+                
+            except socket.error as e:
+                if self.tcp_data_running:
+                    self._update_data_display(f"[ERROR] TCP data connection failed: {e}")
+                    self._update_data_display(f"[System] Retrying connection in 5 seconds...")
+                    time.sleep(5)
+                else:
+                    break
+            except Exception as e:
+                if self.tcp_data_running:
+                    self._update_data_display(f"[ERROR] TCP data client error: {e}")
+                    time.sleep(5)
+                else:
+                    break
     
     def _on_closing(self):
         """Handle window closing - cleanup and send LED_OFF command."""
@@ -426,9 +439,13 @@ class FusorHostApp:
         self.udp_status_client.stop()
         self.udp_status_receiver.stop()
         
-        # Close TCP data server
-        if self.tcp_data_server:
-            self.tcp_data_server.close()
+        # Close TCP data client
+        if self.tcp_data_client:
+            try:
+                self.tcp_data_client.close()
+            except Exception:
+                pass
+            self.tcp_data_client = None
 
 
 def main():
