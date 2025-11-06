@@ -4,6 +4,9 @@ import threading
 import time
 import argparse
 import logging
+import signal
+import sys
+import atexit
 from tcp_command_client import TCPCommandClient
 from tcp_data_client import TCPDataClient
 from udp_status_client import UDPStatusClient, UDPStatusReceiver
@@ -330,10 +333,10 @@ class FusorHostApp:
             self._update_data_display(f"[ERROR] Command {command} failed: {e}")
     
     def _update_voltage_label(self, value):
-                self.voltage_value_label.configure(text=str(int(value)))
+        self.voltage_value_label.configure(text=str(int(value)))
     
     def _update_pump_label(self, value):
-                self.pump_value_label.configure(text=f"{int(value)}%")
+        self.pump_value_label.configure(text=f"{int(value)}%")
     
     def _set_voltage(self):
         voltage = int(self.voltage_scale.get())
@@ -367,10 +370,10 @@ class FusorHostApp:
             self._update_data_display("[ERROR] Steps must be a number")
     
     def _handle_tcp_data(self, data: str):
-                self._update_data_display(f"[TCP Data] {data}")
+        self._update_data_display(f"[TCP Data] {data}")
     
     def _handle_udp_status(self, message: str, address: tuple):
-                self._update_data_display(f"[UDP Status] From {address[0]}: {message}")
+        self._update_data_display(f"[UDP Status] From {address[0]}: {message}")
     
     def _update_data_display(self, data: str):
         timestamp = time.strftime('%H:%M:%S')
@@ -379,20 +382,35 @@ class FusorHostApp:
         self.data_display.see("end")
     
     def _update_status(self, message: str, color: str = "white"):
-                self.status_label.configure(text=message, text_color=color)
-    
+        self.status_label.configure(text=message, text_color=color)
     
     def _on_closing(self):
-                # Send LED_OFF command before shutting down
+        # Send LED_OFF command before shutting down
+        self._turn_off_led()
+        self.stop()
+        self.root.destroy()
+    
+    def _turn_off_led(self):
+        # Try to send LED_OFF command - attempt multiple times if needed
         try:
+            # Try to connect if not connected
+            if not self.tcp_command_client.is_connected():
+                self.tcp_command_client.connect()
+            
+            # Send LED_OFF command
             if self.tcp_command_client.is_connected():
                 self.tcp_command_client.send_command("LED_OFF")
                 self._update_data_display("[System] LED turned OFF during shutdown")
+            else:
+                self._update_data_display("[WARNING] Could not connect to turn off LED")
         except Exception as e:
             self._update_data_display(f"[ERROR] Could not turn off LED: {e}")
-        
-        self.stop()
-        self.root.destroy()
+            # Try one more time
+            try:
+                if self.tcp_command_client.connect():
+                    self.tcp_command_client.send_command("LED_OFF")
+            except:
+                pass
     
     def run(self):
         print("Fusor Host Application starting...")
@@ -407,22 +425,74 @@ class FusorHostApp:
             self.root.mainloop()
         except KeyboardInterrupt:
             print("\nShutting down...")
+        except Exception as e:
+            print(f"\nUnexpected error: {e}")
         finally:
+            # Always try to turn off LED before stopping
+            self._turn_off_led()
             self.stop()
     
     def stop(self):
-                # Disconnect TCP command client
-        self.tcp_command_client.disconnect()
+        # Try to turn off LED before disconnecting
+        try:
+            self._turn_off_led()
+        except Exception as e:
+            logger.error(f"Error turning off LED in stop: {e}")
+        
+        # Disconnect TCP command client
+        try:
+            self.tcp_command_client.disconnect()
+        except Exception as e:
+            logger.error(f"Error disconnecting TCP client: {e}")
         
         # Stop TCP data client
-        self.tcp_data_client.stop()
+        try:
+            self.tcp_data_client.stop()
+        except Exception as e:
+            logger.error(f"Error stopping TCP data client: {e}")
         
         # Stop UDP status communication
-        self.udp_status_client.stop()
-        self.udp_status_receiver.stop()
+        try:
+            self.udp_status_client.stop()
+            self.udp_status_receiver.stop()
+        except Exception as e:
+            logger.error(f"Error stopping UDP communication: {e}")
 
+
+# Global app instance for signal handler access
+_app_instance = None
+
+def signal_handler(signum, frame):
+    logger.info(f"Received signal {signum}, shutting down gracefully...")
+    if _app_instance:
+        try:
+            _app_instance._turn_off_led()
+            _app_instance.stop()
+        except Exception as e:
+            logger.error(f"Error during signal handler shutdown: {e}")
+    sys.exit(0)
+
+def atexit_handler():
+    if _app_instance:
+        try:
+            _app_instance._turn_off_led()
+        except Exception as e:
+            logger.error(f"Error during atexit handler: {e}")
 
 def main():
+    global _app_instance
+    
+    # Set up signal handlers for graceful shutdown
+    try:
+        signal.signal(signal.SIGINT, signal_handler)
+        if hasattr(signal, 'SIGTERM'):
+            signal.signal(signal.SIGTERM, signal_handler)
+    except Exception as e:
+        logger.warning(f"Could not set up signal handlers: {e}")
+    
+    # Register atexit handler as fallback
+    atexit.register(atexit_handler)
+    
     parser = argparse.ArgumentParser(description="Fusor Host Application - TCP/UDP Control Panel")
     parser.add_argument("--target-ip", default="192.168.0.2", help="Target IP address (default: 192.168.0.2)")
     parser.add_argument("--target-tcp-command-port", type=int, default=2222, help="Target TCP command port (default: 2222)")
@@ -439,6 +509,7 @@ def main():
         udp_status_port=args.udp_status_port
     )
     
+    _app_instance = app
     app.run()
 
 

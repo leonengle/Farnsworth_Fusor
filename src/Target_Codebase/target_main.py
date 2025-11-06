@@ -64,7 +64,7 @@ class TargetSystem:
             return ""
     
     def start(self):
-                if self.running:
+        if self.running:
             logger.warning("Target system is already running")
             return
         
@@ -102,48 +102,102 @@ class TargetSystem:
             self.stop()
     
     def stop(self):
-                self.running = False
+        self.running = False
         
         logger.info("Stopping target system...")
         
+        # Turn off LED first, before stopping services
+        try:
+            if self.tcp_command_server and self.tcp_command_server.gpio_handler:
+                self.tcp_command_server.gpio_handler.led_off()
+                logger.info("LED turned OFF during shutdown")
+        except Exception as e:
+            logger.error(f"Error turning off LED during stop: {e}")
+        
         # Stop data sender
         if self.data_sender:
-            self.data_sender.stop()
+            try:
+                self.data_sender.stop()
+            except Exception as e:
+                logger.error(f"Error stopping data sender: {e}")
         
         # Stop TCP data server
-        self.tcp_data_server.stop_server()
+        try:
+            self.tcp_data_server.stop_server()
+        except Exception as e:
+            logger.error(f"Error stopping TCP data server: {e}")
         
         # Stop TCP command server
-        self.tcp_command_server.stop_server()
+        try:
+            self.tcp_command_server.stop_server()
+        except Exception as e:
+            logger.error(f"Error stopping TCP command server: {e}")
         
         # Stop UDP status communication
-        self.udp_status_sender.stop()
-        self.udp_status_receiver.stop()
+        try:
+            self.udp_status_sender.stop()
+            self.udp_status_receiver.stop()
+        except Exception as e:
+            logger.error(f"Error stopping UDP communication: {e}")
         
-        # Cleanup
-        self.tcp_command_server.cleanup()
+        # Cleanup - this will also turn off LED again as a safety measure
+        try:
+            self.tcp_command_server.cleanup()
+        except Exception as e:
+            logger.error(f"Error during cleanup: {e}")
+            # Final attempt to turn off LED
+            try:
+                if self.tcp_command_server and self.tcp_command_server.gpio_handler:
+                    self.tcp_command_server.gpio_handler.led_off()
+            except:
+                pass
         
         logger.info("Target system stopped")
 
 
+# Global target_system instance for signal handler access
+_target_system_instance = None
+
 def signal_handler(signum, frame):
-        logger.info(f"Received signal {signum}, shutting down gracefully...")
+    logger.info(f"Received signal {signum}, shutting down gracefully...")
     
-    # Turn off LED immediately using GPIO handler
+    # Turn off LED immediately - try multiple methods
+    try:
+        # Try to use existing GPIO handler from target_system if available
+        if _target_system_instance:
+            try:
+                if _target_system_instance.tcp_command_server and _target_system_instance.tcp_command_server.gpio_handler:
+                    _target_system_instance.tcp_command_server.gpio_handler.led_off()
+                    logger.info("LED turned OFF via existing GPIO handler")
+            except Exception as e:
+                logger.debug(f"Could not use existing GPIO handler: {e}")
+    except Exception as e:
+        logger.debug(f"Error accessing target_system: {e}")
+    
+    # Fallback: create new GPIO handler
     try:
         from gpio_handler import GPIOHandler
         gpio = GPIOHandler(led_pin=26, input_pin=6)
         gpio.led_off()
         gpio.cleanup()
-        logger.info("LED turned OFF due to interrupt")
+        logger.info("LED turned OFF via new GPIO handler")
     except Exception as e:
         logger.error(f"Could not turn off LED: {e}")
+    
+    # Try to stop target system gracefully
+    if _target_system_instance:
+        try:
+            _target_system_instance.stop()
+        except Exception as e:
+            logger.error(f"Error stopping target system: {e}")
     
     sys.exit(0)
 
 
 def main():
-        # Set up signal handlers
+    global _target_system_instance
+    
+    # Set up signal handlers
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
@@ -175,12 +229,27 @@ def main():
         use_adc=args.use_adc
     )
     
+    # Store target_system globally for signal handler access
+    _target_system_instance = target_system
+    
     try:
         target_system.start()
     except KeyboardInterrupt:
-        logger.info("Received interrupt signal")
+        logger.info("Received KeyboardInterrupt signal")
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
     finally:
-        target_system.stop()
+        # Ensure LED is turned off in all cases
+        try:
+            target_system.stop()
+        except Exception as e:
+            logger.error(f"Error during stop: {e}")
+            # Final attempt to turn off LED
+            try:
+                if target_system.tcp_command_server and target_system.tcp_command_server.gpio_handler:
+                    target_system.tcp_command_server.gpio_handler.led_off()
+            except:
+                pass
         logger.info("Target system shutdown complete")
 
 

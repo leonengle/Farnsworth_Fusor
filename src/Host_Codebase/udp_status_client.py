@@ -75,7 +75,7 @@ class UDPStatusReceiver:
             logger.error(f"Failed to start UDP receiver: {e}")
     
     def _receive_loop(self):
-        self.logger.info("UDP receive loop started")
+        logger.info("UDP receive loop started")
         
         while self.running:
             try:
