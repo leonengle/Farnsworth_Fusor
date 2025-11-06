@@ -20,15 +20,12 @@ HW_SPI_PORT = 0
 HW_SPI_DEV = 0
 
 class MCP3008ADC(ADCInterface):
-    """MCP3008 ADC implementation for real hardware."""
-    
-    def __init__(self, spi_port=0, spi_device=0):
+        def __init__(self, spi_port=0, spi_device=0):
         super().__init__(spi_port, spi_device)
         self.mcp = None
     
     def initialize(self):
-        """Initialize the ADC hardware."""
-        try:
+                try:
             self.mcp = Adafruit_MCP3008.MCP3008(spi=SPI.SpiDev(self.spi_port, self.spi_device))
             self._is_initialized = True
             print("MCP3008 ADC initialized successfully")
@@ -38,8 +35,7 @@ class MCP3008ADC(ADCInterface):
             return False
     
     def read_channel(self, channel):
-        """Read a single ADC channel."""
-        if not self._is_initialized:
+                if not self._is_initialized:
             print("ADC not initialized")
             return 0
         
@@ -54,8 +50,7 @@ class MCP3008ADC(ADCInterface):
             return 0
     
     def read_multiple_channels(self, channels):
-        """Read multiple ADC channels."""
-        if not self._is_initialized:
+                if not self._is_initialized:
             print("ADC not initialized")
             return [0] * len(channels)
         
@@ -65,16 +60,13 @@ class MCP3008ADC(ADCInterface):
         return results
     
     def read_all_channels(self):
-        """Read all available ADC channels."""
-        return self.read_multiple_channels(list(range(8)))
+                return self.read_multiple_channels(list(range(8)))
     
     def convert_to_voltage(self, adc_value, reference_voltage=3.3):
-        """Convert ADC reading to voltage."""
-        return (adc_value / 1023.0) * reference_voltage
+                return (adc_value / 1023.0) * reference_voltage
     
     def cleanup(self):
-        """Clean up ADC resources."""
-        self._is_initialized = False
+                self._is_initialized = False
         self.mcp = None
 
 # Global instance for backward compatibility
@@ -86,15 +78,13 @@ else:
     print("Warning: ADC initialization failed")
 
 def validate_channel(channel: int):
-    """Ensure channel is between 0 and 7."""
-    if channel < 0 or channel > 7:
+        if channel < 0 or channel > 7:
         print("ERROR: Value must be between 0 and 7!", file=sys.stderr)
         return False
     return True
 
 def read_adc(channel: int):
-    """Read from the specified ADC channel repeatedly."""
-    if not validate_channel(channel):
+        if not validate_channel(channel):
         return
     
     if mcp is None:

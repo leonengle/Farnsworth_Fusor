@@ -1,16 +1,10 @@
-"""
-Logging configuration for the Fusor target system (Raspberry Pi).
-"""
-
 import logging
 import logging.handlers
 import os
 from datetime import datetime
 
 def setup_logging():
-    """Set up logging configuration for target system."""
-    
-    # Create logs directory if it doesn't exist
+        # Create logs directory if it doesn't exist
     log_dir = "logs"
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
@@ -69,5 +63,4 @@ def setup_logging():
     return logger
 
 def get_logger(name: str) -> logging.Logger:
-    """Get a logger instance with the given name."""
-    return logging.getLogger(name)
+        return logging.getLogger(name)

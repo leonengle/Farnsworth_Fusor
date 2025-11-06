@@ -1,14 +1,3 @@
-"""
-TCP Data Server for Target System
-Target listens on port 12345, host connects to receive data.
-
-Features:
-- TCP server that listens on port 12345
-- Sends periodic sensor data to connected host
-- Handles multiple connections (one at a time)
-- Automatic reconnection support
-"""
-
 import socket
 import threading
 import time
@@ -21,19 +10,8 @@ logger = get_logger("TCPDataServer")
 
 
 class TCPDataServer:
-    """
-    TCP server that listens on port 12345 and sends data to connected host.
-    """
-    
-    def __init__(self, host: str = "0.0.0.0", port: int = 12345):
-        """
-        Initialize the TCP data server.
-        
-        Args:
-            host: Host address to bind to (0.0.0.0 for all interfaces)
-            port: TCP port to listen on
-        """
-        self.host = host
+        def __init__(self, host: str = "0.0.0.0", port: int = 12345):
+                self.host = host
         self.port = port
         self.server_socket: Optional[socket.socket] = None
         self.client_socket: Optional[socket.socket] = None
@@ -47,18 +25,11 @@ class TCPDataServer:
         logger.info(f"TCP Data Server initialized for {host}:{port}")
     
     def set_send_callback(self, callback: Callable[[], str]):
-        """
-        Set the callback function that provides data to send.
-        
-        Args:
-            callback: Function that returns data string to send
-        """
-        self.send_callback = callback
+                self.send_callback = callback
         logger.info("TCP data send callback set")
     
     def start_server(self):
-        """Start the TCP data server and listen for connections."""
-        if self.running:
+                if self.running:
             logger.warning("TCP data server is already running")
             return
         
@@ -83,8 +54,7 @@ class TCPDataServer:
             self.running = False
     
     def _server_loop(self):
-        """Main server loop - accepts connections."""
-        while self.running:
+                while self.running:
             try:
                 # Accept connection from host
                 client_socket, client_address = self.server_socket.accept()
@@ -123,8 +93,7 @@ class TCPDataServer:
                 break
     
     def _send_loop(self):
-        """Send periodic data to connected host."""
-        logger.info("TCP data send loop started")
+                logger.info("TCP data send loop started")
         
         while self.running and self.client_socket:
             try:
@@ -148,8 +117,7 @@ class TCPDataServer:
         logger.info("TCP data send loop ended")
     
     def stop_server(self):
-        """Stop the TCP data server."""
-        self.running = False
+                self.running = False
         
         if self.client_socket:
             try:

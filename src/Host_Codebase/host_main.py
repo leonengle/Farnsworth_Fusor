@@ -1,24 +1,17 @@
 #!/usr/bin/env python3
-"""
-Host Main Program - TCP/UDP Implementation
-This is the single entry point for the host application.
-
-Features:
-- CustomTkinter control panel with buttons for all commands
-- TCP client to send commands to target (port 2222)
-- TCP client to connect and receive read-only data from target (port 12345)
-- UDP status/heartbeat communication
-- Real-time data display showing all responses
-- All buttons send commands to target which listens, takes action, and sends data back
-"""
-
 import customtkinter as ctk
 import threading
-import socket
 import time
 import argparse
+import logging
 from tcp_command_client import TCPCommandClient
+from tcp_data_client import TCPDataClient
 from udp_status_client import UDPStatusClient, UDPStatusReceiver
+from command_handler import CommandHandler
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("HostMain")
 
 # Set appearance mode and color theme
 ctk.set_appearance_mode("dark")  # Options: "light", "dark", "system"
@@ -26,34 +19,25 @@ ctk.set_default_color_theme("blue")  # Options: "blue", "green", "dark-blue"
 
 
 class FusorHostApp:
-    """
-    Main host application - single entry point with control panel.
-    All buttons send commands to target, target listens, takes action, and sends data back.
-    """
-    
     def __init__(self, target_ip: str = "192.168.0.2", target_tcp_command_port: int = 2222,
                  tcp_data_port: int = 12345, udp_status_port: int = 8888):
-        """
-        Initialize the Fusor Host Application.
-        
-        Args:
-            target_ip: IP address of the target system (RPi)
-            target_tcp_command_port: TCP command port on target system
-            tcp_data_port: TCP port for receiving data from target
-            udp_status_port: UDP port for status communication
-        """
         self.target_ip = target_ip
         self.target_tcp_command_port = target_tcp_command_port
         self.tcp_data_port = tcp_data_port
         self.udp_status_port = udp_status_port
         
+        # Command handler - validates and builds commands
+        self.command_handler = CommandHandler()
+        
         # TCP command client - sends commands to target
         self.tcp_command_client = TCPCommandClient(target_ip, target_tcp_command_port)
         
-        # TCP data client - connects to target to receive read-only data
-        self.tcp_data_client = None
-        self.tcp_data_running = False
-        self.tcp_data_thread = None
+        # TCP data client - receives periodic data from target
+        self.tcp_data_client = TCPDataClient(
+            target_ip=target_ip,
+            target_port=tcp_data_port,
+            data_callback=self._handle_tcp_data
+        )
         
         # UDP status communication
         self.udp_status_client = UDPStatusClient(target_ip, 8889)
@@ -77,15 +61,14 @@ class FusorHostApp:
             self._update_status("Connected to target", "green")
             self._update_data_display("[System] Connected to target successfully")
         
-        # Start TCP data client to connect and receive read-only data from target
-        self._start_tcp_data_client()
+        # Start TCP data client
+        self.tcp_data_client.start()
         
         # Start UDP status communication
         self.udp_status_client.start()
         self.udp_status_receiver.start()
     
     def _setup_ui(self):
-        """Setup the CustomTkinter control panel with all buttons wired to send commands."""
         self.root = ctk.CTk()
         self.root.title("Fusor Control Panel - TCP/UDP")
         self.root.geometry("900x700")
@@ -265,7 +248,7 @@ class FusorHostApp:
         read_input_button = ctk.CTkButton(
             read_button_frame,
             text="Read GPIO Input",
-            command=lambda: self._send_command("READ_INPUT"),
+            command=lambda: self._send_command(self.command_handler.build_read_input_command()),
             font=ctk.CTkFont(size=12),
             width=150
         )
@@ -274,7 +257,7 @@ class FusorHostApp:
         read_adc_button = ctk.CTkButton(
             read_button_frame,
             text="Read ADC",
-            command=lambda: self._send_command("READ_ADC"),
+            command=lambda: self._send_command(self.command_handler.build_read_adc_command()),
             font=ctk.CTkFont(size=12),
             width=150
         )
@@ -309,11 +292,10 @@ class FusorHostApp:
         self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
     
     def _send_command(self, command: str):
-        """
-        Send command to target via TCP.
-        Target listens, takes action, and sends response back.
-        Automatically retries connection if not connected.
-        """
+        if not command:
+            logger.warning("Attempted to send empty command")
+            return
+        
         try:
             # Ensure connected - try to connect if not connected
             if not self.tcp_command_client.is_connected():
@@ -343,141 +325,65 @@ class FusorHostApp:
                 self._update_data_display(f"[COMMAND] {command} -> [RESPONSE] (no response)")
             
         except Exception as e:
+            logger.error(f"Error sending command {command}: {e}")
             self._update_status(f"Error sending command: {e}", "red")
             self._update_data_display(f"[ERROR] Command {command} failed: {e}")
     
     def _update_voltage_label(self, value):
-        """Update voltage label when slider moves."""
-        self.voltage_value_label.configure(text=str(int(value)))
+                self.voltage_value_label.configure(text=str(int(value)))
     
     def _update_pump_label(self, value):
-        """Update pump power label when slider moves."""
-        self.pump_value_label.configure(text=f"{int(value)}%")
+                self.pump_value_label.configure(text=f"{int(value)}%")
     
     def _set_voltage(self):
-        """Set voltage - sends command to target."""
         voltage = int(self.voltage_scale.get())
-        command = f"SET_VOLTAGE:{voltage}"
-        self._send_command(command)
+        command = self.command_handler.build_set_voltage_command(voltage)
+        if command:
+            self._send_command(command)
+        else:
+            self._update_status("Invalid voltage value", "red")
+            self._update_data_display(f"[ERROR] Invalid voltage: {voltage}")
     
     def _set_pump_power(self):
-        """Set pump power - sends command to target."""
         power = int(self.pump_power_scale.get())
-        command = f"SET_PUMP_POWER:{power}"
-        self._send_command(command)
+        command = self.command_handler.build_set_pump_power_command(power)
+        if command:
+            self._send_command(command)
+        else:
+            self._update_status("Invalid power value", "red")
+            self._update_data_display(f"[ERROR] Invalid power: {power}")
     
     def _move_motor(self):
-        """Move motor - sends command to target."""
         try:
             steps = int(self.steps_entry.get())
-            command = f"MOVE_VAR:{steps}"
-            self._send_command(command)
+            command = self.command_handler.build_move_motor_command(steps)
+            if command:
+                self._send_command(command)
+            else:
+                self._update_status("Invalid steps value", "red")
+                self._update_data_display("[ERROR] Steps must be a number")
         except ValueError:
             self._update_status("Invalid steps value", "red")
             self._update_data_display("[ERROR] Steps must be a number")
     
+    def _handle_tcp_data(self, data: str):
+                self._update_data_display(f"[TCP Data] {data}")
+    
     def _handle_udp_status(self, message: str, address: tuple):
-        """Handle UDP status messages from target."""
-        self._update_data_display(f"[UDP Status] From {address[0]}: {message}")
+                self._update_data_display(f"[UDP Status] From {address[0]}: {message}")
     
     def _update_data_display(self, data: str):
-        """Update the data display with new read-only data from target."""
         timestamp = time.strftime('%H:%M:%S')
         self.data_display.insert("end", f"{timestamp} - {data}\n")
         # Auto-scroll to bottom
         self.data_display.see("end")
     
     def _update_status(self, message: str, color: str = "white"):
-        """Update the status label."""
-        self.status_label.configure(text=message, text_color=color)
+                self.status_label.configure(text=message, text_color=color)
     
-    def _start_tcp_data_client(self):
-        """Start TCP data client thread to connect and receive read-only data from target."""
-        self.tcp_data_running = True
-        self.tcp_data_thread = threading.Thread(target=self._tcp_data_client, daemon=True)
-        self.tcp_data_thread.start()
-    
-    def _tcp_data_client(self):
-        """
-        TCP data client - connects to target and receives read-only data.
-        Target sends sensor data, ADC readings, GPIO states, etc.
-        """
-        while self.tcp_data_running:
-            try:
-                # Connect to target's TCP data server
-                self._update_data_display(f"[System] Connecting to target data server at {self.target_ip}:{self.tcp_data_port}")
-                self.tcp_data_client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                self.tcp_data_client.settimeout(5)
-                self.tcp_data_client.connect((self.target_ip, self.tcp_data_port))
-                
-                self._update_status(f"Connected to target data server", "green")
-                self._update_data_display(f"[TCP Data] Connected to target at {self.target_ip}:{self.tcp_data_port}")
-                
-                # Keep connection open and receive read-only data
-                while self.tcp_data_running:
-                    try:
-                        data = self.tcp_data_client.recv(1024).decode().strip()
-                        if data:
-                            # Display received read-only data from target
-                            self._update_data_display(f"[TCP Data] {data}")
-                            self._update_status(f"Received data from target", "green")
-                        else:
-                            break
-                    except socket.timeout:
-                        # Timeout is expected, continue to check connection
-                        continue
-                    except socket.error as e:
-                        self._update_data_display(f"[TCP Data] Connection error: {e}")
-                        break
-                
-                self.tcp_data_client.close()
-                self.tcp_data_client = None
-                self._update_data_display(f"[TCP Data] Disconnected from target")
-                
-            except socket.timeout:
-                if self.tcp_data_running:
-                    self._update_data_display(f"[ERROR] TCP data connection timeout - target may not be ready")
-                    self._update_data_display(f"[System] Retrying connection in 5 seconds...")
-                    time.sleep(5)
-                else:
-                    break
-            except ConnectionRefusedError:
-                if self.tcp_data_running:
-                    self._update_data_display(f"[ERROR] TCP data connection refused - is target listening on port {self.tcp_data_port}?")
-                    self._update_data_display(f"[System] Retrying connection in 5 seconds...")
-                    time.sleep(5)
-                else:
-                    break
-            except OSError as e:
-                if self.tcp_data_running:
-                    if e.errno == 10051:  # Windows: Network unreachable
-                        self._update_data_display(f"[ERROR] Network unreachable - cannot reach {self.target_ip}:{self.tcp_data_port}")
-                    elif e.errno == 10061:  # Windows: Connection refused
-                        self._update_data_display(f"[ERROR] Connection refused - is target running on port {self.tcp_data_port}?")
-                    else:
-                        self._update_data_display(f"[ERROR] TCP data connection failed (OSError {e.errno}): {e}")
-                    self._update_data_display(f"[System] Retrying connection in 5 seconds...")
-                    time.sleep(5)
-                else:
-                    break
-            except socket.error as e:
-                if self.tcp_data_running:
-                    self._update_data_display(f"[ERROR] TCP data connection failed: {e}")
-                    self._update_data_display(f"[System] Retrying connection in 5 seconds...")
-                    time.sleep(5)
-                else:
-                    break
-            except Exception as e:
-                if self.tcp_data_running:
-                    self._update_data_display(f"[ERROR] TCP data client error ({type(e).__name__}): {e}")
-                    self._update_data_display(f"[System] Retrying connection in 5 seconds...")
-                    time.sleep(5)
-                else:
-                    break
     
     def _on_closing(self):
-        """Handle window closing - cleanup and send LED_OFF command."""
-        # Send LED_OFF command before shutting down
+                # Send LED_OFF command before shutting down
         try:
             if self.tcp_command_client.is_connected():
                 self.tcp_command_client.send_command("LED_OFF")
@@ -489,7 +395,6 @@ class FusorHostApp:
         self.root.destroy()
     
     def run(self):
-        """Run the host application - pop up control panel."""
         print("Fusor Host Application starting...")
         print(f"Target IP: {self.target_ip}:{self.target_tcp_command_port}")
         print(f"TCP Data Port: {self.tcp_data_port}")
@@ -506,27 +411,18 @@ class FusorHostApp:
             self.stop()
     
     def stop(self):
-        """Stop the host application and cleanup."""
-        self.tcp_data_running = False
-        
-        # Disconnect TCP command client
+                # Disconnect TCP command client
         self.tcp_command_client.disconnect()
+        
+        # Stop TCP data client
+        self.tcp_data_client.stop()
         
         # Stop UDP status communication
         self.udp_status_client.stop()
         self.udp_status_receiver.stop()
-        
-        # Close TCP data client
-        if self.tcp_data_client:
-            try:
-                self.tcp_data_client.close()
-            except Exception:
-                pass
-            self.tcp_data_client = None
 
 
 def main():
-    """Main function - single entry point."""
     parser = argparse.ArgumentParser(description="Fusor Host Application - TCP/UDP Control Panel")
     parser.add_argument("--target-ip", default="192.168.0.2", help="Target IP address (default: 192.168.0.2)")
     parser.add_argument("--target-tcp-command-port", type=int, default=2222, help="Target TCP command port (default: 2222)")

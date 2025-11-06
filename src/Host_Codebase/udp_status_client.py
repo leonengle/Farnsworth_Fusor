@@ -1,12 +1,3 @@
-"""
-UDP Status Client for Host System
-This provides UDP-based status and heartbeat communication.
-
-Features:
-- UDP client for sending status/heartbeat messages
-- UDP server for receiving status updates from target
-"""
-
 import socket
 import threading
 import logging
@@ -17,43 +8,22 @@ logger = logging.getLogger("UDPStatusClient")
 
 
 class UDPStatusClient:
-    """
-    UDP client for sending status/heartbeat messages to target.
-    """
-    
-    def __init__(self, target_ip: str = "192.168.0.2", target_port: int = 8889):
-        """
-        Initialize the UDP status client.
-        
-        Args:
-            target_ip: IP address of the target system
-            target_port: UDP port on target system
-        """
-        self.target_ip = target_ip
+        def __init__(self, target_ip: str = "192.168.0.2", target_port: int = 8889):
+                self.target_ip = target_ip
         self.target_port = target_port
         self.socket: Optional[socket.socket] = None
         
         logger.info(f"UDP Status Client initialized for {target_ip}:{target_port}")
     
     def start(self):
-        """Start the UDP client."""
-        try:
+                try:
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             logger.info("UDP client socket created")
         except Exception as e:
             logger.error(f"Failed to create UDP socket: {e}")
     
     def send_status(self, status: str) -> bool:
-        """
-        Send a status message to the target.
-        
-        Args:
-            status: Status message string
-            
-        Returns:
-            True if sent successfully, False otherwise
-        """
-        if not self.socket:
+                if not self.socket:
             logger.warning("UDP socket not initialized")
             return False
         
@@ -67,8 +37,7 @@ class UDPStatusClient:
             return False
     
     def stop(self):
-        """Stop the UDP client."""
-        if self.socket:
+                if self.socket:
             try:
                 self.socket.close()
                 logger.info("UDP client socket closed")
@@ -78,19 +47,8 @@ class UDPStatusClient:
 
 
 class UDPStatusReceiver:
-    """
-    UDP receiver for receiving status updates from target.
-    """
-    
-    def __init__(self, listen_port: int = 8888, callback: Optional[Callable[[str, tuple], None]] = None):
-        """
-        Initialize the UDP status receiver.
-        
-        Args:
-            listen_port: UDP port to listen on
-            callback: Optional callback function for received messages
-        """
-        self.listen_port = listen_port
+        def __init__(self, listen_port: int = 8888, callback: Optional[Callable[[str, tuple], None]] = None):
+                self.listen_port = listen_port
         self.callback = callback
         self.socket: Optional[socket.socket] = None
         self.running = False
@@ -99,8 +57,7 @@ class UDPStatusReceiver:
         logger.info(f"UDP Status Receiver initialized for port {listen_port}")
     
     def start(self):
-        """Start the UDP receiver thread."""
-        if self.running:
+                if self.running:
             logger.warning("UDP receiver already running")
             return
         
@@ -118,8 +75,7 @@ class UDPStatusReceiver:
             logger.error(f"Failed to start UDP receiver: {e}")
     
     def _receive_loop(self):
-        """Main loop for receiving UDP messages."""
-        logger.info("UDP receive loop started")
+                logger.info("UDP receive loop started")
         
         while self.running:
             try:
@@ -141,8 +97,7 @@ class UDPStatusReceiver:
         logger.info("UDP receive loop ended")
     
     def stop(self):
-        """Stop the UDP receiver."""
-        self.running = False
+                self.running = False
         
         if self.receiver_thread:
             self.receiver_thread.join(timeout=2)
