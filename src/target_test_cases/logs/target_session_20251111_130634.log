@@ -1,0 +1,30 @@
+2025-11-11 13:06:34 - TargetLoggingSetup - INFO - Target logging system initialized
+2025-11-11 13:06:34 - TargetLoggingSetup - INFO - Target log files: logs\target_fusor.log, logs\target_fusor_errors.log, logs\target_session_20251111_130634.log
+2025-11-11 13:06:34 - GPIOHandler - INFO - GPIO setup complete - LED pin 26, Input pin 6
+2025-11-11 13:06:34 - GPIOHandler - INFO - GPIO cleanup complete
+2025-11-11 13:06:34 - GPIOHandler - INFO - GPIO setup complete - LED pin 26, Input pin 6
+2025-11-11 13:06:34 - GPIOHandler - ERROR - GPIO not initialized
+2025-11-11 13:06:34 - GPIOHandler - INFO - GPIO setup complete - LED pin 26, Input pin 6
+2025-11-11 13:06:34 - GPIOHandler - INFO - GPIO setup complete - LED pin 26, Input pin 6
+2025-11-11 13:06:34 - GPIOHandler - INFO - LED turned OFF (pin 26)
+2025-11-11 13:06:34 - GPIOHandler - INFO - GPIO setup complete - LED pin 26, Input pin 6
+2025-11-11 13:06:34 - GPIOHandler - INFO - LED turned ON (pin 26)
+2025-11-11 13:06:34 - GPIOHandler - INFO - GPIO setup complete - LED pin 26, Input pin 6
+2025-11-11 13:06:34 - GPIOHandler - INFO - GPIO setup complete - LED pin 26, Input pin 6
+2025-11-11 13:06:34 - GPIOHandler - INFO - GPIO setup complete - LED pin 26, Input pin 6
+2025-11-11 13:06:34 - CommandProcessor - INFO - Command processor initialized
+2025-11-11 13:06:34 - CommandProcessor - INFO - Command processor initialized
+2025-11-11 13:06:34 - CommandProcessor - INFO - Command processor initialized
+2025-11-11 13:06:34 - CommandProcessor - INFO - Command processor initialized
+2025-11-11 13:06:34 - CommandProcessor - INFO - Command processor initialized
+2025-11-11 13:06:34 - CommandProcessor - INFO - Command processor initialized
+2025-11-11 13:06:34 - CommandProcessor - INFO - Motor move command: 100 steps
+2025-11-11 13:06:34 - CommandProcessor - INFO - Command processor initialized
+2025-11-11 13:06:34 - CommandProcessor - INFO - Command processor initialized
+2025-11-11 13:06:34 - CommandProcessor - INFO - Command processor initialized
+2025-11-11 13:06:34 - CommandProcessor - INFO - Pump power set to 75%
+2025-11-11 13:06:34 - CommandProcessor - INFO - Command processor initialized
+2025-11-11 13:06:34 - CommandProcessor - INFO - Command processor initialized
+2025-11-11 13:06:34 - CommandProcessor - INFO - Voltage set to 5000V
+2025-11-11 13:06:34 - CommandProcessor - INFO - Command processor initialized
+2025-11-11 13:06:34 - CommandProcessor - WARNING - Unknown command: UNKNOWN_COMMAND

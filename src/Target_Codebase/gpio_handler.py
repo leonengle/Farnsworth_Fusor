@@ -59,7 +59,7 @@ class GPIOHandler(GPIOInterface):
             return False
     
     def read_input(self) -> Optional[int]:
-                if not self.initialized:
+        if not self.initialized:
             logger.error("GPIO not initialized")
             return None
         
@@ -72,7 +72,7 @@ class GPIOHandler(GPIOInterface):
             return None
     
     def setup(self, pin: int, mode: str):
-                if not self.initialized:
+        if not self.initialized:
             GPIO.setmode(GPIO.BCM)
             self.initialized = True
         
@@ -87,7 +87,7 @@ class GPIOHandler(GPIOInterface):
             logger.error(f"Error setting up GPIO pin {pin}: {e}")
     
     def write(self, pin: int, value: int):
-                if not self.initialized:
+        if not self.initialized:
             logger.error("GPIO not initialized")
             return
         
@@ -101,7 +101,7 @@ class GPIOHandler(GPIOInterface):
                 return self.read_input() if pin == self.input_pin else None
     
     def cleanup(self):
-                if self.initialized:
+        if self.initialized:
             try:
                 # Turn off LED before cleanup
                 GPIO.output(self.led_pin, GPIO.LOW)
