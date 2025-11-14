@@ -9,7 +9,7 @@ import sys
 import os
 
 # Add Target_Codebase to path to import target codebase modules
-target_codebase_path = os.path.join(os.path.dirname(__file__), "..", "src", "Target_Codebase")
+target_codebase_path = os.path.join(os.path.dirname(__file__), "..", "..", "Target_Codebase")
 sys.path.insert(0, target_codebase_path)
 
 # Mock RPi.GPIO before importing gpio_handler (required for non-RPi environments)
