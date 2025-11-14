@@ -1,53 +1,10 @@
 import customtkinter as ctk
-import socket
 import json
 import threading
 from enum import Enum, auto
-
-# ============================================================
-#  Networking: RPi command connection (UDP or TCP)
-# ============================================================
-
-class RPiConnection:
-    def __init__(self, host="192.168.1.50", port=5005, use_udp=True):
-        """
-        host / port: address of Raspberry Pi command listener
-        use_udp: True for UDP, False for TCP
-        """
-        self.host = host
-        self.port = port
-        self.use_udp = use_udp
-
-        if not use_udp:
-            # TCP
-            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.sock.connect((host, port))
-        else:
-            # UDP
-            self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-    def send_command(self, payload: dict):
-        data = json.dumps(payload).encode("utf-8")
-        if self.use_udp:
-            self.sock.sendto(data, (self.host, self.port))
-        else:
-            self.sock.sendall(data)
-
-
-# Global-ish RPi command connection (edit host/port as needed)
-rpi_conn = RPiConnection(host="192.168.1.50", port=5005, use_udp=True)
-
-
-def TCP_send(name, command):
-    """
-    name: component name (string)
-    command: arbitrary dict payload
-    """
-    payload = {
-        "component": name,
-        "command": command,
-    }
-    rpi_conn.send_command(payload)
+from tcp_command_client import TCPCommandClient
+from udp_status_client import UDPStatusReceiver
+from tcp_data_client import TCPDataClient
 
 
 # ============================================================
@@ -55,15 +12,62 @@ def TCP_send(name, command):
 # ============================================================
 
 class FusorComponent:
-    def __init__(self, name: str):
+    def __init__(self, name: str, tcp_client: TCPCommandClient, component_map: dict = None):
         self.name = name
+        self.tcp_client = tcp_client
+        self.component_map = component_map or {}
+    
+    def _send_target_command(self, command: str):
+        if not self.tcp_client.is_connected():
+            if not self.tcp_client.connect():
+                print(f"Failed to connect to target for command: {command}")
+                return
+        response = self.tcp_client.send_command(command)
+        if response:
+            print(f"Command '{command}' -> Response: {response}")
 
     def setDigitalValue(self, command: bool):
-        TCP_send(self.name, {"type": "digital", "value": bool(command)})
+        component_type = self.component_map.get(self.name, {}).get("type")
+        if component_type == "valve":
+            valve_id = self.component_map.get(self.name, {}).get("valve_id", 1)
+            position = 100 if command else 0
+            self._send_target_command(f"SET_VALVE{valve_id}:{position}")
+        elif component_type == "power_supply":
+            cmd = "POWER_SUPPLY_ENABLE" if command else "POWER_SUPPLY_DISABLE"
+            self._send_target_command(cmd)
+        elif component_type == "mechanical_pump":
+            power = 100 if command else 0
+            self._send_target_command(f"SET_MECHANICAL_PUMP:{power}")
+        elif component_type == "turbo_pump":
+            power = 100 if command else 0
+            self._send_target_command(f"SET_TURBO_PUMP:{power}")
 
     def setAnalogValue(self, command: float):
-        # For HV: 27 => 27kV -> 27000
-        TCP_send(self.name, {"type": "analog", "value": float(command)})
+        component_type = self.component_map.get(self.name, {}).get("type")
+        if component_type == "power_supply":
+            self._send_target_command(f"SET_VOLTAGE:{command}")
+        elif component_type == "valve":
+            valve_id = self.component_map.get(self.name, {}).get("valve_id", 1)
+            position = int(command)
+            if position < 0:
+                position = 0
+            elif position > 100:
+                position = 100
+            self._send_target_command(f"SET_VALVE{valve_id}:{position}")
+        elif component_type == "mechanical_pump":
+            power = int(command)
+            if power < 0:
+                power = 0
+            elif power > 100:
+                power = 100
+            self._send_target_command(f"SET_MECHANICAL_PUMP:{power}")
+        elif component_type == "turbo_pump":
+            power = int(command)
+            if power < 0:
+                power = 0
+            elif power > 100:
+                power = 100
+            self._send_target_command(f"SET_TURBO_PUMP:{power}")
 
 
 # ============================================================
@@ -585,58 +589,40 @@ class ModeSelectFrame(ctk.CTkFrame):
 
 
 # ============================================================
-#  UDP_Client: Telemetry receiver → UI + TelemetryToEventMapper
+#  UDP Status Handler: Wrapper for UDPStatusReceiver
 # ============================================================
 
-class UDP_Client:
-    def __init__(self, manual_frame: ManualControlFrame,
-                 telemetry_callback,
-                 listen_host="0.0.0.0", listen_port=5006):
-        """
-        telemetry_callback: function(telemetry_dict)
-        """
+class UDPStatusHandler:
+    def __init__(self, manual_frame, telemetry_callback, listen_port=8888):
         self.manual_frame = manual_frame
         self.telemetry_callback = telemetry_callback
-        self.listen_host = listen_host
-        self.listen_port = listen_port
-        self._stop_flag = threading.Event()
-
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.bind((self.listen_host, self.listen_port))
-
-    def startDisplayingRealTimeData(self):
-        t = threading.Thread(target=self._listen_loop, daemon=True)
-        t.start()
-
-    def stopDisplayingRealTimeData(self):
-        self._stop_flag.set()
-
-    def _listen_loop(self):
-        while not self._stop_flag.is_set():
-            try:
-                data, addr = self.sock.recvfrom(4096)
-                msg = json.loads(data.decode("utf-8"))
-
-                # EXPECTED FORMAT (edit to match your Pi):
-                # {
-                #    "id": "Pressure Sensor 1",
-                #    "value": 123.4,
-                #    "telemetry": {... see TelemetryToEventMapper ...}
-                # }
-
-                identifier = msg.get("id")
-                value = msg.get("value")
-                if identifier == "Pressure Sensor 1" and value is not None:
-                    # NOTE: technically UI updates from background threads are unsafe,
-                    # but often work. For strict safety use an event queue + root.after.
+        self.udp_receiver = UDPStatusReceiver(
+            listen_port=listen_port,
+            callback=self._handle_message
+        )
+    
+    def _handle_message(self, message: str, address: tuple):
+        try:
+            msg = json.loads(message)
+            identifier = msg.get("id")
+            value = msg.get("value")
+            if identifier == "Pressure Sensor 1" and value is not None:
+                if hasattr(self.manual_frame, 'update_pressure_display'):
                     self.manual_frame.update_pressure_display(value)
-
-                telemetry = msg.get("telemetry")
-                if telemetry and self.telemetry_callback:
-                    self.telemetry_callback(telemetry)
-
-            except Exception as e:
-                print("UDP_Client error:", e)
+            
+            telemetry = msg.get("telemetry")
+            if telemetry and self.telemetry_callback:
+                self.telemetry_callback(telemetry)
+        except json.JSONDecodeError:
+            pass
+        except Exception as e:
+            print(f"UDP Status Handler error: {e}")
+    
+    def startDisplayingRealTimeData(self):
+        self.udp_receiver.start()
+    
+    def stopDisplayingRealTimeData(self):
+        self.udp_receiver.stop()
 
 
 # ============================================================
@@ -644,19 +630,36 @@ class UDP_Client:
 # ============================================================
 
 class FusorApp(ctk.CTk):
-    def __init__(self):
+    def __init__(self, target_ip: str = "192.168.0.2", target_tcp_port: int = 2222):
         super().__init__()
         self.title("Fusor Control GUI")
         self.geometry("800x600")
+        
+        self.target_ip = target_ip
+        self.target_tcp_port = target_tcp_port
+        
+        self.tcp_command_client = TCPCommandClient(
+            target_ip=target_ip,
+            target_port=target_tcp_port
+        )
+        
+        component_map = {
+            "Main Supply": {"type": "power_supply"},
+            "Atm Depressure Valve": {"type": "valve", "valve_id": 1},
+            "Foreline Valve": {"type": "valve", "valve_id": 2},
+            "Vacuum System Valve": {"type": "valve", "valve_id": 3},
+            "Roughing Pump": {"type": "mechanical_pump"},
+            "Turbo Pump": {"type": "turbo_pump"},
+            "Deuterium Supply Valve": {"type": "valve", "valve_id": 4},
+        }
 
-        # Create hardware abstraction
-        self.powerSupply = FusorComponent("Main Supply")
-        self.atmValve = FusorComponent("Atm Depressure Valve")
-        self.forelineValve = FusorComponent("Foreline Valve")
-        self.fusorValve = FusorComponent("Vacuum System Valve")
-        self.mechPump = FusorComponent("Roughing Pump")
-        self.turboPump = FusorComponent("Turbo Pump")
-        self.deuteriumValve = FusorComponent("Deuterium Supply Valve")
+        self.powerSupply = FusorComponent("Main Supply", self.tcp_command_client, component_map)
+        self.atmValve = FusorComponent("Atm Depressure Valve", self.tcp_command_client, component_map)
+        self.forelineValve = FusorComponent("Foreline Valve", self.tcp_command_client, component_map)
+        self.fusorValve = FusorComponent("Vacuum System Valve", self.tcp_command_client, component_map)
+        self.mechPump = FusorComponent("Roughing Pump", self.tcp_command_client, component_map)
+        self.turboPump = FusorComponent("Turbo Pump", self.tcp_command_client, component_map)
+        self.deuteriumValve = FusorComponent("Deuterium Supply Valve", self.tcp_command_client, component_map)
 
         self.components = {
             "power_supply": self.powerSupply,
@@ -668,31 +671,38 @@ class FusorApp(ctk.CTk):
             "deuterium_valve": self.deuteriumValve,
         }
 
-        # FSM controller
         self.auto_controller = AutoController(self.components)
 
-        # Telemetry → FSM mapper
         self.telemetry_mapper = TelemetryToEventMapper(self.auto_controller)
 
-        # Frames
         self.manual_frame = ManualControlFrame(self, self.components)
         self.auto_frame = AutoControlFrame(self, self.auto_controller)
 
-        # Mode select frame at top
         self.mode_frame = ModeSelectFrame(self, self.manual_frame, self.auto_frame)
         self.mode_frame.pack(side="top", fill="x")
 
-        # Start with Manual visible
         self.manual_frame.pack(fill="both", expand=True)
 
-        # UDP telemetry client
-        self.udp_client = UDP_Client(
+        self.udp_status_handler = UDPStatusHandler(
             manual_frame=self.manual_frame,
             telemetry_callback=self.telemetry_mapper.handle_telemetry,
-            listen_host="0.0.0.0",
-            listen_port=5006,  # edit as needed
+            listen_port=8888
         )
-        self.udp_client.startDisplayingRealTimeData()
+        self.udp_status_handler.startDisplayingRealTimeData()
+        
+        self.tcp_data_client = TCPDataClient(
+            target_ip=target_ip,
+            target_port=12345,
+            data_callback=self._handle_data_message
+        )
+        self.tcp_data_client.start()
+    
+    def _handle_data_message(self, data: str):
+        try:
+            if hasattr(self, 'manual_frame') and hasattr(self.manual_frame, 'update_data_display'):
+                self.manual_frame.update_data_display(data)
+        except Exception as e:
+            print(f"Error handling data message: {e}")
 
 
 # ============================================================

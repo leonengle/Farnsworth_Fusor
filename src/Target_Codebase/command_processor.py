@@ -256,7 +256,7 @@ class CommandProcessor:
                     if power < 0 or power > 100:
                         return "SET_PUMP_POWER_FAILED: Power must be 0-100"
                     if self.gpio_handler.set_mechanical_pump_power(power):
-                        return f"SET_PUMP_POWER_SUCCESS:{power}"
+                        return f"SET_MECHANICAL_PUMP_SUCCESS:{power}"
                     else:
                         return "SET_PUMP_POWER_FAILED"
                 except (ValueError, IndexError):
