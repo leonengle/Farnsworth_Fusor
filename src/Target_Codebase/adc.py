@@ -8,6 +8,7 @@ try:
     import RPi.GPIO as GPIO
     from Adafruit_GPIO import SPI
     import Adafruit_MCP3008
+
     RPI_AVAILABLE = True
 except (ImportError, ModuleNotFoundError):
     # Mock modules for testing
@@ -17,7 +18,7 @@ except (ImportError, ModuleNotFoundError):
     Adafruit_MCP3008 = None
 
 PIN = 16
-PIN2 = 23 
+PIN2 = 23
 PIN3 = 26
 
 HW_SPI_PORT = 0
@@ -33,62 +34,67 @@ if RPI_AVAILABLE and GPIO is not None:
     except Exception:
         pass  # Fail silently in test environments
 
+
 class MCP3008ADC(ADCInterface):
     def __init__(self, spi_port=0, spi_device=0):
         super().__init__(spi_port, spi_device)
         self.mcp = None
-    
+
     def initialize(self):
         if not RPI_AVAILABLE or Adafruit_MCP3008 is None or SPI is None:
             print("ADC libraries not available (likely in test environment)")
             return False
         try:
-            self.mcp = Adafruit_MCP3008.MCP3008(spi=SPI.SpiDev(self.spi_port, self.spi_device))
+            self.mcp = Adafruit_MCP3008.MCP3008(
+                spi=SPI.SpiDev(self.spi_port, self.spi_device)
+            )
             self._is_initialized = True
             print("MCP3008 ADC initialized successfully")
             return True
         except Exception as e:
             print(f"Failed to initialize ADC: {e}")
             return False
-    
+
     def read_channel(self, channel):
         if not self._is_initialized:
             print("ADC not initialized")
             return 0
-        
+
         if not self.validate_channel(channel):
             print(f"Invalid channel: {channel}")
             return 0
-        
+
         try:
             return self.mcp.read_adc(channel)
         except Exception as e:
             print(f"Error reading channel {channel}: {e}")
             return 0
-    
+
     def read_multiple_channels(self, channels):
         if not self._is_initialized:
             print("ADC not initialized")
             return [0] * len(channels)
-        
+
         results = []
         for channel in channels:
             results.append(self.read_channel(channel))
         return results
-    
+
     def read_all_channels(self):
         return self.read_multiple_channels(list(range(8)))
-    
+
     def convert_to_voltage(self, adc_value, reference_voltage=3.3):
         return (adc_value / 1023.0) * reference_voltage
-    
+
     def cleanup(self):
         self._is_initialized = False
         self.mcp = None
 
+
 # Global instance for backward compatibility (lazy initialization)
 _mcp_instance = None
 _mcp = None
+
 
 def get_mcp_instance():
     """Get or create global MCP instance (lazy initialization)"""
@@ -102,6 +108,7 @@ def get_mcp_instance():
             print("Warning: ADC initialization failed")
     return _mcp
 
+
 # For backward compatibility, try to initialize if RPi is available
 # Use lazy initialization to avoid issues during import
 try:
@@ -113,25 +120,27 @@ except Exception:
     # Fail silently during import if initialization fails
     mcp = None
 
+
 def validate_channel(channel: int):
     if channel < 0 or channel > 7:
         print("ERROR: Value must be between 0 and 7!", file=sys.stderr)
         return False
     return True
 
+
 def read_adc(channel: int):
     if not validate_channel(channel):
         return
-    
+
     current_mcp = get_mcp_instance() if RPI_AVAILABLE else None
     if current_mcp is None:
         print("ADC not available - cannot read")
         return
-    
+
     if not RPI_AVAILABLE or GPIO is None:
         print("GPIO not available - cannot control LEDs")
         return
-    
+
     try:
         while True:
             value = current_mcp.read_adc(channel)
@@ -154,11 +163,13 @@ def read_adc(channel: int):
             GPIO.cleanup()
         print("\nExiting")
 
+
 def main():
     parser = argparse.ArgumentParser(description="Read MCP3008 ADC channel repeatedly.")
     parser.add_argument("channel", type=int, help="ADC channel number (0-7)")
     args = parser.parse_args()
     read_adc(args.channel)
+
 
 if __name__ == "__main__":
     main()
