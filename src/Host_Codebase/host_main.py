@@ -365,6 +365,17 @@ class FusorHostApp:
             udp_status_port, self._handle_udp_status
         )
 
+        self.root = None
+        self.data_display = None
+        self.status_label = None
+        self.voltage_scale = None
+        self.pump_power_scale = None
+        self.manual_mech_slider = None
+        self.manual_mech_label = None
+        self.pressure_label = None
+        self.auto_state_label = None
+        self.auto_log_display = None
+
         component_map = {
             "Main Supply": {"type": "power_supply"},
             "Atm Depressure Valve": {"type": "valve", "valve_id": 1},
@@ -391,17 +402,6 @@ class FusorHostApp:
             log_callback=self._auto_log_event,
         )
         self.telemetry_mapper = TelemetryToEventMapper(self.auto_controller)
-
-        self.root = None
-        self.data_display = None
-        self.status_label = None
-        self.voltage_scale = None
-        self.pump_power_scale = None
-        self.manual_mech_slider = None
-        self.manual_mech_label = None
-        self.pressure_label = None
-        self.auto_state_label = None
-        self.auto_log_display = None
 
         self._setup_ui()
 
@@ -808,7 +808,7 @@ class FusorHostApp:
             self.auto_state_label.configure(text=f"Current State: {state.name}")
 
     def _auto_log_event(self, message: str):
-        if not self.auto_log_display:
+        if not hasattr(self, "auto_log_display") or self.auto_log_display is None:
             return
         timestamp = time.strftime("%H:%M:%S")
         self.auto_log_display.configure(state="normal")
