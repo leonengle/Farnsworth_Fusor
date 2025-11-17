@@ -380,6 +380,9 @@ class FusorHostApp:
         self.target_snapshot_var = None
         self.target_snapshot_entry = None
         self.terminal_updates_enabled = terminal_updates
+        
+        # Track previous values to only log changes
+        self.previous_values = {}
 
         component_map = {
             "Main Supply": {"type": "power_supply"},
@@ -795,16 +798,39 @@ class FusorHostApp:
                 # Check for success/failure in response
                 if "SUCCESS" in response.upper():
                     self._update_status(
-                    f"Command sent: {command} - Response: {response}", "green"
-                )
+                        f"Command sent: {command} - Response: {response}", "green"
+                    )
                 elif "FAILED" in response.upper() or "ERROR" in response.upper():
                     self._update_status(
                         f"Command sent: {command} - Response: {response}", "red"
                     )
-                    if "GPIO not initialized" in response:
-                        self._update_data_display(
-                            "[ERROR] GPIO not initialized on target - check if target is running with 'sudo'"
-                        )
+                    # Always log errors to terminal with full details
+                    self._log_terminal_update("COMMAND_ERROR", f"{command} -> {response}")
+                    
+                    # Extract and display detailed error message
+                    if ":" in response:
+                        error_detail = response.split(":", 1)[1].strip()
+                        self._update_data_display(f"[ERROR] {command} failed: {error_detail}")
+                        
+                        # Provide specific troubleshooting based on error type
+                        if "GPIO not initialized" in error_detail:
+                            self._update_data_display(
+                                "[TROUBLESHOOTING] GPIO not initialized - ensure target is running with 'sudo'"
+                            )
+                        elif "Permission denied" in error_detail:
+                            self._update_data_display(
+                                "[TROUBLESHOOTING] Permission denied - target must run with 'sudo' to access GPIO"
+                            )
+                        elif "RuntimeError" in error_detail:
+                            self._update_data_display(
+                                "[TROUBLESHOOTING] GPIO RuntimeError - pins may be in use, try: sudo python3 -c 'import RPi.GPIO as GPIO; GPIO.cleanup()'"
+                            )
+                        elif "OS Error" in error_detail:
+                            self._update_data_display(
+                                "[TROUBLESHOOTING] GPIO hardware error - check wiring and GPIO connections"
+                            )
+                    else:
+                        self._update_data_display(f"[ERROR] {command} failed: {response}")
                 else:
                     self._update_status(
                         f"Command sent: {command} - Response: {response}", "blue"
@@ -907,39 +933,99 @@ class FusorHostApp:
         self._update_data_display(f"[TCP Data] {data}")
         self._update_target_snapshot(data)
         parsed = self._parse_periodic_packet(data)
+        
+        # Check for errors first (always log errors)
+        has_error = any(
+            "ERROR" in str(v).upper() or 
+            "NOT_AVAILABLE" in str(v).upper() or 
+            "NOT_INITIALIZED" in str(v).upper() or
+            "DISCONNECTED" in str(v).upper()
+            for v in (parsed.values() if parsed else [data])
+        )
+        
         if parsed:
-            summary = ", ".join(f"{k}={v}" for k, v in parsed.items())
+            # Check if any values changed
+            values_changed = False
+            changed_items = []
+            
+            for key, value in parsed.items():
+                prev_value = self.previous_values.get(key)
+                if prev_value != value:
+                    values_changed = True
+                    changed_items.append(f"{key}={value}")
+                    self.previous_values[key] = value
+                elif key not in self.previous_values:
+                    # First time seeing this value
+                    values_changed = True
+                    changed_items.append(f"{key}={value}")
+                    self.previous_values[key] = value
+            
+            # Update ADC display
             adc_value = parsed.get("ADC_CH0")
             if adc_value is not None:
                 self._update_adc_display(adc_value)
+            
+            # Only log to terminal if values changed or there's an error
+            if values_changed or has_error:
+                if changed_items:
+                    summary = ", ".join(changed_items)
+                    if has_error:
+                        summary += " [ERROR DETECTED]"
+                    self._log_terminal_update("TARGET_DATA", summary)
+                elif has_error:
+                    # Error but no value changes
+                    summary = ", ".join(f"{k}={v}" for k, v in parsed.items() if 
+                                       "ERROR" in str(v).upper() or 
+                                       "NOT_AVAILABLE" in str(v).upper() or 
+                                       "NOT_INITIALIZED" in str(v).upper())
+                    self._log_terminal_update("TARGET_ERROR", summary)
         else:
-            summary = data
-        # Always log to terminal for periodic updates
-        self._log_terminal_update("TARGET_DATA", summary)
+            # Unparsed data - check for error keywords
+            if has_error or "ERROR" in data.upper():
+                self._log_terminal_update("TARGET_ERROR", data)
 
     def _handle_udp_status(self, message: str, address: tuple):
         """Handle status messages received from target via UDP."""
         self._update_data_display(f"[UDP Status] From {address[0]}: {message}")
         self._update_target_snapshot(message)
-        # Always log to terminal for periodic updates
-        self._log_terminal_update("TARGET_STATUS", message)
+        
+        # Check for errors (always log errors)
+        has_error = "ERROR" in message.upper() or "FAILED" in message.upper() or "WARNING" in message.upper()
+        
         try:
             payload = json.loads(message)
             identifier = payload.get("id")
             value = payload.get("value")
+            
+            # Track pressure sensor values for changes
             if identifier == "Pressure Sensor 1" and value is not None:
+                prev_pressure = self.previous_values.get("Pressure_Sensor_1")
+                if prev_pressure != value:
+                    self._log_terminal_update("TARGET_STATUS", f"Pressure Sensor 1: {value} mT")
+                    self.previous_values["Pressure_Sensor_1"] = value
                 self._update_pressure_display(value)
+            
             telemetry = payload.get("telemetry")
             if telemetry:
                 self.telemetry_mapper.handle_telemetry(telemetry)
+            
+            # Log if error detected
+            if has_error:
+                self._log_terminal_update("TARGET_ERROR", message)
+                
         except json.JSONDecodeError:
-            pass
+            # Not JSON - log if it looks like an error
+            if has_error:
+                self._log_terminal_update("TARGET_ERROR", message)
         except Exception as exc:
             logger.error("Error parsing UDP status message: %s", exc)
+            self._log_terminal_update("TARGET_ERROR", f"Parse error: {exc}")
 
     def _update_data_display(self, data: str):
+        # Only log to terminal if it's an error (when GUI not available)
         if not self.data_display or not self.root:
-            self._log_terminal_update("Data", data)
+            if "ERROR" in data.upper() or "FAILED" in data.upper():
+                self._log_terminal_update("ERROR", data)
             return
         try:
             timestamp = time.strftime("%H:%M:%S")

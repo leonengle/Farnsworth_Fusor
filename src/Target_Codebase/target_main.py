@@ -68,6 +68,12 @@ class TargetSystem:
         self.udp_status_receiver = UDPStatusReceiver(8889)
 
         self.running = False
+        
+        # ADC filtering - moving average buffer
+        self.adc_filter_size = 5  # Number of samples to average
+        self.adc_readings_buffer = []  # Buffer for moving average
+        self.adc_last_reported_value = None  # Last reported value for change detection
+        self.adc_noise_threshold = 2  # Minimum change to report (filter out noise)
 
         logger.info(
             f"Target system initialized (Host: {host_ip}, TCP Command Port: {tcp_command_port}, "
@@ -102,8 +108,31 @@ class TargetSystem:
             if self.tcp_command_server.adc:
                 if self.tcp_command_server.adc.is_initialized():
                     try:
-                        adc_value = self.tcp_command_server.read_adc_channel(0)  # Use channel 0
-                        data_parts.append(f"ADC_CH0:{adc_value}")
+                        # Read multiple samples and average to reduce noise
+                        raw_readings = []
+                        for _ in range(3):  # Take 3 quick samples
+                            raw_value = self.tcp_command_server.read_adc_channel(0)
+                            raw_readings.append(raw_value)
+                        
+                        # Calculate average
+                        adc_value = int(sum(raw_readings) / len(raw_readings))
+                        
+                        # Add to moving average buffer
+                        self.adc_readings_buffer.append(adc_value)
+                        if len(self.adc_readings_buffer) > self.adc_filter_size:
+                            self.adc_readings_buffer.pop(0)  # Remove oldest
+                        
+                        # Calculate filtered value (moving average)
+                        filtered_value = int(sum(self.adc_readings_buffer) / len(self.adc_readings_buffer))
+                        
+                        # Only report if change is significant (above noise threshold)
+                        if (self.adc_last_reported_value is None or 
+                            abs(filtered_value - self.adc_last_reported_value) >= self.adc_noise_threshold):
+                            self.adc_last_reported_value = filtered_value
+                            data_parts.append(f"ADC_CH0:{filtered_value}")
+                        else:
+                            # Use last reported value to avoid noise
+                            data_parts.append(f"ADC_CH0:{self.adc_last_reported_value}")
                     except Exception as e:
                         logger.warning(f"Error reading ADC channel 0: {e}")
                         data_parts.append("ADC_CH0:ERROR")
@@ -190,8 +219,11 @@ class TargetSystem:
         # Turn off LED first, before stopping services
         try:
             if self.tcp_command_server and self.tcp_command_server.gpio_handler:
-                self.tcp_command_server.gpio_handler.led_off()
-                logger.info("LED turned OFF during shutdown")
+                success, msg = self.tcp_command_server.gpio_handler.led_off()
+                if success:
+                    logger.info("LED turned OFF during shutdown")
+                else:
+                    logger.warning(f"LED off during shutdown: {msg}")
         except Exception as e:
             logger.error(f"Error turning off LED during stop: {e}")
 
@@ -252,8 +284,11 @@ def signal_handler(signum, frame):
                     _target_system_instance.tcp_command_server
                     and _target_system_instance.tcp_command_server.gpio_handler
                 ):
-                    _target_system_instance.tcp_command_server.gpio_handler.led_off()
-                    logger.info("LED turned OFF via existing GPIO handler")
+                    success, msg = _target_system_instance.tcp_command_server.gpio_handler.led_off()
+                    if success:
+                        logger.info("LED turned OFF via existing GPIO handler")
+                    else:
+                        logger.warning(f"LED off via existing handler: {msg}")
             except Exception as e:
                 logger.debug(f"Could not use existing GPIO handler: {e}")
     except Exception as e:
@@ -264,9 +299,12 @@ def signal_handler(signum, frame):
         from gpio_handler import GPIOHandler
 
         gpio = GPIOHandler(led_pin=26, input_pin=6)
-        gpio.led_off()
+        success, msg = gpio.led_off()
+        if success:
+            logger.info("LED turned OFF via new GPIO handler")
+        else:
+            logger.warning(f"LED off via new handler: {msg}")
         gpio.cleanup()
-        logger.info("LED turned OFF via new GPIO handler")
     except Exception as e:
         logger.error(f"Could not turn off LED: {e}")
 
@@ -365,7 +403,9 @@ def main():
                     target_system.tcp_command_server
                     and target_system.tcp_command_server.gpio_handler
                 ):
-                    target_system.tcp_command_server.gpio_handler.led_off()
+                    success, msg = target_system.tcp_command_server.gpio_handler.led_off()
+                    if not success:
+                        logger.debug(f"Final LED off attempt: {msg}")
             except:
                 pass
         logger.info("Target system shutdown complete")
