@@ -792,9 +792,23 @@ class FusorHostApp:
 
             # Display response
             if response:
-                self._update_status(
+                # Check for success/failure in response
+                if "SUCCESS" in response.upper():
+                    self._update_status(
                     f"Command sent: {command} - Response: {response}", "green"
                 )
+                elif "FAILED" in response.upper() or "ERROR" in response.upper():
+                    self._update_status(
+                        f"Command sent: {command} - Response: {response}", "red"
+                    )
+                    if "GPIO not initialized" in response:
+                        self._update_data_display(
+                            "[ERROR] GPIO not initialized on target - check if target is running with 'sudo'"
+                        )
+                else:
+                    self._update_status(
+                        f"Command sent: {command} - Response: {response}", "blue"
+                    )
                 self._update_data_display(
                     f"[COMMAND] {command} -> [RESPONSE] {response}"
                 )

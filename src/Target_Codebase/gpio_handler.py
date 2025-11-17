@@ -42,6 +42,19 @@ class GPIOHandler(GPIOInterface):
 
     def _setup_gpio(self):
         try:
+            # Check if running with proper permissions
+            import os
+            if os.geteuid() != 0:
+                logger.warning("Not running as root - GPIO may not work properly. Try running with 'sudo'")
+            
+            # Try to cleanup any existing GPIO state first
+            try:
+                GPIO.cleanup()
+                logger.debug("Cleaned up existing GPIO state")
+            except Exception:
+                # Ignore cleanup errors - GPIO might not be initialized yet
+                pass
+            
             GPIO.setmode(GPIO.BCM)
             GPIO.setup(self.led_pin, GPIO.OUT)
             GPIO.setup(self.input_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
@@ -69,21 +82,60 @@ class GPIOHandler(GPIOInterface):
                 f"Power Supply: {self.power_supply_pin}, Valves: {self.valve_pins}, "
                 f"Pumps: Mech={self.mechanical_pump_pin}, Turbo={self.turbo_pump_pin}"
             )
+        except RuntimeError as e:
+            if "GPIO channels already in use" in str(e) or "GPIO channel" in str(e):
+                logger.error(f"GPIO setup error: GPIO channels already in use")
+                logger.error("Attempting to cleanup and retry...")
+                try:
+                    GPIO.cleanup()
+                    # Retry setup once
+                    GPIO.setmode(GPIO.BCM)
+                    GPIO.setup(self.led_pin, GPIO.OUT)
+                    GPIO.setup(self.input_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+                    GPIO.setup(self.power_supply_pin, GPIO.OUT)
+                    GPIO.output(self.power_supply_pin, GPIO.LOW)
+                    GPIO.output(self.led_pin, GPIO.LOW)
+                    self.initialized = True
+                    logger.info("GPIO setup successful after cleanup retry")
+                    logger.info(
+                        f"GPIO setup complete - LED: {self.led_pin}, Input: {self.input_pin}, "
+                        f"Power Supply: {self.power_supply_pin}"
+                    )
+                    return  # Success after retry
+                except Exception as retry_error:
+                    logger.error(f"GPIO setup retry failed: {retry_error}")
+                    logger.error("Try manually: sudo python3 -c 'import RPi.GPIO as GPIO; GPIO.cleanup()'")
+            else:
+                logger.error(f"GPIO setup error (RuntimeError): {e}")
+            logger.error("GPIO initialization failed - LED and other GPIO functions will not work")
+            self.initialized = False
+        except PermissionError as e:
+            logger.error(f"GPIO setup error: Permission denied. You must run with 'sudo' to access GPIO pins.")
+            logger.error(f"Try: sudo python3 target_main.py")
+            self.initialized = False
         except Exception as e:
             logger.error(f"GPIO setup error: {e}")
+            logger.error(f"Error type: {type(e).__name__}")
+            logger.error("GPIO initialization failed - LED and other GPIO functions will not work")
             self.initialized = False
 
     def led_on(self) -> bool:
         if not self.initialized:
-            logger.error("GPIO not initialized")
+            logger.error("GPIO not initialized - cannot turn LED on")
+            logger.error("Check logs for GPIO setup errors. Ensure target is running with 'sudo'")
             return False
 
         try:
             GPIO.output(self.led_pin, GPIO.HIGH)
             logger.info(f"LED turned ON (pin {self.led_pin})")
             return True
+        except RuntimeError as e:
+            logger.error(f"Error turning LED on (RuntimeError): {e}")
+            logger.error("GPIO may not be properly initialized or pins are in use")
+            return False
         except Exception as e:
             logger.error(f"Error turning LED on: {e}")
+            logger.error(f"Error type: {type(e).__name__}")
             return False
 
     def led_off(self) -> bool:
