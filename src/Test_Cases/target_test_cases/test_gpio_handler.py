@@ -39,15 +39,22 @@ class TestGPIOHandler(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures"""
-        with patch('gpio_handler.GPIO', mock_gpio):
-            self.gpio_handler = GPIOHandler(
-                led_pin=26,
-                input_pin=6,
-                power_supply_pin=5,
-                valve_pins=[17, 4, 22, 23, 24, 25],
-                mechanical_pump_pin=27,
-                turbo_pump_pin=16
-            )
+        mock_gpio.reset_mock()
+        mock_gpio.input.return_value = 0
+        self.patcher = patch('gpio_handler.GPIO', mock_gpio)
+        self.patcher.start()
+        self.gpio_handler = GPIOHandler(
+            led_pin=26,
+            input_pin=6,
+            power_supply_pin=5,
+            valve_pins=[17, 4, 22, 23, 24, 25],
+            mechanical_pump_pin=27,
+            turbo_pump_pin=16
+        )
+
+    def tearDown(self):
+        """Clean up after tests"""
+        self.patcher.stop()
 
     def test_initialization(self):
         """Test GPIO handler initialization"""

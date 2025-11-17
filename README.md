@@ -1,17 +1,17 @@
 # Farnsworth Fusor Control System
 
-Codebase which implements an automated startup & shutdown sequence, data acquisition system, and manual control of a Farnsworth Fusor using TCP/UDP communication.
+Codebase which implements an automated startup & shutdown sequence, data acquisition system, and manual control of a Farnsworth Fusor using TCP/UDP communication with a Finite State Machine (FSM) for automated control sequences.
 
 ## **IMPORTANT: Raspberry Pi Only**
 
 **This project is designed exclusively for Raspberry Pi environments.** It includes external libraries that only work within the Raspberry Pi ecosystem:
 
 - **RPi.GPIO**: Raspberry Pi GPIO control
-- **pigpio**: Advanced GPIO control with hardware PWM, servo control, I2C/SPI
-- **spidev**: SPI communication for ADC and other SPI devices
+- **Adafruit-MCP3008**: MCP3008 ADC (Analog-to-Digital Converter) interface
+- **Adafruit-GPIO**: GPIO abstraction layer for hardware control
 - **Hardware-specific dependencies**: ADC, motor control, and sensor interfaces
 
-**This project will NOT run on Windows, macOS, or other Linux distributions** due to these hardware-specific dependencies.
+**This project will NOT run on Windows, macOS, or other Linux distributions** due to these hardware-specific dependencies. However, the host application can run on any system with Python.
 
 ## Quick Start (Recommended)
 
@@ -35,8 +35,14 @@ python --version
 pip install -r requirements.txt
 pre-commit install  # Optional: for code quality checks
 
-# Run the host application
+# Run the host application (GUI + FSM)
 python src/Host_Codebase/host_main.py
+
+# Run the target application (Raspberry Pi)
+python src/Target_Codebase/target_main.py
+
+# Run tests
+python src/Test_Cases/target_test_cases/run_all_tests.py
 
 # Check your code before committing
 black --check src/ && pylint src/  # Check code quality
@@ -65,6 +71,10 @@ python3 -m venv venv
 
 ### 3. Activate Virtual Environment
 ```
+# Windows
+venv\Scripts\activate
+
+# Linux/macOS
 source venv/bin/activate
 ```
 
@@ -82,8 +92,11 @@ This will enable automatic code quality checks before each commit.
 
 ### 6. Run the Application
 ```
-# Run the host application
+# Run the host application (GUI + FSM)
 python src/Host_Codebase/host_main.py
+
+# Run the target application (Raspberry Pi)
+python src/Target_Codebase/target_main.py
 ```
 
 The control panel should open with all buttons available. If you see connection errors, check the network configuration.
@@ -96,8 +109,6 @@ This project uses several Python libraries for different functionalities. Here's
 | Library | Version | Purpose | Required On |
 |---------|---------|---------|-------------|
 | `RPi.GPIO` | 0.7.1 | Basic GPIO control for Raspberry Pi pins | Raspberry Pi only |
-| `pigpio` | 1.78 | Advanced GPIO control with hardware PWM, servo control, I2C/SPI | Raspberry Pi only |
-| `spidev` | 3.8 | SPI communication for ADC and other SPI devices | Raspberry Pi only |
 | `Adafruit-GPIO` | 1.0.3 | GPIO abstraction layer for hardware control | Raspberry Pi only |
 | `Adafruit-MCP3008` | 1.0.2 | MCP3008 ADC (Analog-to-Digital Converter) interface | Raspberry Pi only |
 | `Adafruit-PureIO` | 1.1.11 | Pure Python I/O operations for hardware | Raspberry Pi only |
@@ -112,7 +123,7 @@ This project uses several Python libraries for different functionalities. Here's
 | Library | Version | Purpose | Required On |
 |---------|---------|---------|-------------|
 | `tkinter` | Built-in | GUI framework for the control interface | Host systems |
-| `customtkinter` | 5.2.0 | Modern tkinter extension | Host systems (optional) |
+| `customtkinter` | 5.2.0 | Modern tkinter extension | Host systems |
 
 ### **Development Tools**
 | Library | Version | Purpose | Required On |
@@ -120,12 +131,9 @@ This project uses several Python libraries for different functionalities. Here's
 | `pylint` | 3.0.3 | Code linting and style checking | Development only |
 | `black` | 23.12.1 | Automatic code formatting | Development only |
 | `pre-commit` | 3.6.0 | Git hooks for automated code quality checks | Development only |
-| `jupyter` | 1.0.0 | Jupyter notebook functionality | Documentation only |
-| `ipykernel` | 6.29.0 | Python kernel for notebook execution | Documentation only |
-| `notebook` | 7.0.6 | Jupyter notebook interface | Documentation only |
 
 ### **Installation Notes**
-- **Raspberry Pi**: Hardware libraries require system packages (`sudo apt install python3-pigpio python3-rpi.gpio python3-spidev python3-dev`)
+- **Raspberry Pi**: Hardware libraries require system packages (`sudo apt install python3-rpi.gpio python3-dev`)
 - **Development Tools**: Only needed for code development, not for running the application
 - **Communication**: Uses built-in Python socket library for TCP/UDP communication
 - **GUI Library**: tkinter is built into Python, no additional installation needed
@@ -138,9 +146,9 @@ This project uses several Python libraries for different functionalities. Here's
 |------|---------|--------------|
 | Install dependencies | `pip install -r requirements.txt` | Install Python dependencies |
 | Set up pre-commit | `pre-commit install` | Set up pre-commit hooks (optional) |
-| Run host application | `python src/Host_Codebase/host_main.py` | Start GUI application |
+| Run host application | `python src/Host_Codebase/host_main.py` | Start unified GUI (manual + FSM) |
 | Run target application | `python src/Target_Codebase/target_main.py` | Start target system (RPi) |
-| Run host control (CLI) | `python src/Host_Codebase/host_control.py` | Start command-line interface |
+| Run tests | `python src/Test_Cases/target_test_cases/run_all_tests.py` | Run all test suites |
 | Format code | `black src/` | Format code with black |
 | Run linting | `pylint src/` | Check code quality |
 | Run all checks | `black --check src/ && pylint src/` | Run all checks |
@@ -151,7 +159,7 @@ This project uses several Python libraries for different functionalities. Here's
 
 ```
 # Start your day
-python src/Host_Codebase/host_main.py  # Run the host application
+python src/Host_Codebase/host_main.py  # Run the unified host application
 
 # While developing
 black src/ && pylint src/            # Quick code check (format + lint)
@@ -171,42 +179,58 @@ find . -name "*.pyc" -delete && rm -rf logs/  # Clean up temporary files
 Farnsworth_Fusor/
 ├── src/
 │   ├── Host_Codebase/          # Main control application
-│   │   ├── host_main.py        # Main GUI application with TCP/UDP
-│   │   ├── host_control.py     # Command-line control interface
-│   │   ├── base_classes.py     # Abstract base classes
-│   │   ├── communication.py    # TCP communication module
-│   │   ├── power_control.py    # Power supply control
-│   │   ├── vacuum_control.py   # Vacuum pump control
+│   │   ├── hostFSM.py          # Legacy standalone FSM UI (logic merged into host_main.py)
 │   │   ├── tcp_command_client.py  # TCP command client
-│   │   └── udp_status_client.py   # UDP status/heartbeat client
-│   └── Target_Codebase/         # Raspberry Pi code
-│       ├── target_main.py      # Main target application
-│       ├── tcp_command_server.py  # TCP command server
-│       ├── tcp_client.py      # TCP data client
-│       ├── udp_status_server.py   # UDP status/heartbeat server
-│       ├── adc.py              # ADC operations
-│       ├── motor_control.py    # Motor control
-│       ├── moveVARIAC.py       # VARIAC motor control
-│       ├── base_classes.py     # Abstract base classes
-│       └── logging_setup.py    # Logging system
-├── requirements.txt            # Dependencies
-├── .pre-commit-config.yaml     # Pre-commit hooks
-└── pylintrc                    # Linting configuration
+│   │   ├── tcp_data_client.py     # TCP data client
+│   │   ├── udp_status_client.py   # UDP status/heartbeat client
+│   │   ├── base_classes.py        # Abstract base classes
+│   │   └── command_handler.py     # Command handling utilities
+│   ├── Target_Codebase/         # Raspberry Pi code
+│   │   ├── target_main.py       # Main target application
+│   │   ├── tcp_command_server.py  # TCP command server
+│   │   ├── tcp_data_server.py     # TCP data server
+│   │   ├── udp_status_server.py   # UDP status/heartbeat server
+│   │   ├── gpio_handler.py        # GPIO operations (LED, valves, pumps, power supply)
+│   │   ├── command_processor.py   # Command parsing and execution
+│   │   ├── adc.py                 # ADC operations (MCP3008)
+│   │   ├── base_classes.py        # Abstract base classes
+│   │   └── logging_setup.py        # Logging system
+│   └── Test_Cases/               # Test suites
+│       ├── target_test_cases/    # Target codebase tests
+│       │   ├── test_gpio_handler.py
+│       │   ├── test_command_processor.py
+│       │   ├── test_adc.py
+│       │   ├── test_tcp_communication.py
+│       │   ├── test_udp_communication.py
+│       │   └── run_all_tests.py
+│       └── host_test_cases/      # Host codebase tests
+├── requirements.txt              # Dependencies
+├── .pre-commit-config.yaml      # Pre-commit hooks
+└── pylintrc                     # Linting configuration
 ```
 
 ## Features
 
-### **Safety Systems**
-- Comprehensive safety validation for voltage, current, and pressure
-- Emergency stop functionality with immediate shutdown
-- Configurable safety limits with runtime updates
-- Real-time monitoring with automatic alerts
+### **Finite State Machine (FSM) Control**
+- 12-state automated control sequence for fusor operation
+- States include: All Off, Rough Pump Down, Turbo Pump Down, Main Chamber Pump Down, Settling, 10kV Operation, Fuel Admission, 27kV Nominal Operation, De-energizing, Shutdown sequences
+- Event-driven state transitions based on sensor readings and user commands
+- Automatic progression through startup and shutdown sequences
+
+### **Hardware Control**
+- **Power Supply Control**: Enable/disable and voltage setting (0-27kV)
+- **Valve Control**: 6 valves with PWM-based proportional control (0-100%)
+- **Pump Control**: Mechanical pump and turbo pump with PWM-based power control (0-100%)
+- **Sensor Reading**: Pressure sensors, voltage/current monitoring, neutron counting
+- **Distributed Motor/Actuator Control**: Arduino Nano (Stepper Controllers 1-4) receives labeled analog commands over USB, while the Raspberry Pi drives Stepper Controller 5 directly via GPIO for the docking-station architecture
+- **Labeled Analog Datalink**: Every analog command is forwarded to the Arduino as `ANALOG:<FUSOR_COMPONENT>:<value>` so each actuator (valves, pumps, power supply, etc.) carries its destination label across the Pi↔Arduino link
+- **Emergency Shutdown**: Immediate shutdown of all systems
 
 ### **Professional GUI**
-- Modern tkinter interface with real-time status updates
-- Intuitive controls for power supply and vacuum pump
+- Modern customtkinter interface with real-time status updates
+- Unified `host_main.py` window featuring both manual controls and the 12-state FSM workflow (selectable via tabs)
 - Live data display with safety indicators
-- LED control buttons for target system
+- FSM state visualization and control
 
 ### **Communication**
 - **TCP Command Communication**: Host sends commands to target on port 2222
@@ -224,6 +248,14 @@ Farnsworth_Fusor/
 - **TCP Data Port**: 12345
 - **UDP Status Ports**: 8888 (host receive), 8889 (target receive)
 
+### **GPIO Pin Assignments**
+- **LED Pin**: GPIO 26
+- **Input Pin**: GPIO 6
+- **Power Supply**: GPIO 5
+- **Valves**: GPIO 17, 4, 22, 23, 24, 25 (PWM capable)
+- **Mechanical Pump**: GPIO 27 (PWM)
+- **Turbo Pump**: GPIO 16 (PWM)
+
 ### **Logging & Monitoring**
 - Multi-level logging (console, file, error-specific)
 - Log rotation with size limits
@@ -232,9 +264,35 @@ Farnsworth_Fusor/
 
 ### **Testing & Validation**
 - **Automated Testing**: Built-in test suite for environment validation
-- **Environment Validation**: Comprehensive environment setup verification
-- **Cross-platform Support**: Raspberry Pi compatibility
+- **Unit Tests**: GPIO handler, command processor, ADC interface
+- **Datalink Coverage**: `test_command_processor.py` verifies analog commands are labeled and forwarded to the Arduino USB interface
+- **Integration Tests**: TCP/UDP communication
+- **Mock Support**: Tests can run without Raspberry Pi hardware
 - **Error Detection**: Early detection of configuration issues
+
+## System Architecture Overview
+
+The system is organized in four layers so the host laptop treats the Raspberry Pi as a “docking station” that aggregates every hardware interface.  
+1. **Communication Layer** – Three dedicated channels keep traffic separated: the TCP Command Server listens on `192.168.0.2:2222`, the TCP Data Stream pushes structured telemetry on `:12345`, and bidirectional UDP status links operate on host `8888` / target `8889` for lightweight heartbeats.  
+2. **Processing Layer** – `CommandProcessor` parses every host command, validates arguments, and routes work to the correct subsystem. It now tags analog actuators (valves 1‑6, power supply, pumps) with semantic labels before handing them to the Arduino.  
+3. **Hardware Abstraction Layer** – GPIO, ADC (MCP3008 over SPI), and the Arduino USB interface each expose clean Python APIs. The Arduino Nano handles Stepper Controllers 1‑4 plus two generic interfaces, while Stepper Controller 5 stays on direct GPIO for redundancy.  
+4. **Hardware Layer** – SPI wiring to the MCP3008, PWM GPIO for valves/pumps, the fiber/USB harness to the Arduino carriers, and the actual motors, valves, and sensors.
+
+**Arduino Datalink:** Every analog command that originates on the Pi is mirrored to the Arduino as `ANALOG:<FUSOR_COMPONENT>:<value>`. Example labels include `POWER_SUPPLY_VOLTAGE_SETPOINT`, `ATM_DEPRESSURE_VALVE`, `VACUUM_SYSTEM_VALVE`, `ROUGHING_PUMP_POWER`, and `TURBO_PUMP_POWER`. This guarantees the distributed controllers receive unambiguous instructions even when multiple actuators share the same electrical characteristics.
+
+### Arduino Analog Datalink
+
+| Trigger on Host | Pi CommandProcessor Action | USB Payload → Arduino | Target Hardware |
+|-----------------|---------------------------|------------------------|-----------------|
+| `SET_VOLTAGE:X` | Update GPIO + label (`POWER_SUPPLY_VOLTAGE_SETPOINT`) | `ANALOG:POWER_SUPPLY_VOLTAGE_SETPOINT:X` | High-voltage supply variac |
+| `SET_VALVE<i>:Y` | Drive PWM on GPIO | `ANALOG:<VALVE_LABEL_i>:Y` | Valve actuators routed through Nano controllers 1‑4 |
+| `SET_MECHANICAL_PUMP:Y` / legacy pump commands | Set PWM + label | `ANALOG:ROUGHING_PUMP_POWER:Y` | Roughing pump driver |
+| `SET_TURBO_PUMP:Y` | Set PWM + label | `ANALOG:TURBO_PUMP_POWER:Y` | Turbo pump driver |
+
+- **Message format:** `ANALOG:<FUSOR_COMPONENT>:<value>` with `value` normalized to two decimal places for floats.  
+- **Label registry:** Defined in `command_processor.py` so every actuator has a fixed string (e.g., `ATM_DEPRESSURE_VALVE`, `FORELINE_VALVE`, `VACUUM_SYSTEM_VALVE`, `DEUTERIUM_SUPPLY_VALVE`, plus placeholders for future channels).  
+- **Flow:** Host GUI → TCP command → CommandProcessor → GPIO action on Pi → labeled USB packet → Arduino Nano (Stepper Controllers 1‑4 + generic analog sinks).  
+- **Resilience:** If the Arduino interface is disconnected, the Pi continues to service GPIO locally and automatically resumes mirroring once the USB link reconnects. The systemd service logs any missed forwards to aid troubleshooting.
 
 ## Code Quality Tools
 
@@ -269,7 +327,7 @@ black --check src/ && pylint src/
 ### **Common Errors**
 
 #### **1) Raspberry Pi Installation Issues**
-**CRITICAL: This project ONLY works on Raspberry Pi!**
+**CRITICAL: This project ONLY works on Raspberry Pi for the target application!**
 
 **NOTE: To install any library on RPi, don't use pip because you will get errors.**
 
@@ -278,13 +336,14 @@ black --check src/ && pylint src/
 For hardware libraries:
 ```
 sudo apt update
-sudo apt install python3-pigpio python3-rpi.gpio python3-spidev python3-dev
+sudo apt install python3-rpi.gpio python3-dev
 ```
 
 **If you're trying to run this on Windows/macOS/Linux (non-RPi):**
-- The project will fail with import errors for RPi.GPIO, pigpio, and spidev
+- The target application will fail with import errors for RPi.GPIO and Adafruit libraries
 - These libraries are Raspberry Pi-specific and cannot be installed on other systems
 - You must use a Raspberry Pi to run the target application
+- The host application can run on any system
 
 #### **2) Network Connection Issues**
 
@@ -429,7 +488,8 @@ python src/Host_Codebase/host_main.py
 
 Or with custom IP addresses:
 ```bash
-python src/Host_Codebase/host_main.py --target-ip 192.168.0.2 --target-tcp-command-port 2222
+python src/Host_Codebase/host_main.py
+# IP addresses can be configured in the GUI or via command-line arguments
 ```
 
 ### **Target Application** (Raspberry Pi)
@@ -504,9 +564,15 @@ exit 0
 
 **Note:** The RPi doesn't need a Makefile - it just needs `target_main.py` to run automatically at boot.
 
-### **Command-Line Control** (Alternative to GUI)
+### **Running Tests**
 ```bash
-python src/Host_Codebase/host_control.py
+# Run all target tests
+python src/Test_Cases/target_test_cases/run_all_tests.py
+
+# Run individual test files
+python src/Test_Cases/target_test_cases/test_gpio_handler.py
+python src/Test_Cases/target_test_cases/test_command_processor.py
+python src/Test_Cases/target_test_cases/test_adc.py
 ```
 
 ## Development Notes
@@ -516,6 +582,8 @@ python src/Host_Codebase/host_control.py
 - **Testing**: Run `black --check src/ && pylint src/` before committing
 - **Logging**: Comprehensive logging for debugging and monitoring
 - **Communication**: TCP/UDP protocol - no SSH dependencies required
+- **FSM Control**: The host application uses a Finite State Machine for automated control sequences
+- **PWM Control**: Valves and pumps use PWM for proportional control (0-100%)
 
 ---
 

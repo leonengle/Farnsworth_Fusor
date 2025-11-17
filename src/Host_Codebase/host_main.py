@@ -1,24 +1,340 @@
 #!/usr/bin/env python3
 import customtkinter as ctk
-import threading
 import time
 import argparse
 import logging
 import signal
 import sys
 import atexit
+import json
+from enum import Enum, auto
 from tcp_command_client import TCPCommandClient
 from tcp_data_client import TCPDataClient
 from udp_status_client import UDPStatusClient, UDPStatusReceiver
 from command_handler import CommandHandler
 
-# Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("HostMain")
 
-# Set appearance mode and color theme
-ctk.set_appearance_mode("dark")  # Options: "light", "dark", "system"
-ctk.set_default_color_theme("blue")  # Options: "blue", "green", "dark-blue"
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("blue")
+
+
+class FusorComponent:
+    def __init__(self, name: str, tcp_client: TCPCommandClient, component_map: dict = None):
+        self.name = name
+        self.tcp_client = tcp_client
+        self.component_map = component_map or {}
+
+    def _send_target_command(self, command: str):
+        if not self.tcp_client.is_connected():
+            if not self.tcp_client.connect():
+                logger.error("Failed to connect to target for command: %s", command)
+                return
+        response = self.tcp_client.send_command(command)
+        if response:
+            logger.info("Command '%s' -> Response: %s", command, response)
+
+    def setDigitalValue(self, command: bool):
+        component_type = self.component_map.get(self.name, {}).get("type")
+        if component_type == "valve":
+            valve_id = self.component_map.get(self.name, {}).get("valve_id", 1)
+            position = 100 if command else 0
+            self._send_target_command(f"SET_VALVE{valve_id}:{position}")
+        elif component_type == "power_supply":
+            cmd = "POWER_SUPPLY_ENABLE" if command else "POWER_SUPPLY_DISABLE"
+            self._send_target_command(cmd)
+        elif component_type == "mechanical_pump":
+            power = 100 if command else 0
+            self._send_target_command(f"SET_MECHANICAL_PUMP:{power}")
+        elif component_type == "turbo_pump":
+            power = 100 if command else 0
+            self._send_target_command(f"SET_TURBO_PUMP:{power}")
+
+    def setAnalogValue(self, command: float):
+        component_type = self.component_map.get(self.name, {}).get("type")
+        if component_type == "power_supply":
+            self._send_target_command(f"SET_VOLTAGE:{command}")
+        elif component_type == "valve":
+            valve_id = self.component_map.get(self.name, {}).get("valve_id", 1)
+            position = int(command)
+            position = max(0, min(position, 100))
+            self._send_target_command(f"SET_VALVE{valve_id}:{position}")
+        elif component_type == "mechanical_pump":
+            power = int(command)
+            power = max(0, min(power, 100))
+            self._send_target_command(f"SET_MECHANICAL_PUMP:{power}")
+        elif component_type == "turbo_pump":
+            power = int(command)
+            power = max(0, min(power, 100))
+            self._send_target_command(f"SET_TURBO_PUMP:{power}")
+
+
+class State(Enum):
+    ALL_OFF = auto()
+    ROUGH_PUMP_DOWN = auto()
+    RP_DOWN_TURBO = auto()
+    TURBO_PUMP_DOWN = auto()
+    TP_DOWN_MAIN = auto()
+    SETTLE_STEADY_PRESSURE = auto()
+    SETTLING_10KV = auto()
+    ADMIT_FUEL_TO_5MA = auto()
+    NOMINAL_27KV = auto()
+    DEENERGIZING = auto()
+    CLOSING_MAIN = auto()
+    VENTING_FORELINE = auto()
+
+
+class Event(Enum):
+    START = auto()
+    APS_FORELINE_LT_100MT = auto()
+    APS_TURBO_LT_100MT = auto()
+    APS_TURBO_LT_0_1MT = auto()
+    APS_MAIN_LT_0_1MT = auto()
+    APS_MAIN_EQ_0_1_STEADY = auto()
+    STEADY_STATE_VOLTAGE = auto()
+    STEADY_STATE_CURRENT = auto()
+    STOP_CMD = auto()
+    ZERO_KV_STEADY = auto()
+    TIMEOUT_5S = auto()
+    APS_EQ_1_ATM = auto()
+    FAULT_FORELINE_TURBO = auto()
+    FAULT_MAIN_TURBO = auto()
+
+
+class AutoController:
+    def __init__(self, components, state_callback=None, log_callback=None):
+        self.components = components
+        self.currentState = State.ALL_OFF
+        self.state_callback = state_callback
+        self.log_callback = log_callback
+
+        self.FSM = {
+            (State.ALL_OFF, Event.START): State.ROUGH_PUMP_DOWN,
+            (State.ROUGH_PUMP_DOWN, Event.APS_FORELINE_LT_100MT): State.RP_DOWN_TURBO,
+            (State.RP_DOWN_TURBO, Event.APS_TURBO_LT_100MT): State.TURBO_PUMP_DOWN,
+            (State.RP_DOWN_TURBO, Event.FAULT_FORELINE_TURBO): State.ALL_OFF,
+            (State.TURBO_PUMP_DOWN, Event.APS_TURBO_LT_0_1MT): State.TP_DOWN_MAIN,
+            (State.TP_DOWN_MAIN, Event.APS_MAIN_LT_0_1MT): State.SETTLE_STEADY_PRESSURE,
+            (State.TP_DOWN_MAIN, Event.FAULT_MAIN_TURBO): State.ALL_OFF,
+            (State.SETTLE_STEADY_PRESSURE, Event.APS_MAIN_EQ_0_1_STEADY): State.SETTLING_10KV,
+            (State.SETTLING_10KV, Event.STEADY_STATE_VOLTAGE): State.ADMIT_FUEL_TO_5MA,
+            (State.ADMIT_FUEL_TO_5MA, Event.STEADY_STATE_CURRENT): State.NOMINAL_27KV,
+            (State.NOMINAL_27KV, Event.STOP_CMD): State.DEENERGIZING,
+            (State.DEENERGIZING, Event.ZERO_KV_STEADY): State.CLOSING_MAIN,
+            (State.CLOSING_MAIN, Event.TIMEOUT_5S): State.VENTING_FORELINE,
+            (State.VENTING_FORELINE, Event.APS_EQ_1_ATM): State.ALL_OFF,
+        }
+
+        self._state_entry_actions = {
+            State.ALL_OFF: self._enter_all_off,
+            State.ROUGH_PUMP_DOWN: self._enter_rough_pump_down,
+            State.RP_DOWN_TURBO: self._enter_rp_down_turbo,
+            State.TURBO_PUMP_DOWN: self._enter_turbo_pump_down,
+            State.TP_DOWN_MAIN: self._enter_tp_down_main,
+            State.SETTLE_STEADY_PRESSURE: self._enter_settle_steady_pressure,
+            State.SETTLING_10KV: self._enter_settling_10kv,
+            State.ADMIT_FUEL_TO_5MA: self._enter_admit_fuel_5ma,
+            State.NOMINAL_27KV: self._enter_nominal_27kv,
+            State.DEENERGIZING: self._enter_deenergizing,
+            State.CLOSING_MAIN: self._enter_closing_main,
+            State.VENTING_FORELINE: self._enter_venting_foreline,
+        }
+
+        self._enter_state(State.ALL_OFF)
+
+    def _log(self, message):
+        if self.log_callback:
+            self.log_callback(message)
+        logger.info(message)
+
+    def _set_voltage_kv(self, kv: float):
+        self.components["power_supply"].setAnalogValue(kv * 1000.0)
+
+    def dispatch_event(self, event: Event):
+        key = (self.currentState, event)
+        next_state = self.FSM.get(key)
+        if next_state is None:
+            self._log(f"No transition for {event.name} in {self.currentState.name}")
+            return
+        self._enter_state(next_state)
+
+    def _enter_state(self, new_state: State):
+        self._log(f"Entering state {new_state.name}")
+        self.currentState = new_state
+        action = self._state_entry_actions.get(new_state)
+        if action:
+            action()
+        if self.state_callback:
+            self.state_callback(new_state)
+
+    def _enter_all_off(self):
+        c = self.components
+        c["atm_valve"].setDigitalValue(False)
+        c["mech_pump"].setDigitalValue(False)
+        c["turbo_pump"].setDigitalValue(False)
+        c["foreline_valve"].setDigitalValue(False)
+        c["fusor_valve"].setDigitalValue(False)
+        c["deuterium_valve"].setDigitalValue(False)
+        self._set_voltage_kv(0)
+
+    def _enter_rough_pump_down(self):
+        c = self.components
+        c["atm_valve"].setDigitalValue(False)
+        c["mech_pump"].setDigitalValue(True)
+        c["turbo_pump"].setDigitalValue(False)
+        c["foreline_valve"].setDigitalValue(False)
+        c["fusor_valve"].setDigitalValue(False)
+        c["deuterium_valve"].setDigitalValue(False)
+        self._set_voltage_kv(0)
+
+    def _enter_rp_down_turbo(self):
+        c = self.components
+        c["atm_valve"].setDigitalValue(False)
+        c["mech_pump"].setDigitalValue(True)
+        c["turbo_pump"].setDigitalValue(False)
+        c["foreline_valve"].setDigitalValue(True)
+        c["fusor_valve"].setDigitalValue(False)
+        c["deuterium_valve"].setDigitalValue(False)
+        self._set_voltage_kv(0)
+
+    def _enter_turbo_pump_down(self):
+        c = self.components
+        c["atm_valve"].setDigitalValue(False)
+        c["mech_pump"].setDigitalValue(True)
+        c["turbo_pump"].setDigitalValue(True)
+        c["foreline_valve"].setDigitalValue(True)
+        c["fusor_valve"].setDigitalValue(False)
+        c["deuterium_valve"].setDigitalValue(False)
+        self._set_voltage_kv(0)
+
+    def _enter_tp_down_main(self):
+        c = self.components
+        c["atm_valve"].setDigitalValue(False)
+        c["mech_pump"].setDigitalValue(True)
+        c["turbo_pump"].setDigitalValue(True)
+        c["foreline_valve"].setDigitalValue(True)
+        c["fusor_valve"].setDigitalValue(True)
+        c["deuterium_valve"].setDigitalValue(False)
+        self._set_voltage_kv(0)
+
+    def _enter_settle_steady_pressure(self):
+        c = self.components
+        c["atm_valve"].setDigitalValue(False)
+        c["mech_pump"].setDigitalValue(True)
+        c["turbo_pump"].setDigitalValue(True)
+        c["foreline_valve"].setDigitalValue(True)
+        c["fusor_valve"].setDigitalValue(True)
+        c["deuterium_valve"].setDigitalValue(True)
+        self._set_voltage_kv(0)
+
+    def _enter_settling_10kv(self):
+        c = self.components
+        c["atm_valve"].setDigitalValue(False)
+        c["mech_pump"].setDigitalValue(True)
+        c["turbo_pump"].setDigitalValue(True)
+        c["foreline_valve"].setDigitalValue(True)
+        c["fusor_valve"].setDigitalValue(True)
+        c["deuterium_valve"].setDigitalValue(True)
+        self._set_voltage_kv(10)
+
+    def _enter_admit_fuel_5ma(self):
+        c = self.components
+        c["atm_valve"].setDigitalValue(False)
+        c["mech_pump"].setDigitalValue(True)
+        c["turbo_pump"].setDigitalValue(True)
+        c["foreline_valve"].setDigitalValue(True)
+        c["fusor_valve"].setDigitalValue(True)
+        c["deuterium_valve"].setDigitalValue(True)
+        self._set_voltage_kv(10)
+
+    def _enter_nominal_27kv(self):
+        c = self.components
+        c["atm_valve"].setDigitalValue(False)
+        c["mech_pump"].setDigitalValue(True)
+        c["turbo_pump"].setDigitalValue(True)
+        c["foreline_valve"].setDigitalValue(True)
+        c["fusor_valve"].setDigitalValue(True)
+        c["deuterium_valve"].setDigitalValue(True)
+        self._set_voltage_kv(27)
+
+    def _enter_deenergizing(self):
+        c = self.components
+        c["atm_valve"].setDigitalValue(False)
+        c["mech_pump"].setDigitalValue(True)
+        c["turbo_pump"].setDigitalValue(True)
+        c["foreline_valve"].setDigitalValue(True)
+        c["fusor_valve"].setDigitalValue(True)
+        c["deuterium_valve"].setDigitalValue(False)
+        self._set_voltage_kv(0)
+
+    def _enter_closing_main(self):
+        c = self.components
+        c["atm_valve"].setDigitalValue(False)
+        c["mech_pump"].setDigitalValue(True)
+        c["turbo_pump"].setDigitalValue(True)
+        c["foreline_valve"].setDigitalValue(True)
+        c["fusor_valve"].setDigitalValue(False)
+        c["deuterium_valve"].setDigitalValue(False)
+        self._set_voltage_kv(0)
+
+    def _enter_venting_foreline(self):
+        c = self.components
+        c["atm_valve"].setDigitalValue(False)
+        c["mech_pump"].setDigitalValue(True)
+        c["turbo_pump"].setDigitalValue(True)
+        c["foreline_valve"].setDigitalValue(True)
+        c["fusor_valve"].setDigitalValue(True)
+        c["deuterium_valve"].setDigitalValue(False)
+        self._set_voltage_kv(0)
+
+
+class TelemetryToEventMapper:
+    def __init__(self, controller: AutoController):
+        self.controller = controller
+
+    def handle_telemetry(self, telemetry: dict):
+        aps_loc = telemetry.get("APS_location")
+        aps_p = telemetry.get("APS_pressure_mT")
+        v_kv = telemetry.get("voltage_kV")
+        i_mA = telemetry.get("current_mA")
+        aps_atm_flag = telemetry.get("APS_atm_flag", False)
+        s = self.controller.currentState
+
+        if s == State.ROUGH_PUMP_DOWN and aps_loc == "Foreline" and aps_p is not None:
+            if aps_p < 100.0:
+                self.controller.dispatch_event(Event.APS_FORELINE_LT_100MT)
+
+        if s == State.RP_DOWN_TURBO and aps_loc == "Turbo" and aps_p is not None:
+            if aps_p < 100.0:
+                self.controller.dispatch_event(Event.APS_TURBO_LT_100MT)
+
+        if s == State.TURBO_PUMP_DOWN and aps_loc == "Turbo" and aps_p is not None:
+            if aps_p < 0.1:
+                self.controller.dispatch_event(Event.APS_TURBO_LT_0_1MT)
+
+        if s == State.TP_DOWN_MAIN and aps_loc == "Main" and aps_p is not None:
+            if aps_p < 0.1:
+                self.controller.dispatch_event(Event.APS_MAIN_LT_0_1MT)
+
+        if s == State.SETTLE_STEADY_PRESSURE and aps_loc == "Main" and aps_p is not None:
+            if 0.095 <= aps_p <= 0.105:
+                self.controller.dispatch_event(Event.APS_MAIN_EQ_0_1_STEADY)
+
+        if s == State.SETTLING_10KV and v_kv is not None:
+            if 9.8 <= v_kv <= 10.2:
+                self.controller.dispatch_event(Event.STEADY_STATE_VOLTAGE)
+
+        if s == State.ADMIT_FUEL_TO_5MA and i_mA is not None:
+            if 4.8 <= i_mA <= 5.2:
+                self.controller.dispatch_event(Event.STEADY_STATE_CURRENT)
+
+        if s == State.DEENERGIZING and v_kv is not None:
+            if abs(v_kv) < 0.1:
+                self.controller.dispatch_event(Event.ZERO_KV_STEADY)
+
+        if s == State.VENTING_FORELINE and aps_atm_flag:
+            self.controller.dispatch_event(Event.APS_EQ_1_ATM)
 
 
 class FusorHostApp:
@@ -34,36 +350,61 @@ class FusorHostApp:
         self.tcp_data_port = tcp_data_port
         self.udp_status_port = udp_status_port
 
-        # Command handler - validates and builds commands
         self.command_handler = CommandHandler()
 
-        # TCP command client - sends commands to target
         self.tcp_command_client = TCPCommandClient(target_ip, target_tcp_command_port)
 
-        # TCP data client - receives periodic data from target
         self.tcp_data_client = TCPDataClient(
             target_ip=target_ip,
             target_port=tcp_data_port,
             data_callback=self._handle_tcp_data,
         )
 
-        # UDP status communication
         self.udp_status_client = UDPStatusClient(target_ip, 8889)
         self.udp_status_receiver = UDPStatusReceiver(
             udp_status_port, self._handle_udp_status
         )
 
-        # UI components
         self.root = None
         self.data_display = None
         self.status_label = None
         self.voltage_scale = None
         self.pump_power_scale = None
+        self.manual_mech_slider = None
+        self.manual_mech_label = None
+        self.pressure_label = None
+        self.auto_state_label = None
+        self.auto_log_display = None
 
-        # Setup UI first
+        component_map = {
+            "Main Supply": {"type": "power_supply"},
+            "Atm Depressure Valve": {"type": "valve", "valve_id": 1},
+            "Foreline Valve": {"type": "valve", "valve_id": 2},
+            "Vacuum System Valve": {"type": "valve", "valve_id": 3},
+            "Roughing Pump": {"type": "mechanical_pump"},
+            "Turbo Pump": {"type": "turbo_pump"},
+            "Deuterium Supply Valve": {"type": "valve", "valve_id": 4},
+        }
+
+        self.components = {
+            "power_supply": FusorComponent("Main Supply", self.tcp_command_client, component_map),
+            "atm_valve": FusorComponent("Atm Depressure Valve", self.tcp_command_client, component_map),
+            "foreline_valve": FusorComponent("Foreline Valve", self.tcp_command_client, component_map),
+            "fusor_valve": FusorComponent("Vacuum System Valve", self.tcp_command_client, component_map),
+            "mech_pump": FusorComponent("Roughing Pump", self.tcp_command_client, component_map),
+            "turbo_pump": FusorComponent("Turbo Pump", self.tcp_command_client, component_map),
+            "deuterium_valve": FusorComponent("Deuterium Supply Valve", self.tcp_command_client, component_map),
+        }
+
+        self.auto_controller = AutoController(
+            self.components,
+            state_callback=self._auto_update_state_label,
+            log_callback=self._auto_log_event,
+        )
+        self.telemetry_mapper = TelemetryToEventMapper(self.auto_controller)
+
         self._setup_ui()
 
-        # Connect to target
         if not self.tcp_command_client.connect():
             self._update_status("Failed to connect to target on startup", "red")
             self._update_data_display(
@@ -73,37 +414,62 @@ class FusorHostApp:
             self._update_status("Connected to target", "green")
             self._update_data_display("[System] Connected to target successfully")
 
-        # Start TCP data client
         self.tcp_data_client.start()
 
-        # Start UDP status communication
         self.udp_status_client.start()
         self.udp_status_receiver.start()
 
     def _setup_ui(self):
         self.root = ctk.CTk()
-        self.root.title("Fusor Control Panel - TCP/UDP")
-        self.root.geometry("900x700")
+        self.root.title("Farnsworth Fusor Control Panel")
+        self.root.geometry("1100x800")
 
-        # Main container
         main_frame = ctk.CTkFrame(self.root)
         main_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-        # Title
         title_label = ctk.CTkLabel(
             main_frame,
-            text="Farnsworth Fusor Control Panel",
-            font=ctk.CTkFont(size=20, weight="bold"),
+            text="Farnsworth Fusor Control Panel (Manual + FSM)",
+            font=ctk.CTkFont(size=22, weight="bold"),
         )
         title_label.pack(pady=10)
 
-        # LED Control Section
-        led_frame = ctk.CTkFrame(main_frame)
+        self.tabview = ctk.CTkTabview(main_frame)
+        self.tabview.pack(fill="both", expand=True, padx=5, pady=5)
+        manual_tab = self.tabview.add("Manual Control")
+        auto_tab = self.tabview.add("Auto / FSM")
+
+        manual_header = ctk.CTkLabel(
+            manual_tab,
+            text="Manual Controls & Telemetry",
+            font=ctk.CTkFont(size=18, weight="bold"),
+        )
+        manual_header.pack(pady=5)
+
+        slider_frame = ctk.CTkFrame(manual_tab)
+        slider_frame.pack(fill="x", padx=10, pady=5)
+
+        self.manual_mech_slider = ctk.CTkSlider(
+            slider_frame, from_=0.0, to=100.0, command=self._manual_slider_change
+        )
+        self.manual_mech_slider.pack(side="left", padx=10, pady=10, fill="x", expand=True)
+        self.manual_mech_slider.set(0)
+        self.manual_mech_label = ctk.CTkLabel(
+            slider_frame, text="Mechanical Pump (Live %): 0"
+        )
+        self.manual_mech_label.pack(side="left", padx=10)
+
+        self.pressure_label = ctk.CTkLabel(
+            manual_tab,
+            text="Pressure Sensor 1: --- mT",
+            font=ctk.CTkFont(size=14),
+        )
+        self.pressure_label.pack(pady=5)
+
+        led_frame = ctk.CTkFrame(manual_tab)
         led_frame.pack(fill="x", padx=10, pady=5)
 
-        led_label = ctk.CTkLabel(
-            led_frame, text="LED Control", font=ctk.CTkFont(size=14, weight="bold")
-        )
+        led_label = ctk.CTkLabel(led_frame, text="LED Control", font=ctk.CTkFont(size=14, weight="bold"))
         led_label.pack(pady=5)
 
         led_button_frame = ctk.CTkFrame(led_frame)
@@ -133,13 +499,10 @@ class FusorHostApp:
         )
         led_off_button.pack(side="left", padx=10, pady=10)
 
-        # Power Control Section
-        power_frame = ctk.CTkFrame(main_frame)
+        power_frame = ctk.CTkFrame(manual_tab)
         power_frame.pack(fill="x", padx=10, pady=5)
 
-        power_label = ctk.CTkLabel(
-            power_frame, text="Power Control", font=ctk.CTkFont(size=14, weight="bold")
-        )
+        power_label = ctk.CTkLabel(power_frame, text="Power Control", font=ctk.CTkFont(size=14, weight="bold"))
         power_label.pack(pady=5)
 
         power_control_frame = ctk.CTkFrame(power_frame)
@@ -173,8 +536,7 @@ class FusorHostApp:
         )
         voltage_button.pack(side="left", padx=5)
 
-        # Vacuum Control Section
-        vacuum_frame = ctk.CTkFrame(main_frame)
+        vacuum_frame = ctk.CTkFrame(manual_tab)
         vacuum_frame.pack(fill="x", padx=10, pady=5)
 
         vacuum_label = ctk.CTkLabel(
@@ -215,8 +577,7 @@ class FusorHostApp:
         )
         pump_button.pack(side="left", padx=5)
 
-        # Motor Control Section
-        motor_frame = ctk.CTkFrame(main_frame)
+        motor_frame = ctk.CTkFrame(manual_tab)
         motor_frame.pack(fill="x", padx=10, pady=5)
 
         motor_label = ctk.CTkLabel(
@@ -247,8 +608,7 @@ class FusorHostApp:
         )
         motor_button.pack(side="left", padx=5)
 
-        # Read Data Section
-        read_frame = ctk.CTkFrame(main_frame)
+        read_frame = ctk.CTkFrame(manual_tab)
         read_frame.pack(fill="x", padx=10, pady=5)
 
         read_label = ctk.CTkLabel(
@@ -281,8 +641,7 @@ class FusorHostApp:
         )
         read_adc_button.pack(side="left", padx=5)
 
-        # Data Display Section
-        data_frame = ctk.CTkFrame(main_frame)
+        data_frame = ctk.CTkFrame(manual_tab)
         data_frame.pack(fill="both", expand=True, padx=10, pady=5)
 
         data_label = ctk.CTkLabel(
@@ -301,7 +660,46 @@ class FusorHostApp:
         )
         self.data_display.pack(fill="both", expand=True, padx=5, pady=5)
 
-        # Status label
+        auto_section = ctk.CTkFrame(auto_tab)
+        auto_section.pack(fill="both", expand=True, padx=10, pady=10)
+
+        auto_header = ctk.CTkLabel(
+            auto_section,
+            text="Finite State Machine Control",
+            font=ctk.CTkFont(size=18, weight="bold"),
+        )
+        auto_header.pack(pady=5)
+
+        auto_button_frame = ctk.CTkFrame(auto_section)
+        auto_button_frame.pack(pady=5)
+
+        auto_start = ctk.CTkButton(
+            auto_button_frame, text="Start Auto Sequence", command=self._auto_start, width=180
+        )
+        auto_start.pack(side="left", padx=5, pady=5)
+
+        auto_stop = ctk.CTkButton(
+            auto_button_frame, text="Stop / Emergency", command=self._auto_stop, width=180, fg_color="red"
+        )
+        auto_stop.pack(side="left", padx=5, pady=5)
+
+        self.auto_state_label = ctk.CTkLabel(
+            auto_section,
+            text="Current State: ALL_OFF",
+            font=ctk.CTkFont(size=16),
+        )
+        self.auto_state_label.pack(pady=10)
+
+        self.auto_log_display = ctk.CTkTextbox(
+            auto_section,
+            font=ctk.CTkFont(size=11, family="Courier"),
+            wrap="word",
+            height=300,
+        )
+        self.auto_log_display.pack(fill="both", expand=True, padx=10, pady=10)
+        self.auto_log_display.insert("end", "[FSM] Ready.\n")
+        self.auto_log_display.configure(state="disabled")
+
         self.status_label = ctk.CTkLabel(
             main_frame,
             text="Ready - Waiting for commands",
@@ -310,7 +708,6 @@ class FusorHostApp:
         )
         self.status_label.pack(pady=5)
 
-        # Configure closing behavior
         self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
 
     def _send_command(self, command: str):
@@ -381,6 +778,44 @@ class FusorHostApp:
     def _update_pump_label(self, value):
         self.pump_value_label.configure(text=f"{int(value)}%")
 
+    def _manual_slider_change(self, value):
+        if self.manual_mech_label:
+            self.manual_mech_label.configure(text=f"Mechanical Pump (Live %): {int(value)}")
+        component = self.components.get("mech_pump")
+        if component:
+            component.setAnalogValue(value)
+
+    def _update_pressure_display(self, value):
+        if self.pressure_label:
+            self.pressure_label.configure(text=f"Pressure Sensor 1: {value} mT")
+
+    def _auto_start(self):
+        if self.auto_log_display:
+            self.auto_log_display.configure(state="normal")
+            self.auto_log_display.insert("end", "[FSM] Start requested\n")
+            self.auto_log_display.configure(state="disabled")
+        self.auto_controller.dispatch_event(Event.START)
+
+    def _auto_stop(self):
+        if self.auto_log_display:
+            self.auto_log_display.configure(state="normal")
+            self.auto_log_display.insert("end", "[FSM] Stop requested\n")
+            self.auto_log_display.configure(state="disabled")
+        self.auto_controller.dispatch_event(Event.STOP_CMD)
+
+    def _auto_update_state_label(self, state: State):
+        if self.auto_state_label:
+            self.auto_state_label.configure(text=f"Current State: {state.name}")
+
+    def _auto_log_event(self, message: str):
+        if not hasattr(self, "auto_log_display") or self.auto_log_display is None:
+            return
+        timestamp = time.strftime("%H:%M:%S")
+        self.auto_log_display.configure(state="normal")
+        self.auto_log_display.insert("end", f"[{timestamp}] {message}\n")
+        self.auto_log_display.see("end")
+        self.auto_log_display.configure(state="disabled")
+
     def _set_voltage(self):
         voltage = int(self.voltage_scale.get())
         command = self.command_handler.build_set_voltage_command(voltage)
@@ -417,6 +852,19 @@ class FusorHostApp:
 
     def _handle_udp_status(self, message: str, address: tuple):
         self._update_data_display(f"[UDP Status] From {address[0]}: {message}")
+        try:
+            payload = json.loads(message)
+            identifier = payload.get("id")
+            value = payload.get("value")
+            if identifier == "Pressure Sensor 1" and value is not None:
+                self._update_pressure_display(value)
+            telemetry = payload.get("telemetry")
+            if telemetry:
+                self.telemetry_mapper.handle_telemetry(telemetry)
+        except json.JSONDecodeError:
+            pass
+        except Exception as exc:
+            logger.error("Error parsing UDP status message: %s", exc)
 
     def _update_data_display(self, data: str):
         if not self.data_display or not self.root:
