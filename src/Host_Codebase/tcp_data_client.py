@@ -66,6 +66,7 @@ class TCPDataClient(DataReceiverInterface):
                 logger.info(
                     f"Connected to target at {self.target_ip}:{self.target_port}"
                 )
+                print(f"[TCP_DATA_CLIENT] Connected to target - receiving periodic updates...")
 
                 # Set receive timeout
                 self.socket.settimeout(self.receive_timeout)
@@ -78,7 +79,7 @@ class TCPDataClient(DataReceiverInterface):
                             # Call callback if set
                             if self.data_callback:
                                 self.data_callback(data)
-                            logger.debug(f"Received data: {data}")
+                            logger.info(f"Received periodic data from target: {data}")
                         else:
                             # Connection closed by server
                             logger.info("Connection closed by target")
@@ -99,6 +100,7 @@ class TCPDataClient(DataReceiverInterface):
             except socket.timeout:
                 if self.running:
                     logger.warning(f"Connection timeout - target may not be ready")
+                    print(f"[TCP_DATA_CLIENT] Connection timeout - retrying in {self.reconnect_delay}s...")
                     time.sleep(self.reconnect_delay)
                 else:
                     break
@@ -107,6 +109,7 @@ class TCPDataClient(DataReceiverInterface):
                     logger.warning(
                         f"Connection refused - is target listening on port {self.target_port}?"
                     )
+                    print(f"[TCP_DATA_CLIENT] Connection refused - is target running? Retrying in {self.reconnect_delay}s...")
                     time.sleep(self.reconnect_delay)
                 else:
                     break
