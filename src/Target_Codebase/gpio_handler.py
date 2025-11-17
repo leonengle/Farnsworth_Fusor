@@ -47,6 +47,21 @@ class GPIOHandler(GPIOInterface):
             if os.geteuid() != 0:
                 logger.warning("Not running as root - GPIO may not work properly. Try running with 'sudo'")
             
+            # Help RPi.GPIO detect hardware by ensuring /proc/cpuinfo is accessible
+            # RPi.GPIO reads this to determine Pi model and SOC base address
+            try:
+                if os.path.exists("/proc/cpuinfo"):
+                    with open("/proc/cpuinfo", "r") as f:
+                        cpuinfo = f.read()
+                        if "Raspberry Pi" in cpuinfo or "BCM" in cpuinfo:
+                            logger.debug("Raspberry Pi detected via /proc/cpuinfo")
+                        else:
+                            logger.warning("Could not confirm Raspberry Pi from /proc/cpuinfo")
+                else:
+                    logger.warning("/proc/cpuinfo not accessible - RPi.GPIO may fail to detect hardware")
+            except Exception as e:
+                logger.warning(f"Could not read /proc/cpuinfo: {e}")
+            
             # Check if /dev/gpiomem or /dev/gpiomem0 exists and is accessible
             # Newer Raspberry Pi OS uses /dev/gpiomem0, older versions use /dev/gpiomem
             gpiomem_path = None
@@ -76,6 +91,7 @@ class GPIOHandler(GPIOInterface):
                 logger.debug(f"GPIO cleanup warning (expected on first run): {cleanup_err}")
             
             # Set GPIO mode - this is where the error usually occurs
+            # Try to help RPi.GPIO by ensuring environment is correct
             GPIO.setmode(GPIO.BCM)
             GPIO.setup(self.led_pin, GPIO.OUT)
             GPIO.setup(self.input_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
