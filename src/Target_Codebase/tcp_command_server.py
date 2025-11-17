@@ -61,10 +61,16 @@ class TCPCommandServer:
             host_callback=None,  # Will be set via set_host_callback
         )
 
+        # Log GPIO initialization status
+        gpio_status = "Initialized" if self.gpio_handler.initialized else "NOT INITIALIZED"
         logger.info(
             f"TCP Command Server initialized (LED: {led_pin}, Input: {input_pin}, "
-            f"ADC: {use_adc}, Arduino: {'Enabled' if arduino_interface else 'Disabled'})"
+            f"ADC: {use_adc}, Arduino: {'Enabled' if arduino_interface else 'Disabled'}, "
+            f"GPIO: {gpio_status})"
         )
+        if not self.gpio_handler.initialized:
+            logger.error("WARNING: GPIO not initialized - LED and GPIO commands will fail!")
+            logger.error("Ensure target is running with 'sudo' to access GPIO pins")
 
     def set_host_callback(self, callback: Callable[[str], None]):
         self.command_processor.set_host_callback(callback)

@@ -75,16 +75,18 @@ class CommandProcessor:
 
         try:
             if command == "LED_ON":
-                if self.gpio_handler.led_on():
+                success, message = self.gpio_handler.led_on()
+                if success:
                     return "LED_ON_SUCCESS"
                 else:
-                    return "LED_ON_FAILED"
+                    return f"LED_ON_FAILED: {message}"
 
             elif command == "LED_OFF":
-                if self.gpio_handler.led_off():
+                success, message = self.gpio_handler.led_off()
+                if success:
                     return "LED_OFF_SUCCESS"
                 else:
-                    return "LED_OFF_FAILED"
+                    return f"LED_OFF_FAILED: {message}"
 
             elif command == "POWER_SUPPLY_ENABLE" or command == "POWER_SUPPLY_ENABLE:1" or command == "POWER_SUPPLY_ENABLE:ON":
                 if self.gpio_handler.set_power_supply_enable(True):

@@ -119,37 +119,61 @@ class GPIOHandler(GPIOInterface):
             logger.error("GPIO initialization failed - LED and other GPIO functions will not work")
             self.initialized = False
 
-    def led_on(self) -> bool:
+    def led_on(self) -> tuple[bool, str]:
+        """Turn LED on. Returns (success: bool, error_message: str)."""
         if not self.initialized:
-            logger.error("GPIO not initialized - cannot turn LED on")
-            logger.error("Check logs for GPIO setup errors. Ensure target is running with 'sudo'")
-            return False
+            error_msg = "GPIO not initialized - LED pin not configured"
+            logger.error(f"{error_msg} - Check logs for GPIO setup errors. Ensure target is running with 'sudo'")
+            return False, error_msg
 
         try:
             GPIO.output(self.led_pin, GPIO.HIGH)
             logger.info(f"LED turned ON (pin {self.led_pin})")
-            return True
+            return True, "LED_ON_SUCCESS"
         except RuntimeError as e:
-            logger.error(f"Error turning LED on (RuntimeError): {e}")
-            logger.error("GPIO may not be properly initialized or pins are in use")
-            return False
+            error_msg = f"GPIO RuntimeError: {str(e)} - GPIO may not be properly initialized or pins are in use"
+            logger.error(f"Error turning LED on: {error_msg}")
+            return False, error_msg
+        except PermissionError as e:
+            error_msg = f"Permission denied: {str(e)} - Target must run with 'sudo' to control GPIO"
+            logger.error(f"Error turning LED on: {error_msg}")
+            return False, error_msg
+        except OSError as e:
+            error_msg = f"OS Error: {str(e)} - GPIO hardware may not be accessible"
+            logger.error(f"Error turning LED on: {error_msg}")
+            return False, error_msg
         except Exception as e:
-            logger.error(f"Error turning LED on: {e}")
-            logger.error(f"Error type: {type(e).__name__}")
-            return False
+            error_msg = f"Unexpected error ({type(e).__name__}): {str(e)}"
+            logger.error(f"Error turning LED on: {error_msg}")
+            return False, error_msg
 
-    def led_off(self) -> bool:
+    def led_off(self) -> tuple[bool, str]:
+        """Turn LED off. Returns (success: bool, error_message: str)."""
         if not self.initialized:
-            logger.error("GPIO not initialized")
-            return False
+            error_msg = "GPIO not initialized - LED pin not configured"
+            logger.error(f"{error_msg} - Check logs for GPIO setup errors. Ensure target is running with 'sudo'")
+            return False, error_msg
 
         try:
             GPIO.output(self.led_pin, GPIO.LOW)
             logger.info(f"LED turned OFF (pin {self.led_pin})")
-            return True
+            return True, "LED_OFF_SUCCESS"
+        except RuntimeError as e:
+            error_msg = f"GPIO RuntimeError: {str(e)} - GPIO may not be properly initialized or pins are in use"
+            logger.error(f"Error turning LED off: {error_msg}")
+            return False, error_msg
+        except PermissionError as e:
+            error_msg = f"Permission denied: {str(e)} - Target must run with 'sudo' to control GPIO"
+            logger.error(f"Error turning LED off: {error_msg}")
+            return False, error_msg
+        except OSError as e:
+            error_msg = f"OS Error: {str(e)} - GPIO hardware may not be accessible"
+            logger.error(f"Error turning LED off: {error_msg}")
+            return False, error_msg
         except Exception as e:
-            logger.error(f"Error turning LED off: {e}")
-            return False
+            error_msg = f"Unexpected error ({type(e).__name__}): {str(e)}"
+            logger.error(f"Error turning LED off: {error_msg}")
+            return False, error_msg
 
     def read_input(self) -> Optional[int]:
         if not self.initialized:
