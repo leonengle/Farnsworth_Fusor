@@ -804,32 +804,65 @@ class FusorHostApp:
                     self._update_status(
                         f"Command sent: {command} - Response: {response}", "red"
                     )
-                    # Always log errors to terminal with full details
-                    self._log_terminal_update("COMMAND_ERROR", f"{command} -> {response}")
                     
                     # Extract and display detailed error message
                     if ":" in response:
                         error_detail = response.split(":", 1)[1].strip()
-                        self._update_data_display(f"[ERROR] {command} failed: {error_detail}")
                         
-                        # Provide specific troubleshooting based on error type
-                        if "GPIO not initialized" in error_detail:
-                            self._update_data_display(
-                                "[TROUBLESHOOTING] GPIO not initialized - ensure target is running with 'sudo'"
-                            )
-                        elif "Permission denied" in error_detail:
-                            self._update_data_display(
-                                "[TROUBLESHOOTING] Permission denied - target must run with 'sudo' to access GPIO"
-                            )
-                        elif "RuntimeError" in error_detail:
-                            self._update_data_display(
-                                "[TROUBLESHOOTING] GPIO RuntimeError - pins may be in use, try: sudo python3 -c 'import RPi.GPIO as GPIO; GPIO.cleanup()'"
-                            )
-                        elif "OS Error" in error_detail:
-                            self._update_data_display(
-                                "[TROUBLESHOOTING] GPIO hardware error - check wiring and GPIO connections"
-                            )
+                        # Comprehensive terminal logging for LED errors
+                        if command in ["LED_ON", "LED_OFF"]:
+                            print("\n" + "="*70, flush=True)
+                            print(f"LED COMMAND FAILED: {command}", flush=True)
+                            print("="*70, flush=True)
+                            print(f"Error from target: {error_detail}", flush=True)
+                            print("-"*70, flush=True)
+                            
+                            # Provide specific troubleshooting based on error type
+                            if "GPIO not initialized" in error_detail:
+                                print("ROOT CAUSE: GPIO hardware not initialized on target", flush=True)
+                                print("SOLUTION: Target must be running with 'sudo' privileges", flush=True)
+                                print("ACTION: Run target with: sudo python3 target_main.py", flush=True)
+                                self._update_data_display(
+                                    "[TROUBLESHOOTING] GPIO not initialized - ensure target is running with 'sudo'"
+                                )
+                            elif "Permission denied" in error_detail:
+                                print("ROOT CAUSE: Insufficient permissions to access GPIO pins", flush=True)
+                                print("SOLUTION: Target process needs root/sudo access", flush=True)
+                                print("ACTION: Restart target with: sudo python3 target_main.py", flush=True)
+                                self._update_data_display(
+                                    "[TROUBLESHOOTING] Permission denied - target must run with 'sudo' to access GPIO"
+                                )
+                            elif "RuntimeError" in error_detail or "GPIO channels already in use" in error_detail:
+                                print("ROOT CAUSE: GPIO pins are locked/in use by another process", flush=True)
+                                print("SOLUTION: Clean up GPIO state and restart target", flush=True)
+                                print("ACTION: Run on target: sudo python3 -c 'import RPi.GPIO as GPIO; GPIO.cleanup()'", flush=True)
+                                print("        Then restart target with: sudo python3 target_main.py", flush=True)
+                                self._update_data_display(
+                                    "[TROUBLESHOOTING] GPIO RuntimeError - pins may be in use, try: sudo python3 -c 'import RPi.GPIO as GPIO; GPIO.cleanup()'"
+                                )
+                            elif "OS Error" in error_detail:
+                                print("ROOT CAUSE: GPIO hardware access error", flush=True)
+                                print("SOLUTION: Check hardware connections and GPIO wiring", flush=True)
+                                print("ACTION: Verify LED is connected to correct GPIO pin (default: pin 26)", flush=True)
+                                self._update_data_display(
+                                    "[TROUBLESHOOTING] GPIO hardware error - check wiring and GPIO connections"
+                                )
+                            else:
+                                print(f"ROOT CAUSE: {error_detail}", flush=True)
+                                print("SOLUTION: Check target logs for more details", flush=True)
+                            
+                            print("="*70 + "\n", flush=True)
+                            
+                            # Also log via standard method
+                            self._log_terminal_update("LED_ERROR", f"{command} failed: {error_detail}")
+                        else:
+                            # Non-LED errors - standard logging
+                            self._log_terminal_update("COMMAND_ERROR", f"{command} -> {response}")
+                        
+                        self._update_data_display(f"[ERROR] {command} failed: {error_detail}")
                     else:
+                        # No detailed error message
+                        self._log_terminal_update("COMMAND_ERROR", f"{command} -> {response}")
                         self._update_data_display(f"[ERROR] {command} failed: {response}")
                 else:
                     self._update_status(
@@ -949,16 +982,42 @@ class FusorHostApp:
             changed_items = []
             
             for key, value in parsed.items():
+                # Skip TIME field for change detection (always changes)
+                if key == "TIME":
+                    continue
+                    
                 prev_value = self.previous_values.get(key)
-                if prev_value != value:
-                    values_changed = True
-                    changed_items.append(f"{key}={value}")
-                    self.previous_values[key] = value
-                elif key not in self.previous_values:
-                    # First time seeing this value
-                    values_changed = True
-                    changed_items.append(f"{key}={value}")
-                    self.previous_values[key] = value
+                
+                # For numeric values (like ADC_CH0), compare as numbers to handle string/int differences
+                try:
+                    if key.startswith("ADC_CH") or key == "Pressure_Sensor_1":
+                        value_num = float(value) if value else None
+                        prev_value_num = float(prev_value) if prev_value else None
+                        if prev_value_num is None or abs(value_num - prev_value_num) >= 1.0:  # At least 1 unit change
+                            values_changed = True
+                            changed_items.append(f"{key}={value}")
+                            self.previous_values[key] = value
+                    else:
+                        # String comparison for non-numeric values
+                        if prev_value != value:
+                            values_changed = True
+                            changed_items.append(f"{key}={value}")
+                            self.previous_values[key] = value
+                        elif key not in self.previous_values:
+                            # First time seeing this value
+                            values_changed = True
+                            changed_items.append(f"{key}={value}")
+                            self.previous_values[key] = value
+                except (ValueError, TypeError):
+                    # Fallback to string comparison if conversion fails
+                    if prev_value != value:
+                        values_changed = True
+                        changed_items.append(f"{key}={value}")
+                        self.previous_values[key] = value
+                    elif key not in self.previous_values:
+                        values_changed = True
+                        changed_items.append(f"{key}={value}")
+                        self.previous_values[key] = value
             
             # Update ADC display
             adc_value = parsed.get("ADC_CH0")

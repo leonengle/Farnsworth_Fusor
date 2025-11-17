@@ -70,10 +70,10 @@ class TargetSystem:
         self.running = False
         
         # ADC filtering - moving average buffer
-        self.adc_filter_size = 5  # Number of samples to average
+        self.adc_filter_size = 10  # Number of samples to average (increased for better smoothing)
         self.adc_readings_buffer = []  # Buffer for moving average
         self.adc_last_reported_value = None  # Last reported value for change detection
-        self.adc_noise_threshold = 2  # Minimum change to report (filter out noise)
+        self.adc_noise_threshold = 5  # Minimum change to report (filter out noise - increased threshold)
 
         logger.info(
             f"Target system initialized (Host: {host_ip}, TCP Command Port: {tcp_command_port}, "
@@ -123,16 +123,28 @@ class TargetSystem:
                             self.adc_readings_buffer.pop(0)  # Remove oldest
                         
                         # Calculate filtered value (moving average)
-                        filtered_value = int(sum(self.adc_readings_buffer) / len(self.adc_readings_buffer))
+                        # Only calculate if we have enough samples for meaningful filtering
+                        if len(self.adc_readings_buffer) >= 3:
+                            filtered_value = int(sum(self.adc_readings_buffer) / len(self.adc_readings_buffer))
+                        else:
+                            # Not enough samples yet, use current average
+                            filtered_value = adc_value
                         
                         # Only report if change is significant (above noise threshold)
-                        if (self.adc_last_reported_value is None or 
-                            abs(filtered_value - self.adc_last_reported_value) >= self.adc_noise_threshold):
+                        # Skip reporting if buffer isn't full yet (initial readings may be noisy)
+                        if len(self.adc_readings_buffer) < self.adc_filter_size:
+                            # Still building buffer, use current filtered value
+                            data_parts.append(f"ADC_CH0:{filtered_value}")
+                            self.adc_last_reported_value = filtered_value
+                        elif (self.adc_last_reported_value is None or 
+                              abs(filtered_value - self.adc_last_reported_value) >= self.adc_noise_threshold):
+                            # Significant change detected - report it
                             self.adc_last_reported_value = filtered_value
                             data_parts.append(f"ADC_CH0:{filtered_value}")
                         else:
-                            # Use last reported value to avoid noise
-                            data_parts.append(f"ADC_CH0:{self.adc_last_reported_value}")
+                            # No significant change - don't include ADC in this update
+                            # This prevents sending unchanged values
+                            pass
                     except Exception as e:
                         logger.warning(f"Error reading ADC channel 0: {e}")
                         data_parts.append("ADC_CH0:ERROR")
