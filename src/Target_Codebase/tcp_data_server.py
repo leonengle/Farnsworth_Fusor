@@ -93,19 +93,18 @@ class TCPDataServer:
                 break
 
     def _send_loop(self):
-        logger.info("TCP data send loop started - sending periodic updates every {:.1f}s".format(self.send_interval))
+        logger.info("TCP data send loop started - sending updates only when values change or errors occur")
 
         while self.running and self.client_socket:
             try:
                 if self.send_callback:
                     data = self.send_callback()
                     if data:
-                        # Send data with newline terminator
+                        # Only send if there's actual data (changes or errors)
                         message = data + "\n"
                         self.client_socket.send(message.encode("utf-8"))
-                        logger.info(f"Periodic data sent to host: {data}")
-                    else:
-                        logger.debug("No data to send (callback returned empty)")
+                        logger.info(f"Data sent to host (change/error detected): {data}")
+                    # If data is empty, don't send anything (no changes detected)
 
                 time.sleep(self.send_interval)
 

@@ -47,14 +47,35 @@ class GPIOHandler(GPIOInterface):
             if os.geteuid() != 0:
                 logger.warning("Not running as root - GPIO may not work properly. Try running with 'sudo'")
             
+            # Check if /dev/gpiomem or /dev/gpiomem0 exists and is accessible
+            # Newer Raspberry Pi OS uses /dev/gpiomem0, older versions use /dev/gpiomem
+            gpiomem_path = None
+            if os.path.exists("/dev/gpiomem0"):
+                gpiomem_path = "/dev/gpiomem0"
+            elif os.path.exists("/dev/gpiomem"):
+                gpiomem_path = "/dev/gpiomem"
+            
+            if not gpiomem_path:
+                logger.error("GPIO error: /dev/gpiomem or /dev/gpiomem0 not found - GPIO hardware may not be available")
+                logger.error("This might indicate you're not running on a Raspberry Pi")
+                self.initialized = False
+                return
+            
+            # Check permissions on the gpiomem device
+            if not os.access(gpiomem_path, os.R_OK | os.W_OK):
+                logger.warning(f"GPIO warning: Limited access to {gpiomem_path}")
+                logger.warning(f"Try: sudo chmod 666 {gpiomem_path}")
+                # Continue anyway - RPi.GPIO might still work
+            
             # Try to cleanup any existing GPIO state first
             try:
                 GPIO.cleanup()
                 logger.debug("Cleaned up existing GPIO state")
-            except Exception:
+            except Exception as cleanup_err:
                 # Ignore cleanup errors - GPIO might not be initialized yet
-                pass
+                logger.debug(f"GPIO cleanup warning (expected on first run): {cleanup_err}")
             
+            # Set GPIO mode - this is where the error usually occurs
             GPIO.setmode(GPIO.BCM)
             GPIO.setup(self.led_pin, GPIO.OUT)
             GPIO.setup(self.input_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
@@ -83,7 +104,8 @@ class GPIOHandler(GPIOInterface):
                 f"Pumps: Mech={self.mechanical_pump_pin}, Turbo={self.turbo_pump_pin}"
             )
         except RuntimeError as e:
-            if "GPIO channels already in use" in str(e) or "GPIO channel" in str(e):
+            error_msg = str(e)
+            if "GPIO channels already in use" in error_msg or "GPIO channel" in error_msg:
                 logger.error(f"GPIO setup error: GPIO channels already in use")
                 logger.error("Attempting to cleanup and retry...")
                 try:
@@ -105,6 +127,15 @@ class GPIOHandler(GPIOInterface):
                 except Exception as retry_error:
                     logger.error(f"GPIO setup retry failed: {retry_error}")
                     logger.error("Try manually: sudo python3 -c 'import RPi.GPIO as GPIO; GPIO.cleanup()'")
+            elif "Cannot determine SOC peripheral base address" in error_msg:
+                logger.error(f"GPIO setup error: Cannot determine SOC peripheral base address")
+                logger.error("This usually means RPi.GPIO cannot access hardware memory mapping")
+                logger.error("Troubleshooting steps:")
+                logger.error("  1. Verify you're running on a Raspberry Pi (not emulated/virtualized)")
+                logger.error("  2. Check /dev/gpiomem permissions: ls -l /dev/gpiomem")
+                logger.error("  3. Try: sudo chmod 666 /dev/gpiomem")
+                logger.error("  4. Verify RPi.GPIO is installed: pip list | grep RPi.GPIO")
+                logger.error("  5. Try reinstalling: sudo pip install --upgrade RPi.GPIO")
             else:
                 logger.error(f"GPIO setup error (RuntimeError): {e}")
             logger.error("GPIO initialization failed - LED and other GPIO functions will not work")

@@ -96,13 +96,15 @@ class TargetSystem:
             logger.debug(f"Error processing Arduino data: {e}")
 
     def _get_periodic_data(self) -> str:
-        """Generate periodic data packet to send to host."""
+        """Generate data packet to send to host - only when values change or errors occur."""
         try:
             import time
             timestamp = time.strftime("%H:%M:%S")
             
-            # Collect data based on available sensors
-            data_parts = [f"TIME:{timestamp}"]
+            # Track if we have anything to report
+            has_changes = False
+            has_errors = False
+            data_parts = []
             
             # Always try to read ADC (default behavior)
             if self.tcp_command_server.adc:
@@ -123,46 +125,57 @@ class TargetSystem:
                             self.adc_readings_buffer.pop(0)  # Remove oldest
                         
                         # Calculate filtered value (moving average)
-                        # Only calculate if we have enough samples for meaningful filtering
                         if len(self.adc_readings_buffer) >= 3:
                             filtered_value = int(sum(self.adc_readings_buffer) / len(self.adc_readings_buffer))
                         else:
-                            # Not enough samples yet, use current average
                             filtered_value = adc_value
                         
                         # Only report if change is significant (above noise threshold)
-                        # Skip reporting if buffer isn't full yet (initial readings may be noisy)
                         if len(self.adc_readings_buffer) < self.adc_filter_size:
-                            # Still building buffer, use current filtered value
-                            data_parts.append(f"ADC_CH0:{filtered_value}")
-                            self.adc_last_reported_value = filtered_value
+                            # Still building buffer - report initial value once
+                            if self.adc_last_reported_value is None:
+                                data_parts.append(f"TIME:{timestamp}")
+                                data_parts.append(f"ADC_CH0:{filtered_value}")
+                                self.adc_last_reported_value = filtered_value
+                                has_changes = True
                         elif (self.adc_last_reported_value is None or 
                               abs(filtered_value - self.adc_last_reported_value) >= self.adc_noise_threshold):
                             # Significant change detected - report it
-                            self.adc_last_reported_value = filtered_value
+                            data_parts.append(f"TIME:{timestamp}")
                             data_parts.append(f"ADC_CH0:{filtered_value}")
-                        else:
-                            # No significant change - don't include ADC in this update
-                            # This prevents sending unchanged values
-                            pass
+                            self.adc_last_reported_value = filtered_value
+                            has_changes = True
+                        # Else: no change, don't send anything
                     except Exception as e:
                         logger.warning(f"Error reading ADC channel 0: {e}")
+                        data_parts.append(f"TIME:{timestamp}")
                         data_parts.append("ADC_CH0:ERROR")
+                        has_errors = True
                 else:
-                    data_parts.append("ADC:NOT_INITIALIZED")
+                    # ADC not initialized - only report once or if status changes
+                    if not hasattr(self, '_adc_status_reported') or self._adc_status_reported != "NOT_INITIALIZED":
+                        data_parts.append(f"TIME:{timestamp}")
+                        data_parts.append("ADC:NOT_INITIALIZED")
+                        self._adc_status_reported = "NOT_INITIALIZED"
+                        has_errors = True
             else:
-                data_parts.append("ADC:NOT_AVAILABLE")
+                # ADC not available - only report once or if status changes
+                if not hasattr(self, '_adc_status_reported') or self._adc_status_reported != "NOT_AVAILABLE":
+                    data_parts.append(f"TIME:{timestamp}")
+                    data_parts.append("ADC:NOT_AVAILABLE")
+                    self._adc_status_reported = "NOT_AVAILABLE"
+                    has_errors = True
             
-            # Add Arduino status if available
-            if self.arduino_interface and self.arduino_interface.is_connected():
-                data_parts.append("ARDUINO:CONNECTED")
+            # Only send if there are changes or errors
+            if has_changes or has_errors:
+                return "|".join(data_parts)
             else:
-                data_parts.append("ARDUINO:DISCONNECTED")
-            
-            return "|".join(data_parts)
+                # No changes, no errors - return empty string (don't send update)
+                return ""
         except Exception as e:
             logger.error(f"Error getting periodic data: {e}")
-            return ""
+            # Always send errors
+            return f"TIME:{time.strftime('%H:%M:%S')}|ERROR:{str(e)}"
 
     def start(self):
         if self.running:
