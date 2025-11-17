@@ -799,7 +799,7 @@ class FusorHostApp:
                 if "SUCCESS" in response.upper():
                     self._update_status(
                         f"Command sent: {command} - Response: {response}", "green"
-                    )
+                )
                 elif "FAILED" in response.upper() or "ERROR" in response.upper():
                     self._update_status(
                         f"Command sent: {command} - Response: {response}", "red"

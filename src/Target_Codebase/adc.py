@@ -2,6 +2,11 @@ import time
 import sys
 import argparse
 from base_classes import ADCInterface
+from logging_setup import setup_logging, get_logger
+
+# Setup logging
+setup_logging()
+logger = get_logger("MCP3008ADC")
 
 # Only import RPi libraries when not in test mode
 try:
@@ -42,17 +47,54 @@ class MCP3008ADC(ADCInterface):
 
     def initialize(self):
         if not RPI_AVAILABLE or Adafruit_MCP3008 is None or SPI is None:
-            print("ADC libraries not available (likely in test environment)")
+            logger.error("ADC libraries not available (likely in test environment)")
             return False
+        
+        # Check SPI device permissions before attempting initialization
+        import os
+        spi_device_path = f"/dev/spidev{self.spi_port}.{self.spi_device}"
+        
+        if not os.path.exists(spi_device_path):
+            logger.error(f"ADC error: SPI device {spi_device_path} not found")
+            logger.error("SPI interface may not be enabled. Enable it with: sudo raspi-config")
+            logger.error("  Navigate to: Interface Options -> SPI -> Enable")
+            return False
+        
+        # Check permissions (even as root, this helps diagnose issues)
         try:
+            if not os.access(spi_device_path, os.R_OK | os.W_OK):
+                logger.error(f"ADC error: Cannot access SPI device {spi_device_path}")
+                logger.error(f"Try: sudo chmod 666 {spi_device_path}")
+                return False
+        except Exception as perm_err:
+            logger.error(f"ADC permission check error: {perm_err}")
+        
+        try:
+            logger.info(f"Attempting to initialize MCP3008 ADC on {spi_device_path}")
             self.mcp = Adafruit_MCP3008.MCP3008(
                 spi=SPI.SpiDev(self.spi_port, self.spi_device)
             )
             self._is_initialized = True
-            print("MCP3008 ADC initialized successfully")
+            logger.info("MCP3008 ADC initialized successfully")
             return True
+        except PermissionError as e:
+            logger.error(f"ADC permission error: {e}")
+            logger.error(f"SPI device {spi_device_path} requires proper permissions")
+            logger.error(f"Try: sudo chmod 666 {spi_device_path}")
+            logger.error("Or ensure SPI is enabled: sudo raspi-config -> Interface Options -> SPI")
+            return False
+        except OSError as e:
+            logger.error(f"ADC OS error: {e}")
+            logger.error("This usually means SPI interface is not enabled or hardware is not connected")
+            logger.error("Enable SPI with: sudo raspi-config -> Interface Options -> SPI -> Enable")
+            return False
         except Exception as e:
-            print(f"Failed to initialize ADC: {e}")
+            logger.error(f"Failed to initialize ADC: {e}")
+            logger.error(f"Error type: {type(e).__name__}")
+            logger.error("Check:")
+            logger.error("  1. SPI is enabled: sudo raspi-config")
+            logger.error("  2. MCP3008 is properly wired to SPI0 (CE0 or CE1)")
+            logger.error("  3. Adafruit_MCP3008 library is installed")
             return False
 
     def read_channel(self, channel):

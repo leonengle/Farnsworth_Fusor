@@ -41,13 +41,20 @@ class TCPCommandServer:
                 logger.info("Attempting to initialize ADC (MCP3008)...")
                 self.adc = MCP3008ADC()
                 if not self.adc.initialize():
-                    logger.error("Failed to initialize ADC - hardware may not be connected or libraries missing")
-                    logger.error("ADC will not be available. Check SPI connection and Adafruit_MCP3008 library.")
+                    logger.error("Failed to initialize ADC")
+                    logger.error("Troubleshooting steps:")
+                    logger.error("  1. Enable SPI: sudo raspi-config -> Interface Options -> SPI -> Enable")
+                    logger.error("  2. Check SPI device: ls -l /dev/spidev0.0")
+                    logger.error("  3. Fix permissions if needed: sudo chmod 666 /dev/spidev0.0")
+                    logger.error("  4. Verify MCP3008 wiring to SPI0 (CE0 or CE1)")
+                    logger.error("  5. Check if Adafruit_MCP3008 library is installed")
+                    logger.error("ADC will not be available. Continuing without ADC.")
                     self.adc = None
                 else:
                     logger.info("ADC initialized successfully")
             except Exception as e:
                 logger.error(f"ADC setup error: {e}")
+                logger.error(f"Error type: {type(e).__name__}")
                 logger.error("ADC will not be available. Continuing without ADC.")
                 self.adc = None
         else:
