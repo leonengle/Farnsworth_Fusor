@@ -90,15 +90,36 @@ class TargetSystem:
             logger.debug(f"Error processing Arduino data: {e}")
 
     def _get_periodic_data(self) -> str:
+        """Generate periodic data packet to send to host."""
         try:
+            import time
+            timestamp = time.strftime("%H:%M:%S")
+            
+            # Collect data based on available sensors
+            data_parts = [f"TIME:{timestamp}"]
+            
             if self.use_adc and self.tcp_command_server.adc:
                 # Send ADC data
-                adc_value = self.tcp_command_server.read_adc_channel(0)  # Use channel 0
-                return f"ADC_DATA:{adc_value}"
+                try:
+                    adc_value = self.tcp_command_server.read_adc_channel(0)  # Use channel 0
+                    data_parts.append(f"ADC_CH0:{adc_value}")
+                except Exception as e:
+                    logger.debug(f"Error reading ADC: {e}")
             else:
                 # Send GPIO data
-                pin_value = self.tcp_command_server.read_input_pin()
-                return f"GPIO_INPUT:{pin_value}"
+                try:
+                    pin_value = self.tcp_command_server.read_input_pin()
+                    data_parts.append(f"GPIO_INPUT:{pin_value}")
+                except Exception as e:
+                    logger.debug(f"Error reading GPIO input: {e}")
+            
+            # Add Arduino status if available
+            if self.arduino_interface and self.arduino_interface.is_connected():
+                data_parts.append("ARDUINO:CONNECTED")
+            else:
+                data_parts.append("ARDUINO:DISCONNECTED")
+            
+            return "|".join(data_parts)
         except Exception as e:
             logger.error(f"Error getting periodic data: {e}")
             return ""

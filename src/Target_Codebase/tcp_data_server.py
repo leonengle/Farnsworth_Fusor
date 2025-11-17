@@ -93,7 +93,7 @@ class TCPDataServer:
                 break
 
     def _send_loop(self):
-        logger.info("TCP data send loop started")
+        logger.info("TCP data send loop started - sending periodic updates every {:.1f}s".format(self.send_interval))
 
         while self.running and self.client_socket:
             try:
@@ -103,7 +103,9 @@ class TCPDataServer:
                         # Send data with newline terminator
                         message = data + "\n"
                         self.client_socket.send(message.encode("utf-8"))
-                        logger.debug(f"TCP data sent: {data}")
+                        logger.info(f"Periodic data sent to host: {data}")
+                    else:
+                        logger.debug("No data to send (callback returned empty)")
 
                 time.sleep(self.send_interval)
 

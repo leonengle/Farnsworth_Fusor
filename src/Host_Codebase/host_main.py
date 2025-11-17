@@ -344,6 +344,7 @@ class FusorHostApp:
         target_tcp_command_port: int = 2222,
         tcp_data_port: int = 12345,
         udp_status_port: int = 8888,
+        terminal_updates: bool = True,
     ):
         self.target_ip = target_ip
         self.target_tcp_command_port = target_tcp_command_port
@@ -375,6 +376,9 @@ class FusorHostApp:
         self.pressure_label = None
         self.auto_state_label = None
         self.auto_log_display = None
+        self.target_snapshot_var = None
+        self.target_snapshot_entry = None
+        self.terminal_updates_enabled = terminal_updates
 
         component_map = {
             "Main Supply": {"type": "power_supply"},
@@ -414,10 +418,16 @@ class FusorHostApp:
             self._update_status("Connected to target", "green")
             self._update_data_display("[System] Connected to target successfully")
 
+        # Start TCP data client for periodic updates
         self.tcp_data_client.start()
+        logger.info("TCP data client started - waiting for periodic updates from target...")
+        print("TCP data client started - waiting for periodic updates from target...")
 
+        # Start UDP status communication
         self.udp_status_client.start()
         self.udp_status_receiver.start()
+        logger.info("UDP status receiver started - waiting for status updates from target...")
+        print("UDP status receiver started - waiting for status updates from target...")
 
     def _setup_ui(self):
         self.root = ctk.CTk()
@@ -660,6 +670,25 @@ class FusorHostApp:
         )
         self.data_display.pack(fill="both", expand=True, padx=5, pady=5)
 
+        snapshot_frame = ctk.CTkFrame(manual_tab)
+        snapshot_frame.pack(fill="x", padx=10, pady=5)
+
+        snapshot_label = ctk.CTkLabel(
+            snapshot_frame,
+            text="Latest Target Message (read-only)",
+            font=ctk.CTkFont(size=13, weight="bold"),
+        )
+        snapshot_label.pack(side="left", padx=5)
+
+        self.target_snapshot_var = ctk.StringVar(value="(no data yet)")
+        self.target_snapshot_entry = ctk.CTkEntry(
+            snapshot_frame,
+            textvariable=self.target_snapshot_var,
+            state="disabled",
+            width=600,
+        )
+        self.target_snapshot_entry.pack(side="left", padx=5, fill="x", expand=True)
+
         auto_section = ctk.CTkFrame(auto_tab)
         auto_section.pack(fill="both", expand=True, padx=10, pady=10)
 
@@ -848,10 +877,18 @@ class FusorHostApp:
             self._update_data_display("[ERROR] Steps must be a number")
 
     def _handle_tcp_data(self, data: str):
+        """Handle periodic data received from target via TCP."""
         self._update_data_display(f"[TCP Data] {data}")
+        self._update_target_snapshot(data)
+        # Always log to terminal for periodic updates
+        self._log_terminal_update("TARGET_DATA", data)
 
     def _handle_udp_status(self, message: str, address: tuple):
+        """Handle status messages received from target via UDP."""
         self._update_data_display(f"[UDP Status] From {address[0]}: {message}")
+        self._update_target_snapshot(message)
+        # Always log to terminal for periodic updates
+        self._log_terminal_update("TARGET_STATUS", message)
         try:
             payload = json.loads(message)
             identifier = payload.get("id")
@@ -868,6 +905,7 @@ class FusorHostApp:
 
     def _update_data_display(self, data: str):
         if not self.data_display or not self.root:
+            self._log_terminal_update("Data", data)
             return
         try:
             timestamp = time.strftime("%H:%M:%S")
@@ -877,6 +915,16 @@ class FusorHostApp:
         except Exception:
             pass
 
+    def _log_terminal_update(self, tag: str, message: str):
+        """Log periodic updates to terminal for visibility."""
+        timestamp = time.strftime("%H:%M:%S")
+        try:
+            print(f"{timestamp} [{tag}] {message}", flush=True)
+            # Also log via logger for file logging
+            logger.info(f"[{tag}] {message}")
+        except Exception:
+            logger.debug("Failed to write terminal log entry", exc_info=True)
+
     def _update_status(self, message: str, color: str = "white"):
         if not self.status_label or not self.root:
             return
@@ -884,6 +932,14 @@ class FusorHostApp:
             self.status_label.configure(text=message, text_color=color)
         except Exception:
             pass
+
+    def _update_target_snapshot(self, message: str):
+        if not self.target_snapshot_var:
+            return
+        truncated = message.strip()
+        if len(truncated) > 200:
+            truncated = truncated[:197] + "..."
+        self.target_snapshot_var.set(truncated if truncated else "(empty message)")
 
     def _on_closing(self):
         # Send LED_OFF command before shutting down
@@ -927,6 +983,7 @@ class FusorHostApp:
                 pass
 
     def run(self):
+        print("=" * 70)
         print("Fusor Host Application starting...")
         print(f"Target IP: {self.target_ip}:{self.target_tcp_command_port}")
         print(f"TCP Data Port: {self.tcp_data_port}")
@@ -934,6 +991,9 @@ class FusorHostApp:
         print("\nControl panel opening...")
         print("All buttons send commands to target.")
         print("Target listens, takes action, and sends read-only data back.")
+        print("\n" + "=" * 70)
+        print("PERIODIC UPDATES FROM TARGET (displayed below):")
+        print("=" * 70)
 
         try:
             self.root.mainloop()
@@ -1036,6 +1096,11 @@ def main():
         default=8888,
         help="UDP port for status communication (default: 8888)",
     )
+    parser.add_argument(
+        "--no-terminal-updates",
+        action="store_true",
+        help="Disable mirrored target data in the host terminal",
+    )
 
     args = parser.parse_args()
 
@@ -1045,6 +1110,7 @@ def main():
         target_tcp_command_port=args.target_tcp_command_port,
         tcp_data_port=args.tcp_data_port,
         udp_status_port=args.udp_status_port,
+        terminal_updates=not args.no_terminal_updates,
     )
 
     _app_instance = app
