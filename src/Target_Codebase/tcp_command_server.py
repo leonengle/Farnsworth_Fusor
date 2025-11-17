@@ -38,13 +38,20 @@ class TCPCommandServer:
         self.adc = None
         if use_adc:
             try:
+                logger.info("Attempting to initialize ADC (MCP3008)...")
                 self.adc = MCP3008ADC()
                 if not self.adc.initialize():
-                    logger.error("Failed to initialize ADC")
+                    logger.error("Failed to initialize ADC - hardware may not be connected or libraries missing")
+                    logger.error("ADC will not be available. Check SPI connection and Adafruit_MCP3008 library.")
                     self.adc = None
+                else:
+                    logger.info("ADC initialized successfully")
             except Exception as e:
                 logger.error(f"ADC setup error: {e}")
+                logger.error("ADC will not be available. Continuing without ADC.")
                 self.adc = None
+        else:
+            logger.info("ADC initialization skipped (use --use-adc flag to enable)")
 
         # Initialize command processor with Arduino interface
         self.command_processor = CommandProcessor(

@@ -21,7 +21,7 @@ class TargetSystem:
         tcp_command_port: int = 2222,
         led_pin: int = 26,
         input_pin: int = 6,
-        use_adc: bool = False,
+        use_adc: bool = True,
         arduino_port: str = None,
         use_arduino: bool = True,
     ):
@@ -98,20 +98,19 @@ class TargetSystem:
             # Collect data based on available sensors
             data_parts = [f"TIME:{timestamp}"]
             
-            if self.use_adc and self.tcp_command_server.adc:
-                # Send ADC data
-                try:
-                    adc_value = self.tcp_command_server.read_adc_channel(0)  # Use channel 0
-                    data_parts.append(f"ADC_CH0:{adc_value}")
-                except Exception as e:
-                    logger.debug(f"Error reading ADC: {e}")
+            # Always try to read ADC (default behavior)
+            if self.tcp_command_server.adc:
+                if self.tcp_command_server.adc.is_initialized():
+                    try:
+                        adc_value = self.tcp_command_server.read_adc_channel(0)  # Use channel 0
+                        data_parts.append(f"ADC_CH0:{adc_value}")
+                    except Exception as e:
+                        logger.warning(f"Error reading ADC channel 0: {e}")
+                        data_parts.append("ADC_CH0:ERROR")
+                else:
+                    data_parts.append("ADC:NOT_INITIALIZED")
             else:
-                # Send GPIO data
-                try:
-                    pin_value = self.tcp_command_server.read_input_pin()
-                    data_parts.append(f"GPIO_INPUT:{pin_value}")
-                except Exception as e:
-                    logger.debug(f"Error reading GPIO input: {e}")
+                data_parts.append("ADC:NOT_AVAILABLE")
             
             # Add Arduino status if available
             if self.arduino_interface and self.arduino_interface.is_connected():
@@ -308,7 +307,7 @@ def main():
         help="GPIO pin for input reading (default: 6)",
     )
     parser.add_argument(
-        "--use-adc", action="store_true", help="Enable ADC functionality"
+        "--no-adc", action="store_true", help="Disable ADC functionality (ADC enabled by default)"
     )
     parser.add_argument(
         "--arduino-port",
@@ -329,7 +328,7 @@ def main():
         f"Configuration: Host={args.host}, TCP Command Port={args.tcp_command_port}"
     )
     logger.info(f"GPIO: LED={args.led_pin}, Input={args.input_pin}")
-    logger.info(f"ADC: {'Enabled' if args.use_adc else 'Disabled'}")
+    logger.info(f"ADC: {'Disabled' if args.no_adc else 'Enabled (default)'}")
     logger.info(
         f"Arduino: {'Disabled' if args.no_arduino else ('Enabled' + (f' (port: {args.arduino_port})' if args.arduino_port else ' (auto-detect)'))}"
     )
@@ -340,7 +339,7 @@ def main():
         tcp_command_port=args.tcp_command_port,
         led_pin=args.led_pin,
         input_pin=args.input_pin,
-        use_adc=args.use_adc,
+        use_adc=not args.no_adc,  # ADC enabled by default unless --no-adc is specified
         arduino_port=args.arduino_port,
         use_arduino=not args.no_arduino,
     )

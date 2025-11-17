@@ -374,6 +374,7 @@ class FusorHostApp:
         self.manual_mech_slider = None
         self.manual_mech_label = None
         self.pressure_label = None
+        self.adc_label = None
         self.auto_state_label = None
         self.auto_log_display = None
         self.target_snapshot_var = None
@@ -475,6 +476,13 @@ class FusorHostApp:
             font=ctk.CTkFont(size=14),
         )
         self.pressure_label.pack(pady=5)
+
+        self.adc_label = ctk.CTkLabel(
+            manual_tab,
+            text="ADC CH0: ---",
+            font=ctk.CTkFont(size=14),
+        )
+        self.adc_label.pack(pady=5)
 
         led_frame = ctk.CTkFrame(manual_tab)
         led_frame.pack(fill="x", padx=10, pady=5)
@@ -818,6 +826,10 @@ class FusorHostApp:
         if self.pressure_label:
             self.pressure_label.configure(text=f"Pressure Sensor 1: {value} mT")
 
+    def _update_adc_display(self, value):
+        if self.adc_label:
+            self.adc_label.configure(text=f"ADC CH0: {value}")
+
     def _auto_start(self):
         if self.auto_log_display:
             self.auto_log_display.configure(state="normal")
@@ -880,8 +892,16 @@ class FusorHostApp:
         """Handle periodic data received from target via TCP."""
         self._update_data_display(f"[TCP Data] {data}")
         self._update_target_snapshot(data)
+        parsed = self._parse_periodic_packet(data)
+        if parsed:
+            summary = ", ".join(f"{k}={v}" for k, v in parsed.items())
+            adc_value = parsed.get("ADC_CH0")
+            if adc_value is not None:
+                self._update_adc_display(adc_value)
+        else:
+            summary = data
         # Always log to terminal for periodic updates
-        self._log_terminal_update("TARGET_DATA", data)
+        self._log_terminal_update("TARGET_DATA", summary)
 
     def _handle_udp_status(self, message: str, address: tuple):
         """Handle status messages received from target via UDP."""
@@ -940,6 +960,21 @@ class FusorHostApp:
         if len(truncated) > 200:
             truncated = truncated[:197] + "..."
         self.target_snapshot_var.set(truncated if truncated else "(empty message)")
+
+    def _parse_periodic_packet(self, payload: str) -> dict:
+        result = {}
+        if not payload:
+            return result
+        parts = payload.split("|")
+        for part in parts:
+            if ":" not in part:
+                continue
+            key, value = part.split(":", 1)
+            key = key.strip()
+            value = value.strip()
+            if key:
+                result[key] = value
+        return result
 
     def _on_closing(self):
         # Send LED_OFF command before shutting down
