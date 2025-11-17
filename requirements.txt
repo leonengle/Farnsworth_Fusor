@@ -13,6 +13,9 @@ Adafruit-MCP3008==1.0.2
 Adafruit-PureIO==1.1.11
 spidev==3.8
 
+# Arduino USB serial communication (Target side)
+pyserial==3.5
+
 # Legacy GUI (if needed)
 PySimpleGUI==5.0.8.3
 

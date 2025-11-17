@@ -4,7 +4,7 @@ Tests command parsing, routing, and execution
 """
 
 import unittest
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock, MagicMock, patch
 import sys
 import os
 
@@ -51,12 +51,19 @@ class TestCommandProcessor(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures"""
-        with patch('gpio_handler.GPIO', mock_gpio):
-            self.gpio_handler = GPIOHandler()
-            self.command_processor = CommandProcessor(
-                gpio_handler=self.gpio_handler,
-                adc=None
-            )
+        mock_gpio.reset_mock()
+        self.patcher = patch('gpio_handler.GPIO', mock_gpio)
+        self.patcher.start()
+        self.gpio_handler = GPIOHandler()
+        self.command_processor = CommandProcessor(
+            gpio_handler=self.gpio_handler,
+            adc=None,
+            arduino_interface=None
+        )
+
+    def tearDown(self):
+        """Clean up after tests"""
+        self.patcher.stop()
 
     def test_empty_command(self):
         """Test processing empty command"""
@@ -103,6 +110,18 @@ class TestCommandProcessor(unittest.TestCase):
         result = self.command_processor.process_command("SET_TURBO_PUMP:80")
         self.assertIn("SET_TURBO_PUMP", result)
 
+    def test_analog_command_forwarded_to_arduino(self):
+        """Ensure analog commands are labeled and forwarded to Arduino"""
+        mock_arduino = MagicMock()
+        mock_arduino.is_connected.return_value = True
+        processor = CommandProcessor(
+            gpio_handler=self.gpio_handler,
+            adc=None,
+            arduino_interface=mock_arduino,
+        )
+        processor.process_command("SET_VALVE1:60")
+        mock_arduino.send_analog_command.assert_called_with("ATM_DEPRESSURE_VALVE", 60)
+
     def test_startup_command(self):
         """Test STARTUP command"""
         result = self.command_processor.process_command("STARTUP")
@@ -130,7 +149,7 @@ class TestCommandProcessor(unittest.TestCase):
 
     def test_set_voltage_invalid_format(self):
         """Test SET_VOLTAGE with invalid format"""
-        result = self.command_processor.process_command("SET_VOLTAGE")
+        result = self.command_processor.process_command("SET_VOLTAGE:")
         self.assertIn("FAILED", result)
 
 

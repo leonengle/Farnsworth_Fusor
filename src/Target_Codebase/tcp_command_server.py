@@ -23,6 +23,7 @@ class TCPCommandServer:
         led_pin: int = 26,
         input_pin: int = 6,
         use_adc: bool = False,
+        arduino_interface=None,
     ):
         self.host = host
         self.port = port
@@ -45,15 +46,17 @@ class TCPCommandServer:
                 logger.error(f"ADC setup error: {e}")
                 self.adc = None
 
-        # Initialize command processor
+        # Initialize command processor with Arduino interface
         self.command_processor = CommandProcessor(
             gpio_handler=self.gpio_handler,
             adc=self.adc,
+            arduino_interface=arduino_interface,
             host_callback=None,  # Will be set via set_host_callback
         )
 
         logger.info(
-            f"TCP Command Server initialized (LED: {led_pin}, Input: {input_pin}, ADC: {use_adc})"
+            f"TCP Command Server initialized (LED: {led_pin}, Input: {input_pin}, "
+            f"ADC: {use_adc}, Arduino: {'Enabled' if arduino_interface else 'Disabled'})"
         )
 
     def set_host_callback(self, callback: Callable[[str], None]):
@@ -204,25 +207,24 @@ class PeriodicDataSender:
         self.use_adc = use_adc
         self.running = False
         self.sender_thread = None
-        super().__init__(name="PeriodicDataSender")
 
-    logger.info(f"Periodic data sender initialized (ADC: {use_adc})")
+        logger.info(f"Periodic data sender initialized (ADC: {self.use_adc})")
 
     def start(self):
         if self.running:
-            self.logger.warning("Periodic sender is already running")
+            logger.warning("Periodic sender is already running")
             return
         self.running = True
         self.sender_thread = threading.Thread(target=self._send_loop)
         self.sender_thread.daemon = True
         self.sender_thread.start()
-        self.logger.info("Periodic data sender started")
+        logger.info("Periodic data sender started")
 
     def stop(self):
         self.running = False
         if self.sender_thread:
             self.sender_thread.join(timeout=2)
-        self.logger.info("Periodic data sender stopped")
+        logger.info("Periodic data sender stopped")
 
     def _send_loop(self):
         while self.running:
@@ -235,12 +237,12 @@ class PeriodicDataSender:
                     # send adc data - simple format as per diagram
                     adc_values = self.command_server.read_adc_all_channels()
                     data_message = f"ADC_DATA:{adc_values[0]}"
-                    self.logger.debug(f"Sent ADC data: {adc_values[0]}")
+                    logger.debug(f"Sent ADC data: {adc_values[0]}")
                 else:
                     # send gpio data - simple format as per diagram
                     pin_value = self.command_server.read_input_pin()
                     data_message = f"GPIO_INPUT:{pin_value}"
-                    self.logger.debug(f"Sent GPIO data: {pin_value}")
+                    logger.debug(f"Sent GPIO data: {pin_value}")
 
                 # send data to host via callback
                 if self.send_callback:
@@ -249,5 +251,5 @@ class PeriodicDataSender:
                 # wait 1 second before next send
                 time.sleep(1.0)
             except Exception as e:
-                self.logger.error(f"Error in periodic send loop: {e}")
+                logger.error(f"Error in periodic send loop: {e}")
                 time.sleep(1.0)

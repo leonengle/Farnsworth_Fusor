@@ -1,9 +1,25 @@
 import logging
-from typing import Optional, Callable
+from typing import Optional, Callable, Dict
 from gpio_handler import GPIOHandler
 from adc import MCP3008ADC
 
 logger = logging.getLogger("CommandProcessor")
+
+VALVE_ANALOG_LABELS: Dict[int, str] = {
+    1: "ATM_DEPRESSURE_VALVE",
+    2: "FORELINE_VALVE",
+    3: "VACUUM_SYSTEM_VALVE",
+    4: "DEUTERIUM_SUPPLY_VALVE",
+    5: "RESERVED_VALVE_5",
+    6: "RESERVED_VALVE_6",
+}
+
+ANALOG_COMPONENT_LABELS = {
+    "POWER_SUPPLY": "POWER_SUPPLY_VOLTAGE_SETPOINT",
+    "MECHANICAL_PUMP": "ROUGHING_PUMP_POWER",
+    "TURBO_PUMP": "TURBO_PUMP_POWER",
+    "LEGACY_PUMP": "LEGACY_PUMP_POWER",
+}
 
 
 class CommandProcessor:
@@ -12,13 +28,40 @@ class CommandProcessor:
         self,
         gpio_handler: GPIOHandler,
         adc: Optional[MCP3008ADC] = None,
+        arduino_interface=None,
         host_callback: Optional[Callable[[str], None]] = None,
     ):
         self.gpio_handler = gpio_handler
         self.adc = adc
+        self.arduino_interface = arduino_interface
         self.host_callback = host_callback
 
-        logger.info("Command processor initialized")
+        logger.info(
+            f"Command processor initialized (Arduino: {'Enabled' if arduino_interface else 'Disabled'})"
+        )
+
+    def _forward_analog_command(self, label: Optional[str], value) -> None:
+        if not label or self.arduino_interface is None:
+            return
+        try:
+            if not hasattr(self.arduino_interface, "is_connected") or not self.arduino_interface.is_connected():
+                return
+        except Exception as exc:
+            logger.debug(f"Arduino interface connection check failed for {label}: {exc}")
+            return
+        send_method = getattr(self.arduino_interface, "send_analog_command", None)
+        try:
+            if callable(send_method):
+                send_method(label, value)
+            else:
+                fallback_command = f"ANALOG:{label}:{value}"
+                if hasattr(self.arduino_interface, "send_command"):
+                    self.arduino_interface.send_command(fallback_command)
+        except Exception as exc:
+            logger.error(f"Failed to forward analog command '{label}' to Arduino: {exc}")
+
+    def _resolve_valve_label(self, valve_id: int) -> str:
+        return VALVE_ANALOG_LABELS.get(valve_id, f"VALVE_{valve_id}")
 
     def set_host_callback(self, callback: Callable[[str], None]):
         self.host_callback = callback
@@ -31,7 +74,6 @@ class CommandProcessor:
         command = command.strip().upper()
 
         try:
-            # LED commands (legacy support)
             if command == "LED_ON":
                 if self.gpio_handler.led_on():
                     return "LED_ON_SUCCESS"
@@ -62,6 +104,10 @@ class CommandProcessor:
                     if voltage < 0:
                         return "SET_VOLTAGE_FAILED: Voltage must be >= 0"
                     logger.info(f"Voltage set to {voltage}V")
+                    self._forward_analog_command(
+                        ANALOG_COMPONENT_LABELS["POWER_SUPPLY"],
+                        voltage,
+                    )
                     return f"SET_VOLTAGE_SUCCESS:{voltage}"
                 except (ValueError, IndexError):
                     return "SET_VOLTAGE_FAILED: Invalid format"
@@ -80,6 +126,10 @@ class CommandProcessor:
                         return f"SET_VALVE_FAILED: Valve ID must be 1-6"
                     
                     if self.gpio_handler.set_valve_position(valve_id, position):
+                        self._forward_analog_command(
+                            self._resolve_valve_label(valve_id),
+                            position,
+                        )
                         return f"SET_VALVE{valve_id}_SUCCESS:{position}"
                     else:
                         return f"SET_VALVE{valve_id}_FAILED"
@@ -92,6 +142,10 @@ class CommandProcessor:
                     if power < 0 or power > 100:
                         return "SET_MECHANICAL_PUMP_FAILED: Power must be 0-100"
                     if self.gpio_handler.set_mechanical_pump_power(power):
+                        self._forward_analog_command(
+                            ANALOG_COMPONENT_LABELS["MECHANICAL_PUMP"],
+                            power,
+                        )
                         return f"SET_MECHANICAL_PUMP_SUCCESS:{power}"
                     else:
                         return "SET_MECHANICAL_PUMP_FAILED"
@@ -104,6 +158,10 @@ class CommandProcessor:
                     if power < 0 or power > 100:
                         return "SET_TURBO_PUMP_FAILED: Power must be 0-100"
                     if self.gpio_handler.set_turbo_pump_power(power):
+                        self._forward_analog_command(
+                            ANALOG_COMPONENT_LABELS["TURBO_PUMP"],
+                            power,
+                        )
                         return f"SET_TURBO_PUMP_SUCCESS:{power}"
                     else:
                         return "SET_TURBO_PUMP_FAILED"
@@ -223,7 +281,6 @@ class CommandProcessor:
                 logger.info("Neutron counts read requested (not yet implemented)")
                 return "NEUTRON_COUNTS:0"
 
-            # Read input command (legacy)
             elif command == "READ_INPUT":
                 value = self.gpio_handler.read_input()
                 if value is not None:
@@ -234,7 +291,6 @@ class CommandProcessor:
                 else:
                     return "READ_INPUT_FAILED"
 
-            # Read ADC command (legacy - reads all channels)
             elif command == "READ_ADC":
                 if not self.adc or not self.adc.is_initialized():
                     return "READ_ADC_FAILED: ADC not initialized"
@@ -249,30 +305,163 @@ class CommandProcessor:
                     logger.error(f"ADC read error: {e}")
                     return f"READ_ADC_FAILED: {e}"
 
-            # Legacy pump power command (for backward compatibility)
             elif command.startswith("SET_PUMP_POWER:"):
                 try:
                     power = int(command.split(":")[1])
                     if power < 0 or power > 100:
                         return "SET_PUMP_POWER_FAILED: Power must be 0-100"
                     if self.gpio_handler.set_mechanical_pump_power(power):
+                        self._forward_analog_command(
+                            ANALOG_COMPONENT_LABELS["LEGACY_PUMP"],
+                            power,
+                        )
                         return f"SET_MECHANICAL_PUMP_SUCCESS:{power}"
                     else:
                         return "SET_PUMP_POWER_FAILED"
                 except (ValueError, IndexError):
                     return "SET_PUMP_POWER_FAILED: Invalid format"
 
-            # Move motor command (legacy)
+            elif command.startswith("MOVE_MOTOR:"):
+                try:
+                    parts = command.split(":")
+                    if len(parts) < 3:
+                        return "MOVE_MOTOR_FAILED: Invalid format (expected: MOVE_MOTOR:ID:STEPS[:DIRECTION])"
+                    
+                    motor_id = int(parts[1])
+                    steps = int(parts[2])
+                    direction = parts[3].upper() if len(parts) > 3 else "FORWARD"
+                    
+                    if motor_id < 1 or motor_id > 5:
+                        return f"MOVE_MOTOR_FAILED: Motor ID must be 1-5"
+                    
+                    if motor_id >= 1 and motor_id <= 4:
+                        if not self.arduino_interface:
+                            return f"MOVE_MOTOR_FAILED: Motor {motor_id} requires Arduino interface (not available)"
+                        if not self.arduino_interface.is_connected():
+                            return f"MOVE_MOTOR_FAILED: Motor {motor_id} requires Arduino interface (not connected)"
+                        
+                        arduino_cmd = f"MOVE_MOTOR:{motor_id}:{steps}:{direction}"
+                        if self.arduino_interface.send_command(arduino_cmd):
+                            response = self.arduino_interface.read_data(timeout=2.0)
+                            if response:
+                                return f"MOVE_MOTOR{motor_id}_SUCCESS:{response}"
+                            else:
+                                return f"MOVE_MOTOR{motor_id}_COMMAND_SENT"
+                        else:
+                            return f"MOVE_MOTOR{motor_id}_FAILED: Send error"
+                    
+                    elif motor_id == 5:
+                        logger.info(f"Motor 5 move command: {steps} steps, direction: {direction}")
+                        return f"MOVE_MOTOR5_SUCCESS:{steps} (GPIO control - implementation pending)"
+                    
+                except (ValueError, IndexError) as e:
+                    return f"MOVE_MOTOR_FAILED: Invalid format - {e}"
+
+            elif command.startswith("ENABLE_MOTOR:"):
+                try:
+                    motor_id = int(command.split(":")[1])
+                    if motor_id < 1 or motor_id > 5:
+                        return f"ENABLE_MOTOR_FAILED: Motor ID must be 1-5"
+                    
+                    if motor_id >= 1 and motor_id <= 4:
+                        if not self.arduino_interface or not self.arduino_interface.is_connected():
+                            return f"ENABLE_MOTOR_FAILED: Motor {motor_id} requires Arduino interface"
+                        arduino_cmd = f"ENABLE_MOTOR:{motor_id}"
+                        if self.arduino_interface.send_command(arduino_cmd):
+                            response = self.arduino_interface.read_data(timeout=1.0)
+                            return f"ENABLE_MOTOR{motor_id}_SUCCESS" if not response else f"ENABLE_MOTOR{motor_id}_SUCCESS:{response}"
+                        return f"ENABLE_MOTOR{motor_id}_FAILED"
+                    
+                    elif motor_id == 5:
+                        logger.info(f"Motor 5 enable command")
+                        return f"ENABLE_MOTOR5_SUCCESS (GPIO control - implementation pending)"
+                    
+                except (ValueError, IndexError):
+                    return "ENABLE_MOTOR_FAILED: Invalid format"
+
+            elif command.startswith("DISABLE_MOTOR:"):
+                try:
+                    motor_id = int(command.split(":")[1])
+                    if motor_id < 1 or motor_id > 5:
+                        return f"DISABLE_MOTOR_FAILED: Motor ID must be 1-5"
+                    
+                    if motor_id >= 1 and motor_id <= 4:
+                        if not self.arduino_interface or not self.arduino_interface.is_connected():
+                            return f"DISABLE_MOTOR_FAILED: Motor {motor_id} requires Arduino interface"
+                        arduino_cmd = f"DISABLE_MOTOR:{motor_id}"
+                        if self.arduino_interface.send_command(arduino_cmd):
+                            response = self.arduino_interface.read_data(timeout=1.0)
+                            return f"DISABLE_MOTOR{motor_id}_SUCCESS" if not response else f"DISABLE_MOTOR{motor_id}_SUCCESS:{response}"
+                        return f"DISABLE_MOTOR{motor_id}_FAILED"
+                    
+                    elif motor_id == 5:
+                        logger.info(f"Motor 5 disable command")
+                        return f"DISABLE_MOTOR5_SUCCESS (GPIO control - implementation pending)"
+                    
+                except (ValueError, IndexError):
+                    return "DISABLE_MOTOR_FAILED: Invalid format"
+
+            elif command.startswith("SET_MOTOR_SPEED:"):
+                try:
+                    parts = command.split(":")
+                    if len(parts) < 3:
+                        return "SET_MOTOR_SPEED_FAILED: Invalid format (expected: SET_MOTOR_SPEED:ID:SPEED)"
+                    motor_id = int(parts[1])
+                    speed = float(parts[2])
+                    
+                    if motor_id < 1 or motor_id > 5:
+                        return f"SET_MOTOR_SPEED_FAILED: Motor ID must be 1-5"
+                    
+                    if motor_id >= 1 and motor_id <= 4:
+                        if not self.arduino_interface or not self.arduino_interface.is_connected():
+                            return f"SET_MOTOR_SPEED_FAILED: Motor {motor_id} requires Arduino interface"
+                        arduino_cmd = f"SET_MOTOR_SPEED:{motor_id}:{speed}"
+                        if self.arduino_interface.send_command(arduino_cmd):
+                            response = self.arduino_interface.read_data(timeout=1.0)
+                            return f"SET_MOTOR_SPEED{motor_id}_SUCCESS:{speed}" if not response else f"SET_MOTOR_SPEED{motor_id}_SUCCESS:{response}"
+                        return f"SET_MOTOR_SPEED{motor_id}_FAILED"
+                    
+                    elif motor_id == 5:
+                        logger.info(f"Motor 5 speed set to {speed}")
+                        return f"SET_MOTOR_SPEED5_SUCCESS:{speed} (GPIO control - implementation pending)"
+                    
+                except (ValueError, IndexError):
+                    return "SET_MOTOR_SPEED_FAILED: Invalid format"
+
             elif command.startswith("MOVE_VAR:"):
                 try:
                     steps = int(command.split(":")[1])
-                    # TODO: Implement actual motor movement
-                    logger.info(f"Motor move command: {steps} steps")
-                    return f"MOVE_VAR_SUCCESS:{steps}"
+                    if self.arduino_interface and self.arduino_interface.is_connected():
+                        arduino_cmd = f"MOVE_MOTOR:1:{steps}:FORWARD"
+                        if self.arduino_interface.send_command(arduino_cmd):
+                            response = self.arduino_interface.read_data(timeout=2.0)
+                            return f"MOVE_VAR_SUCCESS:{steps}" if not response else f"MOVE_VAR_SUCCESS:{response}"
+                        return f"MOVE_VAR_FAILED: Arduino send error"
+                    else:
+                        logger.warning("MOVE_VAR command requires Arduino interface")
+                        return f"MOVE_VAR_FAILED: Arduino interface not available"
                 except (ValueError, IndexError):
                     return "MOVE_VAR_FAILED: Invalid format"
 
-            # Unknown command
+            elif command.startswith("ARDUINO:"):
+                if not self.arduino_interface:
+                    return "ARDUINO_COMMAND_FAILED: Arduino interface not available"
+                if not self.arduino_interface.is_connected():
+                    return "ARDUINO_COMMAND_FAILED: Arduino not connected"
+                try:
+                    arduino_cmd = command[8:]
+                    if self.arduino_interface.send_command(arduino_cmd):
+                        response = self.arduino_interface.read_data(timeout=1.0)
+                        if response:
+                            return f"ARDUINO_RESPONSE:{response}"
+                        else:
+                            return "ARDUINO_COMMAND_SENT"
+                    else:
+                        return "ARDUINO_COMMAND_FAILED: Send error"
+                except Exception as e:
+                    logger.error(f"Error forwarding command to Arduino: {e}")
+                    return f"ARDUINO_COMMAND_FAILED: {e}"
+
             else:
                 logger.warning(f"Unknown command: {command}")
                 return f"ERROR: Unknown command '{command}'"

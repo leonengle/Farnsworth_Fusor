@@ -6,6 +6,7 @@ import sys
 from tcp_command_server import TCPCommandServer, PeriodicDataSender
 from tcp_data_server import TCPDataServer
 from udp_status_server import UDPStatusSender, UDPStatusReceiver
+from arduino_interface import ArduinoInterface
 from logging_setup import setup_logging, get_logger
 
 # Setup logging first
@@ -21,12 +22,32 @@ class TargetSystem:
         led_pin: int = 26,
         input_pin: int = 6,
         use_adc: bool = False,
+        arduino_port: str = None,
+        use_arduino: bool = True,
     ):
         self.host_ip = host_ip
         self.tcp_command_port = tcp_command_port
         self.led_pin = led_pin
         self.input_pin = input_pin
         self.use_adc = use_adc
+        self.use_arduino = use_arduino
+
+        # Initialize Arduino USB interface (early in startup sequence)
+        self.arduino_interface = None
+        if use_arduino:
+            try:
+                self.arduino_interface = ArduinoInterface(
+                    port=arduino_port,
+                    baudrate=9600,
+                    auto_detect=(arduino_port is None),
+                )
+                # Set callback for Arduino data
+                self.arduino_interface.set_data_callback(self._arduino_data_callback)
+                logger.info("Arduino interface initialized")
+            except Exception as e:
+                logger.warning(f"Failed to initialize Arduino interface: {e}")
+                logger.info("Continuing without Arduino interface")
+                self.arduino_interface = None
 
         # Initialize components
         self.tcp_command_server = TCPCommandServer(
@@ -35,6 +56,7 @@ class TargetSystem:
             led_pin=led_pin,
             input_pin=input_pin,
             use_adc=use_adc,
+            arduino_interface=self.arduino_interface,
         )
 
         # TCP data server - listens on port 12345 for host to connect
@@ -48,7 +70,8 @@ class TargetSystem:
         self.running = False
 
         logger.info(
-            f"Target system initialized (Host: {host_ip}, TCP Command Port: {tcp_command_port})"
+            f"Target system initialized (Host: {host_ip}, TCP Command Port: {tcp_command_port}, "
+            f"Arduino: {'Enabled' if self.arduino_interface else 'Disabled'})"
         )
 
     def _host_callback(self, data: str):
@@ -56,6 +79,15 @@ class TargetSystem:
             self.udp_status_sender.send_status(f"STATUS:{data}")
         except Exception as e:
             logger.debug(f"UDP status send failed: {e}")
+
+    def _arduino_data_callback(self, data: str):
+        """Callback for data received from Arduino."""
+        try:
+            logger.debug(f"Arduino data received: {data}")
+            # Forward Arduino data to host via UDP status
+            self.udp_status_sender.send_status(f"ARDUINO_DATA:{data}")
+        except Exception as e:
+            logger.debug(f"Error processing Arduino data: {e}")
 
     def _get_periodic_data(self) -> str:
         try:
@@ -79,6 +111,13 @@ class TargetSystem:
         self.running = True
 
         try:
+            # Connect to Arduino if interface is available
+            if self.arduino_interface:
+                if self.arduino_interface.connect():
+                    logger.info("Arduino USB connection established")
+                else:
+                    logger.warning("Failed to connect to Arduino, continuing without it")
+
             # Set up host callback for TCP command server
             self.tcp_command_server.set_host_callback(self._host_callback)
 
@@ -102,6 +141,8 @@ class TargetSystem:
             logger.info("TCP/UDP system is now running!")
             logger.info(f"TCP Command server listening on port {self.tcp_command_port}")
             logger.info(f"TCP Data server listening on port 12345")
+            if self.arduino_interface and self.arduino_interface.is_connected():
+                logger.info("Arduino USB interface active")
             logger.info(
                 f"Send 'LED_ON' or 'LED_OFF' commands via TCP to control the LED"
             )
@@ -117,6 +158,14 @@ class TargetSystem:
         self.running = False
 
         logger.info("Stopping target system...")
+
+        # Disconnect Arduino first
+        if self.arduino_interface:
+            try:
+                self.arduino_interface.cleanup()
+                logger.info("Arduino interface disconnected")
+            except Exception as e:
+                logger.error(f"Error disconnecting Arduino: {e}")
 
         # Turn off LED first, before stopping services
         try:
@@ -240,6 +289,17 @@ def main():
     parser.add_argument(
         "--use-adc", action="store_true", help="Enable ADC functionality"
     )
+    parser.add_argument(
+        "--arduino-port",
+        type=str,
+        default=None,
+        help="Arduino USB serial port (e.g., /dev/ttyUSB0). Auto-detect if not specified",
+    )
+    parser.add_argument(
+        "--no-arduino",
+        action="store_true",
+        help="Disable Arduino USB interface",
+    )
 
     args = parser.parse_args()
 
@@ -249,6 +309,9 @@ def main():
     )
     logger.info(f"GPIO: LED={args.led_pin}, Input={args.input_pin}")
     logger.info(f"ADC: {'Enabled' if args.use_adc else 'Disabled'}")
+    logger.info(
+        f"Arduino: {'Disabled' if args.no_arduino else ('Enabled' + (f' (port: {args.arduino_port})' if args.arduino_port else ' (auto-detect)'))}"
+    )
 
     # Create and start target system
     target_system = TargetSystem(
@@ -257,6 +320,8 @@ def main():
         led_pin=args.led_pin,
         input_pin=args.input_pin,
         use_adc=args.use_adc,
+        arduino_port=args.arduino_port,
+        use_arduino=not args.no_arduino,
     )
 
     # Store target_system globally for signal handler access

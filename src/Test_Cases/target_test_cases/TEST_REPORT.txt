@@ -1,0 +1,46 @@
+Test GPIO cleanup ... ok
+Test emergency shutdown ... ok
+Test GPIO handler initialization ... ok
+Test LED OFF functionality ... ok
+Test LED ON functionality ... ok
+Test power supply disable ... ok
+Test power supply enable ... ok
+Test reading input pin ... ok
+Test setting mechanical pump power ... ok
+Test setting turbo pump power ... ok
+Test setting valve position ... ok
+Test setting valve position with invalid ID ... ok
+Test setting valve position with invalid position ... ok
+Test EMERGENCY_SHUTOFF command ... ok
+Test processing empty command ... ok
+Test invalid command ... ok
+Test LED OFF command ... ok
+Test LED ON command ... ok
+Test power supply disable command ... ok
+Test power supply enable command ... ok
+Test SET_MECHANICAL_PUMP command ... ok
+Test SET_TURBO_PUMP command ... ok
+Test SET_VALVE command ... ok
+Test SET_VALVE with invalid format ... ok
+Test SET_VOLTAGE command ... ok
+Test SET_VOLTAGE with invalid format ... ok
+Test SHUTDOWN command ... ok
+Test STARTUP command ... ok
+Test ADC value to voltage conversion ... ok
+Test voltage conversion with max ADC value ... ok
+Test voltage conversion with zero ADC value ... ok
+Test ADC initialization ... ok
+Test reading channel when ADC is not initialized ... ok
+Test reading multiple channels when ADC is not initialized ... ok
+Test channel validation with invalid channels ... ok
+Test channel validation with valid channels ... ok
+Test TCP socket bind and listen ... ok
+Test TCP connection ... ok
+Test TCP send and receive ... ok
+Test TCP socket creation ... ok
+Test TCP timeout handling ... ok
+Test bidirectional UDP communication ... ok
+Test UDP socket bind ... ok
+Test sending multiple UDP messages ... ok
+Test UDP send and receive ... ok
+Test UDP socket creation ... ok
