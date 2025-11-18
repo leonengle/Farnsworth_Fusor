@@ -1,3 +1,10 @@
+import sys
+
+
+sys.modules["RPi"] = None
+sys.modules["RPi.GPIO"] = None
+sys.modules["pigpio"] = None
+
 import threading
 import time
 import argparse
