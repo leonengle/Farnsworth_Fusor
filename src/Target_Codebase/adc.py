@@ -30,17 +30,9 @@ HW_SPI_PORT = 0
 HW_SPI_DEV = 0
 
 # GPIO chip handle for LED control (optional, only used in test functions)
+# GPIO pins should NOT be claimed here at import time — GPIOHandler manages all GPIO.
+# This prevents GPIO conflicts (e.g., PIN3=26 conflicts with LED pin in GPIOHandler)
 _gpio_chip = None
-
-# Setup GPIO pins only if RPi is available and not in test mode
-if RPI_AVAILABLE and lgpio is not None:
-    try:
-        _gpio_chip = lgpio.gpiochip_open(0)
-        lgpio.gpio_claim_output(_gpio_chip, PIN, 0)
-        lgpio.gpio_claim_output(_gpio_chip, PIN2, 0)
-        lgpio.gpio_claim_output(_gpio_chip, PIN3, 0)
-    except Exception:
-        pass  # Fail silently in test environments
 
 
 class MCP3008ADC(ADCInterface):
@@ -174,6 +166,11 @@ def validate_channel(channel: int):
 
 
 def read_adc(channel: int):
+    """
+    Standalone test function to read ADC and control LEDs.
+    NOTE: This function sets up its own GPIO chip and pins.
+    It should NOT be used when GPIOHandler is active (GPIO conflicts).
+    """
     if not validate_channel(channel):
         return
 
@@ -182,8 +179,20 @@ def read_adc(channel: int):
         print("ADC not available - cannot read")
         return
 
-    if not RPI_AVAILABLE or lgpio is None or _gpio_chip is None:
+    if not RPI_AVAILABLE or lgpio is None:
         print("GPIO not available - cannot control LEDs")
+        return
+
+    # Set up GPIO chip and pins only when this function is called (not at import time)
+    global _gpio_chip
+    try:
+        _gpio_chip = lgpio.gpiochip_open(0)
+        lgpio.gpio_claim_output(_gpio_chip, PIN, 0)
+        lgpio.gpio_claim_output(_gpio_chip, PIN2, 0)
+        lgpio.gpio_claim_output(_gpio_chip, PIN3, 0)
+    except Exception as e:
+        print(f"Warning: Could not set up GPIO for LED control: {e}")
+        print("Note: This function conflicts with GPIOHandler if both are active")
         return
 
     try:
@@ -210,6 +219,7 @@ def read_adc(channel: int):
                 lgpio.gpio_free(_gpio_chip, PIN2)
                 lgpio.gpio_free(_gpio_chip, PIN3)
                 lgpio.gpiochip_close(_gpio_chip)
+                _gpio_chip = None
             except Exception:
                 pass
         print("\nExiting")
