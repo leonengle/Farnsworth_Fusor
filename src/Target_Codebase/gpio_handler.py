@@ -66,80 +66,71 @@ class GPIOHandler(GPIOInterface):
                 return
             
             # Claim and configure LED pin as output (BCM pin 26)
-            try:
-                logger.info(f"DEBUG: Claiming LED pin {self.led_pin} (BCM) as output")
-                lgpio.gpio_claim_output(self.chip, self.led_pin, 0)  # 0 = LOW
-                self.claimed_pins.append(self.led_pin)
-                logger.info(f"DEBUG: LED pin {self.led_pin} (BCM) successfully configured as output")
-            except Exception as e:
-                logger.error(f"Failed to configure LED pin {self.led_pin} (BCM): {e}")
-                logger.error(f"Error type: {type(e).__name__}")
-                self._cleanup_on_error()
-                return
+            # TEMPORARY: Only LED pin for debugging - all other pins commented out
+            logger.info(f"DEBUG: Claiming LED pin {self.led_pin} (BCM) as output")
+            lgpio.gpio_claim_output(self.chip, self.led_pin, 0)  # 0 = LOW
+            self.claimed_pins.append(self.led_pin)
+            logger.info(f"DEBUG: LED pin {self.led_pin} (BCM) successfully configured as output")
             
-            # Claim and configure input pin
-            try:
-                lgpio.gpio_claim_input(self.chip, self.input_pin, lgpio.SET_PULL_DOWN)
-                self.claimed_pins.append(self.input_pin)
-                logger.debug(f"Input pin {self.input_pin} configured with pull-down")
-            except Exception as e:
-                logger.error(f"Failed to configure input pin {self.input_pin}: {e}")
-                self._cleanup_on_error()
-                return
+            # TEMPORARILY COMMENTED OUT FOR DEBUGGING - Input pin
+            # try:
+            #     lgpio.gpio_claim_input(self.chip, self.input_pin, lgpio.SET_PULL_DOWN)
+            #     self.claimed_pins.append(self.input_pin)
+            #     logger.debug(f"Input pin {self.input_pin} configured with pull-down")
+            # except Exception as e:
+            #     logger.error(f"Failed to configure input pin {self.input_pin}: {e}")
+            #     self._cleanup_on_error()
+            #     return
             
-            # Claim and configure power supply pin
-            try:
-                lgpio.gpio_claim_output(self.chip, self.power_supply_pin, 0)  # 0 = LOW
-                self.claimed_pins.append(self.power_supply_pin)
-                logger.debug(f"Power supply pin {self.power_supply_pin} configured as output")
-            except Exception as e:
-                logger.error(f"Failed to configure power supply pin {self.power_supply_pin}: {e}")
-                self._cleanup_on_error()
-                return
+            # TEMPORARILY COMMENTED OUT FOR DEBUGGING - Power supply pin
+            # try:
+            #     lgpio.gpio_claim_output(self.chip, self.power_supply_pin, 0)  # 0 = LOW
+            #     self.claimed_pins.append(self.power_supply_pin)
+            #     logger.debug(f"Power supply pin {self.power_supply_pin} configured as output")
+            # except Exception as e:
+            #     logger.error(f"Failed to configure power supply pin {self.power_supply_pin}: {e}")
+            #     self._cleanup_on_error()
+            #     return
             
-            # Claim and configure valve pins with PWM
-            for i, pin in enumerate(self.valve_pins):
-                try:
-                    lgpio.gpio_claim_output(self.chip, pin, 0)
-                    self.claimed_pins.append(pin)
-                    # Start PWM at 0% duty cycle
-                    lgpio.tx_pwm(self.chip, pin, self.pwm_frequency, 0)  # 0 = 0% duty cycle
-                    logger.debug(f"Valve pin {pin} configured with PWM")
-                except Exception as e:
-                    logger.error(f"Failed to configure valve pin {pin}: {e}")
-                    self._cleanup_on_error()
-                    return
+            # TEMPORARILY COMMENTED OUT FOR DEBUGGING - Valve pins with PWM
+            # for i, pin in enumerate(self.valve_pins):
+            #     try:
+            #         lgpio.gpio_claim_output(self.chip, pin, 0)
+            #         self.claimed_pins.append(pin)
+            #         # Start PWM at 0% duty cycle
+            #         lgpio.tx_pwm(self.chip, pin, self.pwm_frequency, 0)  # 0 = 0% duty cycle
+            #         logger.debug(f"Valve pin {pin} configured with PWM")
+            #     except Exception as e:
+            #         logger.error(f"Failed to configure valve pin {pin}: {e}")
+            #         self._cleanup_on_error()
+            #         return
             
-            # Claim and configure mechanical pump pin with PWM
-            try:
-                lgpio.gpio_claim_output(self.chip, self.mechanical_pump_pin, 0)
-                self.claimed_pins.append(self.mechanical_pump_pin)
-                lgpio.tx_pwm(self.chip, self.mechanical_pump_pin, self.pwm_frequency, 0)
-                logger.debug(f"Mechanical pump pin {self.mechanical_pump_pin} configured with PWM")
-            except Exception as e:
-                logger.error(f"Failed to configure mechanical pump pin {self.mechanical_pump_pin}: {e}")
-                self._cleanup_on_error()
-                return
+            # TEMPORARILY COMMENTED OUT FOR DEBUGGING - Mechanical pump pin with PWM
+            # try:
+            #     lgpio.gpio_claim_output(self.chip, self.mechanical_pump_pin, 0)
+            #     self.claimed_pins.append(self.mechanical_pump_pin)
+            #     lgpio.tx_pwm(self.chip, self.mechanical_pump_pin, self.pwm_frequency, 0)
+            #     logger.debug(f"Mechanical pump pin {self.mechanical_pump_pin} configured with PWM")
+            # except Exception as e:
+            #     logger.error(f"Failed to configure mechanical pump pin {self.mechanical_pump_pin}: {e}")
+            #     self._cleanup_on_error()
+            #     return
             
-            # Claim and configure turbo pump pin with PWM
-            try:
-                lgpio.gpio_claim_output(self.chip, self.turbo_pump_pin, 0)
-                self.claimed_pins.append(self.turbo_pump_pin)
-                lgpio.tx_pwm(self.chip, self.turbo_pump_pin, self.pwm_frequency, 0)
-                logger.debug(f"Turbo pump pin {self.turbo_pump_pin} configured with PWM")
-            except Exception as e:
-                logger.error(f"Failed to configure turbo pump pin {self.turbo_pump_pin}: {e}")
-                self._cleanup_on_error()
-                return
+            # TEMPORARILY COMMENTED OUT FOR DEBUGGING - Turbo pump pin with PWM
+            # try:
+            #     lgpio.gpio_claim_output(self.chip, self.turbo_pump_pin, 0)
+            #     self.claimed_pins.append(self.turbo_pump_pin)
+            #     lgpio.tx_pwm(self.chip, self.turbo_pump_pin, self.pwm_frequency, 0)
+            #     logger.debug(f"Turbo pump pin {self.turbo_pump_pin} configured with PWM")
+            # except Exception as e:
+            #     logger.error(f"Failed to configure turbo pump pin {self.turbo_pump_pin}: {e}")
+            #     self._cleanup_on_error()
+            #     return
 
             self.initialized = True
 
-            logger.info(
-                f"GPIO setup complete - LED: {self.led_pin} (BCM), Input: {self.input_pin} (BCM), "
-                f"Power Supply: {self.power_supply_pin} (BCM), Valves: {self.valve_pins} (BCM), "
-                f"Pumps: Mech={self.mechanical_pump_pin} (BCM), Turbo={self.turbo_pump_pin} (BCM)"
-            )
-            logger.info("DEBUG: GPIO initialization successful - all pins configured using BCM numbering")
+            logger.info(f"GPIO setup complete - LED ONLY (pin {self.led_pin} BCM) - DEBUGGING MODE")
+            logger.info("DEBUG: GPIO initialization successful - LED pin only configured using BCM numbering")
         except Exception as e:
             logger.error(f"GPIO setup error: {e}")
             logger.error(f"Error type: {type(e).__name__}")
