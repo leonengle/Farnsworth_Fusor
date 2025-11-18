@@ -6,7 +6,7 @@ customtkinter==5.2.0
 # tkinter - Built-in with Python
 
 # Raspberry Pi GPIO and hardware control (Target side only)
-RPi.GPIO==0.7.1
+lgpio>=0.2.0.0
 pigpio==1.78
 Adafruit-GPIO==1.0.3
 Adafruit-MCP3008==1.0.2

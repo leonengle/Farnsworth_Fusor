@@ -12,17 +12,19 @@ import os
 target_codebase_path = os.path.join(os.path.dirname(__file__), "..", "..", "Target_Codebase")
 sys.path.insert(0, target_codebase_path)
 
-# Mock RPi.GPIO before importing gpio_handler (required for non-RPi environments)
-mock_gpio = MagicMock()
-mock_gpio.BCM = 11
-mock_gpio.OUT = 0
-mock_gpio.IN = 1
-mock_gpio.HIGH = 1
-mock_gpio.LOW = 0
-mock_gpio.PUD_DOWN = 21
+# Mock lgpio before importing gpio_handler (required for non-RPi environments)
+mock_lgpio = MagicMock()
+mock_lgpio.SET_PULL_DOWN = 1
+mock_lgpio.gpiochip_open = MagicMock(return_value=0)  # Return chip handle
+mock_lgpio.gpio_claim_output = MagicMock(return_value=0)
+mock_lgpio.gpio_claim_input = MagicMock(return_value=0)
+mock_lgpio.gpio_write = MagicMock(return_value=0)
+mock_lgpio.gpio_read = MagicMock(return_value=0)
+mock_lgpio.gpio_free = MagicMock(return_value=0)
+mock_lgpio.gpiochip_close = MagicMock(return_value=0)
+mock_lgpio.tx_pwm = MagicMock(return_value=0)
 
-sys.modules['RPi'] = MagicMock()
-sys.modules['RPi.GPIO'] = mock_gpio
+sys.modules['lgpio'] = mock_lgpio
 
 # Mock logging_setup
 mock_logging_setup = MagicMock()
@@ -39,9 +41,10 @@ class TestGPIOHandler(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures"""
-        mock_gpio.reset_mock()
-        mock_gpio.input.return_value = 0
-        self.patcher = patch('gpio_handler.GPIO', mock_gpio)
+        mock_lgpio.reset_mock()
+        mock_lgpio.gpio_read.return_value = 0
+        mock_lgpio.gpiochip_open.return_value = 0
+        self.patcher = patch('gpio_handler.lgpio', mock_lgpio)
         self.patcher.start()
         self.gpio_handler = GPIOHandler(
             led_pin=26,
@@ -68,22 +71,22 @@ class TestGPIOHandler(unittest.TestCase):
 
     def test_led_on(self):
         """Test LED ON functionality"""
-        result = self.gpio_handler.led_on()
+        result, msg = self.gpio_handler.led_on()
         self.assertTrue(result)
-        mock_gpio.output.assert_called()
+        mock_lgpio.gpio_write.assert_called()
 
     def test_led_off(self):
         """Test LED OFF functionality"""
-        result = self.gpio_handler.led_off()
+        result, msg = self.gpio_handler.led_off()
         self.assertTrue(result)
-        mock_gpio.output.assert_called()
+        mock_lgpio.gpio_write.assert_called()
 
     def test_read_input(self):
         """Test reading input pin"""
-        mock_gpio.input.return_value = 1
+        mock_lgpio.gpio_read.return_value = 1
         result = self.gpio_handler.read_input()
         self.assertEqual(result, 1)
-        mock_gpio.input.assert_called_with(6)
+        mock_lgpio.gpio_read.assert_called()
 
     def test_power_supply_enable(self):
         """Test power supply enable"""
@@ -137,9 +140,8 @@ class TestGPIOHandler(unittest.TestCase):
     def test_cleanup(self):
         """Test GPIO cleanup"""
         self.gpio_handler.cleanup()
-        mock_gpio.cleanup.assert_called()
+        mock_lgpio.gpiochip_close.assert_called()
 
 
 if __name__ == "__main__":
     unittest.main()
-

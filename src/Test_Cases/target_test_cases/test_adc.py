@@ -12,7 +12,7 @@ import os
 target_codebase_path = os.path.join(os.path.dirname(__file__), "..", "..", "Target_Codebase")
 sys.path.insert(0, target_codebase_path)
 
-# Mock Adafruit libraries and RPi.GPIO (required for non-RPi environments)
+# Mock Adafruit libraries and lgpio (required for non-RPi environments)
 # Must mock before importing adc module
 mock_spi = MagicMock()
 mock_spi_dev = MagicMock()
@@ -23,15 +23,14 @@ mock_mcp_instance = MagicMock()
 mock_mcp_instance.read_adc = MagicMock(return_value=512)
 mock_mcp3008.MCP3008 = MagicMock(return_value=mock_mcp_instance)
 
-mock_gpio = MagicMock()
-mock_gpio.BCM = 11
-mock_gpio.OUT = 0
-mock_gpio.IN = 1
-mock_gpio.HIGH = 1
-mock_gpio.LOW = 0
+mock_lgpio = MagicMock()
+mock_lgpio.gpiochip_open = MagicMock(return_value=0)
+mock_lgpio.gpio_claim_output = MagicMock(return_value=0)
+mock_lgpio.gpio_write = MagicMock(return_value=0)
+mock_lgpio.gpio_free = MagicMock(return_value=0)
+mock_lgpio.gpiochip_close = MagicMock(return_value=0)
 
-sys.modules['RPi'] = MagicMock()
-sys.modules['RPi.GPIO'] = mock_gpio
+sys.modules['lgpio'] = mock_lgpio
 sys.modules['Adafruit_GPIO'] = MagicMock()
 sys.modules['Adafruit_GPIO.SPI'] = mock_spi
 sys.modules['Adafruit_MCP3008'] = mock_mcp3008
