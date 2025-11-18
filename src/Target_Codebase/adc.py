@@ -10,7 +10,7 @@ logger = get_logger("MCP3008ADC")
 
 # Only import RPi libraries when not in test mode
 try:
-    import RPi.GPIO as GPIO
+    import lgpio
     from Adafruit_GPIO import SPI
     import Adafruit_MCP3008
 
@@ -18,7 +18,7 @@ try:
 except (ImportError, ModuleNotFoundError):
     # Mock modules for testing
     RPI_AVAILABLE = False
-    GPIO = None
+    lgpio = None
     SPI = None
     Adafruit_MCP3008 = None
 
@@ -29,13 +29,16 @@ PIN3 = 26
 HW_SPI_PORT = 0
 HW_SPI_DEV = 0
 
+# GPIO chip handle for LED control (optional, only used in test functions)
+_gpio_chip = None
+
 # Setup GPIO pins only if RPi is available and not in test mode
-if RPI_AVAILABLE and GPIO is not None:
+if RPI_AVAILABLE and lgpio is not None:
     try:
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setup(PIN, GPIO.OUT)
-        GPIO.setup(PIN2, GPIO.OUT)
-        GPIO.setup(PIN3, GPIO.OUT)
+        _gpio_chip = lgpio.gpiochip_open(0)
+        lgpio.gpio_claim_output(_gpio_chip, PIN, 0)
+        lgpio.gpio_claim_output(_gpio_chip, PIN2, 0)
+        lgpio.gpio_claim_output(_gpio_chip, PIN3, 0)
     except Exception:
         pass  # Fail silently in test environments
 
@@ -179,7 +182,7 @@ def read_adc(channel: int):
         print("ADC not available - cannot read")
         return
 
-    if not RPI_AVAILABLE or GPIO is None:
+    if not RPI_AVAILABLE or lgpio is None or _gpio_chip is None:
         print("GPIO not available - cannot control LEDs")
         return
 
@@ -187,22 +190,28 @@ def read_adc(channel: int):
         while True:
             value = current_mcp.read_adc(channel)
             if value > 0 and value < 341:
-                GPIO.output(PIN, GPIO.HIGH)
-                GPIO.output(PIN2, GPIO.LOW)
-                GPIO.output(PIN3, GPIO.LOW)
+                lgpio.gpio_write(_gpio_chip, PIN, 1)
+                lgpio.gpio_write(_gpio_chip, PIN2, 0)
+                lgpio.gpio_write(_gpio_chip, PIN3, 0)
             elif value >= 341 and value < 682:
-                GPIO.output(PIN, GPIO.LOW)
-                GPIO.output(PIN2, GPIO.HIGH)
-                GPIO.output(PIN3, GPIO.LOW)
+                lgpio.gpio_write(_gpio_chip, PIN, 0)
+                lgpio.gpio_write(_gpio_chip, PIN2, 1)
+                lgpio.gpio_write(_gpio_chip, PIN3, 0)
             elif value >= 682 and value <= 1023:
-                GPIO.output(PIN, GPIO.LOW)
-                GPIO.output(PIN2, GPIO.LOW)
-                GPIO.output(PIN3, GPIO.HIGH)
+                lgpio.gpio_write(_gpio_chip, PIN, 0)
+                lgpio.gpio_write(_gpio_chip, PIN2, 0)
+                lgpio.gpio_write(_gpio_chip, PIN3, 1)
             print(f"Value: {value}")
             time.sleep(0.5)
     except KeyboardInterrupt:
-        if GPIO is not None:
-            GPIO.cleanup()
+        if lgpio is not None and _gpio_chip is not None:
+            try:
+                lgpio.gpio_free(_gpio_chip, PIN)
+                lgpio.gpio_free(_gpio_chip, PIN2)
+                lgpio.gpio_free(_gpio_chip, PIN3)
+                lgpio.gpiochip_close(_gpio_chip)
+            except Exception:
+                pass
         print("\nExiting")
 
 

@@ -835,10 +835,10 @@ class FusorHostApp:
                             elif "RuntimeError" in error_detail or "GPIO channels already in use" in error_detail:
                                 print("ROOT CAUSE: GPIO pins are locked/in use by another process", flush=True)
                                 print("SOLUTION: Clean up GPIO state and restart target", flush=True)
-                                print("ACTION: Run on target: sudo python3 -c 'import RPi.GPIO as GPIO; GPIO.cleanup()'", flush=True)
-                                print("        Then restart target with: sudo python3 target_main.py", flush=True)
+                                print("ACTION: Restart target with: sudo python3 target_main.py", flush=True)
+                                print("        Or stop any other processes using GPIO pins", flush=True)
                                 self._update_data_display(
-                                    "[TROUBLESHOOTING] GPIO RuntimeError - pins may be in use, try: sudo python3 -c 'import RPi.GPIO as GPIO; GPIO.cleanup()'"
+                                    "[TROUBLESHOOTING] GPIO RuntimeError - pins may be in use, restart target"
                                 )
                             elif "OS Error" in error_detail:
                                 print("ROOT CAUSE: GPIO hardware access error", flush=True)

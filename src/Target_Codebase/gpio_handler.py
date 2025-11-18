@@ -1,4 +1,4 @@
-import RPi.GPIO as GPIO
+import lgpio
 from logging_setup import setup_logging, get_logger
 from base_classes import GPIOInterface
 from typing import Optional
@@ -6,6 +6,7 @@ from typing import Optional
 # Setup logging
 setup_logging()
 logger = get_logger("GPIOHandler")
+
 class GPIOHandler(GPIOInterface):
     def __init__(
         self,
@@ -33,10 +34,9 @@ class GPIOHandler(GPIOInterface):
         self.mechanical_pump_power = 0
         self.turbo_pump_power = 0
         
-        self.valve_pwms = [None] * len(self.valve_pins)
-        self.mechanical_pump_pwm = None
-        self.turbo_pump_pwm = None
+        self.chip = None
         self.pwm_frequency = 1000
+        self.claimed_pins = []  # Track claimed pins for cleanup
 
         self._setup_gpio()
 
@@ -47,71 +47,81 @@ class GPIOHandler(GPIOInterface):
             if os.geteuid() != 0:
                 logger.warning("Not running as root - GPIO may not work properly. Try running with 'sudo'")
             
-            # Help RPi.GPIO detect hardware by ensuring /proc/cpuinfo is accessible
-            # RPi.GPIO reads this to determine Pi model and SOC base address
+            # Open GPIO chip (chip 0 is the main GPIO chip on Raspberry Pi)
             try:
-                if os.path.exists("/proc/cpuinfo"):
-                    with open("/proc/cpuinfo", "r") as f:
-                        cpuinfo = f.read()
-                        if "Raspberry Pi" in cpuinfo or "BCM" in cpuinfo:
-                            logger.debug("Raspberry Pi detected via /proc/cpuinfo")
-                        else:
-                            logger.warning("Could not confirm Raspberry Pi from /proc/cpuinfo")
-                else:
-                    logger.warning("/proc/cpuinfo not accessible - RPi.GPIO may fail to detect hardware")
+                self.chip = lgpio.gpiochip_open(0)
+                logger.debug("GPIO chip opened successfully")
             except Exception as e:
-                logger.warning(f"Could not read /proc/cpuinfo: {e}")
-            
-            # Check if /dev/gpiomem or /dev/gpiomem0 exists and is accessible
-            # Newer Raspberry Pi OS uses /dev/gpiomem0, older versions use /dev/gpiomem
-            gpiomem_path = None
-            if os.path.exists("/dev/gpiomem0"):
-                gpiomem_path = "/dev/gpiomem0"
-            elif os.path.exists("/dev/gpiomem"):
-                gpiomem_path = "/dev/gpiomem"
-            
-            if not gpiomem_path:
-                logger.error("GPIO error: /dev/gpiomem or /dev/gpiomem0 not found - GPIO hardware may not be available")
+                logger.error(f"Failed to open GPIO chip: {e}")
                 logger.error("This might indicate you're not running on a Raspberry Pi")
                 self.initialized = False
                 return
             
-            # Check permissions on the gpiomem device
-            if not os.access(gpiomem_path, os.R_OK | os.W_OK):
-                logger.warning(f"GPIO warning: Limited access to {gpiomem_path}")
-                logger.warning(f"Try: sudo chmod 666 {gpiomem_path}")
-                # Continue anyway - RPi.GPIO might still work
-            
-            # Try to cleanup any existing GPIO state first
+            # Claim and configure LED pin as output
             try:
-                GPIO.cleanup()
-                logger.debug("Cleaned up existing GPIO state")
-            except Exception as cleanup_err:
-                # Ignore cleanup errors - GPIO might not be initialized yet
-                logger.debug(f"GPIO cleanup warning (expected on first run): {cleanup_err}")
+                lgpio.gpio_claim_output(self.chip, self.led_pin, 0)  # 0 = LOW
+                self.claimed_pins.append(self.led_pin)
+                logger.debug(f"LED pin {self.led_pin} configured as output")
+            except Exception as e:
+                logger.error(f"Failed to configure LED pin {self.led_pin}: {e}")
+                self._cleanup_on_error()
+                return
             
-            # Set GPIO mode - this is where the error usually occurs
-            # Try to help RPi.GPIO by ensuring environment is correct
-            GPIO.setmode(GPIO.BCM)
-            GPIO.setup(self.led_pin, GPIO.OUT)
-            GPIO.setup(self.input_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+            # Claim and configure input pin
+            try:
+                lgpio.gpio_claim_input(self.chip, self.input_pin, lgpio.SET_PULL_DOWN)
+                self.claimed_pins.append(self.input_pin)
+                logger.debug(f"Input pin {self.input_pin} configured with pull-down")
+            except Exception as e:
+                logger.error(f"Failed to configure input pin {self.input_pin}: {e}")
+                self._cleanup_on_error()
+                return
             
-            GPIO.setup(self.power_supply_pin, GPIO.OUT)
-            GPIO.output(self.power_supply_pin, GPIO.LOW)
+            # Claim and configure power supply pin
+            try:
+                lgpio.gpio_claim_output(self.chip, self.power_supply_pin, 0)  # 0 = LOW
+                self.claimed_pins.append(self.power_supply_pin)
+                logger.debug(f"Power supply pin {self.power_supply_pin} configured as output")
+            except Exception as e:
+                logger.error(f"Failed to configure power supply pin {self.power_supply_pin}: {e}")
+                self._cleanup_on_error()
+                return
             
+            # Claim and configure valve pins with PWM
             for i, pin in enumerate(self.valve_pins):
-                GPIO.setup(pin, GPIO.OUT)
-                self.valve_pwms[i] = GPIO.PWM(pin, self.pwm_frequency)
-                self.valve_pwms[i].start(0)
+                try:
+                    lgpio.gpio_claim_output(self.chip, pin, 0)
+                    self.claimed_pins.append(pin)
+                    # Start PWM at 0% duty cycle
+                    lgpio.tx_pwm(self.chip, pin, self.pwm_frequency, 0)  # 0 = 0% duty cycle
+                    logger.debug(f"Valve pin {pin} configured with PWM")
+                except Exception as e:
+                    logger.error(f"Failed to configure valve pin {pin}: {e}")
+                    self._cleanup_on_error()
+                    return
             
-            GPIO.setup(self.mechanical_pump_pin, GPIO.OUT)
-            GPIO.setup(self.turbo_pump_pin, GPIO.OUT)
-            self.mechanical_pump_pwm = GPIO.PWM(self.mechanical_pump_pin, self.pwm_frequency)
-            self.mechanical_pump_pwm.start(0)
-            self.turbo_pump_pwm = GPIO.PWM(self.turbo_pump_pin, self.pwm_frequency)
-            self.turbo_pump_pwm.start(0)
+            # Claim and configure mechanical pump pin with PWM
+            try:
+                lgpio.gpio_claim_output(self.chip, self.mechanical_pump_pin, 0)
+                self.claimed_pins.append(self.mechanical_pump_pin)
+                lgpio.tx_pwm(self.chip, self.mechanical_pump_pin, self.pwm_frequency, 0)
+                logger.debug(f"Mechanical pump pin {self.mechanical_pump_pin} configured with PWM")
+            except Exception as e:
+                logger.error(f"Failed to configure mechanical pump pin {self.mechanical_pump_pin}: {e}")
+                self._cleanup_on_error()
+                return
+            
+            # Claim and configure turbo pump pin with PWM
+            try:
+                lgpio.gpio_claim_output(self.chip, self.turbo_pump_pin, 0)
+                self.claimed_pins.append(self.turbo_pump_pin)
+                lgpio.tx_pwm(self.chip, self.turbo_pump_pin, self.pwm_frequency, 0)
+                logger.debug(f"Turbo pump pin {self.turbo_pump_pin} configured with PWM")
+            except Exception as e:
+                logger.error(f"Failed to configure turbo pump pin {self.turbo_pump_pin}: {e}")
+                self._cleanup_on_error()
+                return
 
-            GPIO.output(self.led_pin, GPIO.LOW)
             self.initialized = True
 
             logger.info(
@@ -119,116 +129,68 @@ class GPIOHandler(GPIOInterface):
                 f"Power Supply: {self.power_supply_pin}, Valves: {self.valve_pins}, "
                 f"Pumps: Mech={self.mechanical_pump_pin}, Turbo={self.turbo_pump_pin}"
             )
-        except RuntimeError as e:
-            error_msg = str(e)
-            if "GPIO channels already in use" in error_msg or "GPIO channel" in error_msg:
-                logger.error(f"GPIO setup error: GPIO channels already in use")
-                logger.error("Attempting to cleanup and retry...")
-                try:
-                    GPIO.cleanup()
-                    # Retry setup once
-                    GPIO.setmode(GPIO.BCM)
-                    GPIO.setup(self.led_pin, GPIO.OUT)
-                    GPIO.setup(self.input_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-                    GPIO.setup(self.power_supply_pin, GPIO.OUT)
-                    GPIO.output(self.power_supply_pin, GPIO.LOW)
-                    GPIO.output(self.led_pin, GPIO.LOW)
-                    self.initialized = True
-                    logger.info("GPIO setup successful after cleanup retry")
-                    logger.info(
-                        f"GPIO setup complete - LED: {self.led_pin}, Input: {self.input_pin}, "
-                        f"Power Supply: {self.power_supply_pin}"
-                    )
-                    return  # Success after retry
-                except Exception as retry_error:
-                    logger.error(f"GPIO setup retry failed: {retry_error}")
-                    logger.error("Try manually: sudo python3 -c 'import RPi.GPIO as GPIO; GPIO.cleanup()'")
-            elif "Cannot determine SOC peripheral base address" in error_msg:
-                logger.error(f"GPIO setup error: Cannot determine SOC peripheral base address")
-                logger.error("This usually means RPi.GPIO cannot access hardware memory mapping")
-                logger.error("Troubleshooting steps:")
-                logger.error("  1. Verify you're running on a Raspberry Pi (not emulated/virtualized)")
-                logger.error("  2. Check /dev/gpiomem permissions: ls -l /dev/gpiomem")
-                logger.error("  3. Try: sudo chmod 666 /dev/gpiomem")
-                logger.error("  4. Verify RPi.GPIO is installed: pip list | grep RPi.GPIO")
-                logger.error("  5. Try reinstalling: sudo pip install --upgrade RPi.GPIO")
-            else:
-                logger.error(f"GPIO setup error (RuntimeError): {e}")
-            logger.error("GPIO initialization failed - LED and other GPIO functions will not work")
-            self.initialized = False
-        except PermissionError as e:
-            logger.error(f"GPIO setup error: Permission denied. You must run with 'sudo' to access GPIO pins.")
-            logger.error(f"Try: sudo python3 target_main.py")
-            self.initialized = False
         except Exception as e:
             logger.error(f"GPIO setup error: {e}")
             logger.error(f"Error type: {type(e).__name__}")
             logger.error("GPIO initialization failed - LED and other GPIO functions will not work")
+            self._cleanup_on_error()
             self.initialized = False
+
+    def _cleanup_on_error(self):
+        """Clean up GPIO resources when initialization fails"""
+        if self.chip is not None:
+            try:
+                # Free all claimed pins
+                for pin in self.claimed_pins:
+                    try:
+                        lgpio.gpio_free(self.chip, pin)
+                    except Exception:
+                        pass
+                lgpio.gpiochip_close(self.chip)
+                self.chip = None
+                self.claimed_pins = []
+            except Exception as e:
+                logger.debug(f"Error during cleanup: {e}")
 
     def led_on(self) -> tuple[bool, str]:
         """Turn LED on. Returns (success: bool, error_message: str)."""
-        if not self.initialized:
+        if not self.initialized or self.chip is None:
             error_msg = "GPIO not initialized - LED pin not configured"
             logger.error(f"{error_msg} - Check logs for GPIO setup errors. Ensure target is running with 'sudo'")
             return False, error_msg
 
         try:
-            GPIO.output(self.led_pin, GPIO.HIGH)
+            lgpio.gpio_write(self.chip, self.led_pin, 1)  # 1 = HIGH
             logger.info(f"LED turned ON (pin {self.led_pin})")
             return True, "LED_ON_SUCCESS"
-        except RuntimeError as e:
-            error_msg = f"GPIO RuntimeError: {str(e)} - GPIO may not be properly initialized or pins are in use"
-            logger.error(f"Error turning LED on: {error_msg}")
-            return False, error_msg
-        except PermissionError as e:
-            error_msg = f"Permission denied: {str(e)} - Target must run with 'sudo' to control GPIO"
-            logger.error(f"Error turning LED on: {error_msg}")
-            return False, error_msg
-        except OSError as e:
-            error_msg = f"OS Error: {str(e)} - GPIO hardware may not be accessible"
-            logger.error(f"Error turning LED on: {error_msg}")
-            return False, error_msg
         except Exception as e:
-            error_msg = f"Unexpected error ({type(e).__name__}): {str(e)}"
+            error_msg = f"GPIO error ({type(e).__name__}): {str(e)} - GPIO may not be properly initialized"
             logger.error(f"Error turning LED on: {error_msg}")
             return False, error_msg
 
     def led_off(self) -> tuple[bool, str]:
         """Turn LED off. Returns (success: bool, error_message: str)."""
-        if not self.initialized:
+        if not self.initialized or self.chip is None:
             error_msg = "GPIO not initialized - LED pin not configured"
             logger.error(f"{error_msg} - Check logs for GPIO setup errors. Ensure target is running with 'sudo'")
             return False, error_msg
 
         try:
-            GPIO.output(self.led_pin, GPIO.LOW)
+            lgpio.gpio_write(self.chip, self.led_pin, 0)  # 0 = LOW
             logger.info(f"LED turned OFF (pin {self.led_pin})")
             return True, "LED_OFF_SUCCESS"
-        except RuntimeError as e:
-            error_msg = f"GPIO RuntimeError: {str(e)} - GPIO may not be properly initialized or pins are in use"
-            logger.error(f"Error turning LED off: {error_msg}")
-            return False, error_msg
-        except PermissionError as e:
-            error_msg = f"Permission denied: {str(e)} - Target must run with 'sudo' to control GPIO"
-            logger.error(f"Error turning LED off: {error_msg}")
-            return False, error_msg
-        except OSError as e:
-            error_msg = f"OS Error: {str(e)} - GPIO hardware may not be accessible"
-            logger.error(f"Error turning LED off: {error_msg}")
-            return False, error_msg
         except Exception as e:
-            error_msg = f"Unexpected error ({type(e).__name__}): {str(e)}"
+            error_msg = f"GPIO error ({type(e).__name__}): {str(e)} - GPIO may not be properly initialized"
             logger.error(f"Error turning LED off: {error_msg}")
             return False, error_msg
 
     def read_input(self) -> Optional[int]:
-        if not self.initialized:
+        if not self.initialized or self.chip is None:
             logger.error("GPIO not initialized")
             return None
 
         try:
-            value = GPIO.input(self.input_pin)
+            value = lgpio.gpio_read(self.chip, self.input_pin)
             logger.debug(f"Input pin {self.input_pin} read: {value}")
             return value
         except Exception as e:
@@ -236,27 +198,31 @@ class GPIOHandler(GPIOInterface):
             return None
 
     def setup(self, pin: int, mode: str):
-        if not self.initialized:
-            GPIO.setmode(GPIO.BCM)
-            self.initialized = True
+        if not self.initialized or self.chip is None:
+            logger.error("GPIO not initialized")
+            return
 
         try:
             if mode.upper() == "INPUT":
-                GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+                lgpio.gpio_claim_input(self.chip, pin, lgpio.SET_PULL_DOWN)
+                if pin not in self.claimed_pins:
+                    self.claimed_pins.append(pin)
             elif mode.upper() == "OUTPUT":
-                GPIO.setup(pin, GPIO.OUT)
+                lgpio.gpio_claim_output(self.chip, pin, 0)
+                if pin not in self.claimed_pins:
+                    self.claimed_pins.append(pin)
             else:
                 logger.error(f"Invalid GPIO mode: {mode}")
         except Exception as e:
             logger.error(f"Error setting up GPIO pin {pin}: {e}")
 
     def write(self, pin: int, value: int):
-        if not self.initialized:
+        if not self.initialized or self.chip is None:
             logger.error("GPIO not initialized")
             return
 
         try:
-            GPIO.output(pin, GPIO.HIGH if value else GPIO.LOW)
+            lgpio.gpio_write(self.chip, pin, 1 if value else 0)
             logger.debug(f"GPIO pin {pin} set to {value}")
         except Exception as e:
             logger.error(f"Error writing to GPIO pin {pin}: {e}")
@@ -265,11 +231,11 @@ class GPIOHandler(GPIOInterface):
         return self.read_input() if pin == self.input_pin else None
 
     def set_power_supply_enable(self, enabled: bool) -> bool:
-        if not self.initialized:
+        if not self.initialized or self.chip is None:
             logger.error("GPIO not initialized")
             return False
         try:
-            GPIO.output(self.power_supply_pin, GPIO.HIGH if enabled else GPIO.LOW)
+            lgpio.gpio_write(self.chip, self.power_supply_pin, 1 if enabled else 0)
             self.power_supply_enabled = enabled
             logger.info(f"Power supply {'enabled' if enabled else 'disabled'}")
             return True
@@ -278,7 +244,7 @@ class GPIOHandler(GPIOInterface):
             return False
 
     def set_valve_position(self, valve_id: int, position: int) -> bool:
-        if not self.initialized:
+        if not self.initialized or self.chip is None:
             logger.error("GPIO not initialized")
             return False
         if valve_id < 1 or valve_id > len(self.valve_pins):
@@ -289,75 +255,68 @@ class GPIOHandler(GPIOInterface):
             return False
         try:
             valve_index = valve_id - 1
-            if self.valve_pwms[valve_index] is not None:
-                self.valve_pwms[valve_index].ChangeDutyCycle(position)
-                self.valve_states[valve_index] = position
-                logger.info(f"Valve {valve_id} set to {position}% (PWM duty cycle)")
-                return True
-            else:
-                logger.error(f"PWM not initialized for valve {valve_id}")
-                return False
+            pin = self.valve_pins[valve_index]
+            # Convert percentage (0-100) to lgpio PWM duty cycle (0-1000000)
+            duty_cycle = int(position * 10000)  # 0-100 -> 0-1000000
+            lgpio.tx_pwm(self.chip, pin, self.pwm_frequency, duty_cycle)
+            self.valve_states[valve_index] = position
+            logger.info(f"Valve {valve_id} set to {position}% (PWM duty cycle)")
+            return True
         except Exception as e:
             logger.error(f"Error setting valve {valve_id}: {e}")
             return False
 
     def set_mechanical_pump_power(self, power: int) -> bool:
-        if not self.initialized:
+        if not self.initialized or self.chip is None:
             logger.error("GPIO not initialized")
             return False
         if power < 0 or power > 100:
             logger.error(f"Invalid pump power: {power} (must be 0-100)")
             return False
         try:
-            if self.mechanical_pump_pwm is not None:
-                self.mechanical_pump_pwm.ChangeDutyCycle(power)
-                self.mechanical_pump_power = power
-                logger.info(f"Mechanical pump set to {power}% (PWM duty cycle)")
-                return True
-            else:
-                logger.error("PWM not initialized for mechanical pump")
-                return False
+            # Convert percentage (0-100) to lgpio PWM duty cycle (0-1000000)
+            duty_cycle = int(power * 10000)  # 0-100 -> 0-1000000
+            lgpio.tx_pwm(self.chip, self.mechanical_pump_pin, self.pwm_frequency, duty_cycle)
+            self.mechanical_pump_power = power
+            logger.info(f"Mechanical pump set to {power}% (PWM duty cycle)")
+            return True
         except Exception as e:
             logger.error(f"Error setting mechanical pump: {e}")
             return False
 
     def set_turbo_pump_power(self, power: int) -> bool:
-        if not self.initialized:
+        if not self.initialized or self.chip is None:
             logger.error("GPIO not initialized")
             return False
         if power < 0 or power > 100:
             logger.error(f"Invalid pump power: {power} (must be 0-100)")
             return False
         try:
-            if self.turbo_pump_pwm is not None:
-                self.turbo_pump_pwm.ChangeDutyCycle(power)
-                self.turbo_pump_power = power
-                logger.info(f"Turbo pump set to {power}% (PWM duty cycle)")
-                return True
-            else:
-                logger.error("PWM not initialized for turbo pump")
-                return False
+            # Convert percentage (0-100) to lgpio PWM duty cycle (0-1000000)
+            duty_cycle = int(power * 10000)  # 0-100 -> 0-1000000
+            lgpio.tx_pwm(self.chip, self.turbo_pump_pin, self.pwm_frequency, duty_cycle)
+            self.turbo_pump_power = power
+            logger.info(f"Turbo pump set to {power}% (PWM duty cycle)")
+            return True
         except Exception as e:
             logger.error(f"Error setting turbo pump: {e}")
             return False
 
     def emergency_shutdown(self) -> bool:
-        if not self.initialized:
+        if not self.initialized or self.chip is None:
             logger.error("GPIO not initialized")
             return False
         try:
-            GPIO.output(self.power_supply_pin, GPIO.LOW)
+            lgpio.gpio_write(self.chip, self.power_supply_pin, 0)
             self.power_supply_enabled = False
             
-            for i, pwm in enumerate(self.valve_pwms):
-                if pwm is not None:
-                    pwm.ChangeDutyCycle(0)
+            # Stop all PWM (set to 0% duty cycle)
+            for pin in self.valve_pins:
+                lgpio.tx_pwm(self.chip, pin, self.pwm_frequency, 0)
             self.valve_states = [0] * len(self.valve_pins)
             
-            if self.mechanical_pump_pwm is not None:
-                self.mechanical_pump_pwm.ChangeDutyCycle(0)
-            if self.turbo_pump_pwm is not None:
-                self.turbo_pump_pwm.ChangeDutyCycle(0)
+            lgpio.tx_pwm(self.chip, self.mechanical_pump_pin, self.pwm_frequency, 0)
+            lgpio.tx_pwm(self.chip, self.turbo_pump_pin, self.pwm_frequency, 0)
             self.mechanical_pump_power = 0
             self.turbo_pump_power = 0
             
@@ -368,21 +327,39 @@ class GPIOHandler(GPIOInterface):
             return False
 
     def cleanup(self):
-        if self.initialized:
+        if self.initialized and self.chip is not None:
             try:
                 self.emergency_shutdown()
                 
-                for pwm in self.valve_pwms:
-                    if pwm is not None:
-                        pwm.stop()
+                # Stop all PWM signals
+                for pin in self.valve_pins:
+                    try:
+                        lgpio.tx_pwm(self.chip, pin, self.pwm_frequency, 0)
+                    except Exception:
+                        pass
                 
-                if self.mechanical_pump_pwm is not None:
-                    self.mechanical_pump_pwm.stop()
-                if self.turbo_pump_pwm is not None:
-                    self.turbo_pump_pwm.stop()
+                try:
+                    lgpio.tx_pwm(self.chip, self.mechanical_pump_pin, self.pwm_frequency, 0)
+                except Exception:
+                    pass
                 
-                GPIO.output(self.led_pin, GPIO.LOW)
-                GPIO.cleanup()
+                try:
+                    lgpio.tx_pwm(self.chip, self.turbo_pump_pin, self.pwm_frequency, 0)
+                except Exception:
+                    pass
+                
+                lgpio.gpio_write(self.chip, self.led_pin, 0)
+                
+                # Free all claimed pins
+                for pin in self.claimed_pins:
+                    try:
+                        lgpio.gpio_free(self.chip, pin)
+                    except Exception:
+                        pass
+                
+                lgpio.gpiochip_close(self.chip)
+                self.chip = None
+                self.claimed_pins = []
                 self.initialized = False
                 logger.info("GPIO cleanup complete")
             except Exception as e:
