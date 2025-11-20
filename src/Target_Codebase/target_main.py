@@ -10,10 +10,13 @@ import time
 import argparse
 import signal
 import sys
-from tcp_command_server import TCPCommandServer, PeriodicDataSender
-from tcp_data_server import TCPDataServer
+from tcp_command_server import TCPCommandServer
+from udp_data_server import UDPDataServer
 from udp_status_server import UDPStatusSender, UDPStatusReceiver
 from arduino_interface import ArduinoInterface
+from bundled_interface import BundledInterface
+from gpio_handler import GPIOHandler
+from adc import MCP3008ADC
 from logging_setup import setup_logging, get_logger
 
 # Setup logging first
@@ -39,38 +42,52 @@ class TargetSystem:
         self.use_adc = use_adc
         self.use_arduino = use_arduino
 
-        # Initialize Arduino USB interface (early in startup sequence)
-        self.arduino_interface = None
+        gpio_handler = GPIOHandler(led_pin=led_pin, input_pin=input_pin)
+        
+        adc = None
+        if use_adc:
+            try:
+                logger.info("Initializing ADC (MCP3008) via SPI...")
+                adc = MCP3008ADC()
+                if not adc.initialize():
+                    logger.warning("ADC initialization failed - continuing without ADC")
+                    adc = None
+                else:
+                    logger.info("ADC initialized successfully")
+            except Exception as e:
+                logger.warning(f"ADC setup error: {e} - continuing without ADC")
+                adc = None
+        
+        arduino_interface = None
         if use_arduino:
             try:
-                self.arduino_interface = ArduinoInterface(
+                logger.info("Initializing Arduino Nano via USB...")
+                arduino_interface = ArduinoInterface(
                     port=arduino_port,
                     baudrate=9600,
                     auto_detect=(arduino_port is None),
                 )
-                # Set callback for Arduino data
-                self.arduino_interface.set_data_callback(self._arduino_data_callback)
-                logger.info("Arduino interface initialized")
+                arduino_interface.set_data_callback(self._arduino_data_callback)
+                logger.info("Arduino USB interface initialized")
             except Exception as e:
-                logger.warning(f"Failed to initialize Arduino interface: {e}")
+                logger.warning(f"Failed to initialize Arduino USB interface: {e}")
                 logger.info("Continuing without Arduino interface")
-                self.arduino_interface = None
+                arduino_interface = None
 
-        # Initialize components
+        self.bundled_interface = BundledInterface(
+            gpio_handler=gpio_handler,
+            adc=adc,
+            arduino_interface=arduino_interface,
+        )
+
         self.tcp_command_server = TCPCommandServer(
             host="0.0.0.0",
             port=tcp_command_port,
-            led_pin=led_pin,
-            input_pin=input_pin,
-            use_adc=use_adc,
-            arduino_interface=self.arduino_interface,
+            bundled_interface=self.bundled_interface,
         )
 
-        # TCP data server - listens on port 12345 for host to connect
-        self.tcp_data_server = TCPDataServer(host="0.0.0.0", port=12345)
-        self.data_sender = None
+        self.udp_data_server = UDPDataServer(host_ip=host_ip, host_port=12345)
 
-        # UDP status communication
         self.udp_status_sender = UDPStatusSender(host_ip, 8888)
         self.udp_status_receiver = UDPStatusReceiver(8889)
 
@@ -83,9 +100,13 @@ class TargetSystem:
         self.adc_noise_threshold = 5  # Minimum change to report (filter out noise - increased threshold)
 
         logger.info(
-            f"Target system initialized (Host: {host_ip}, TCP Command Port: {tcp_command_port}, "
-            f"Arduino: {'Enabled' if self.arduino_interface else 'Disabled'})"
+            f"Target system initialized (Host: {host_ip}, TCP Command Port: {tcp_command_port})"
         )
+        logger.info("Raspberry Pi configured with Bundled Interface:")
+        logger.info("  - GPIO: Available")
+        logger.info(f"  - SPI (ADC): {'Available' if adc else 'Not available'}")
+        logger.info(f"  - USB (Arduino): {'Available' if arduino_interface else 'Not available'}")
+        logger.info("Motor control: Motors 1-4 via Arduino Nano (USB)")
 
     def _host_callback(self, data: str):
         try:
@@ -113,9 +134,9 @@ class TargetSystem:
             has_errors = False
             data_parts = []
             
-            # Always try to read ADC (default behavior)
-            if self.tcp_command_server.adc:
-                if self.tcp_command_server.adc.is_initialized():
+            adc = self.bundled_interface.get_adc() if self.bundled_interface else None
+            if adc:
+                if adc.is_initialized():
                     try:
                         # Read multiple samples and average to reduce noise
                         raw_readings = []
@@ -192,38 +213,30 @@ class TargetSystem:
         self.running = True
 
         try:
-            # Connect to Arduino if interface is available
-            if self.arduino_interface:
-                if self.arduino_interface.connect():
-                    logger.info("Arduino USB connection established")
+            arduino = self.bundled_interface.get_arduino()
+            if arduino:
+                if arduino.connect():
+                    logger.info("Arduino Nano USB connection established - motor control available")
                 else:
-                    logger.warning("Failed to connect to Arduino, continuing without it")
+                    logger.warning("Failed to connect to Arduino Nano, continuing without motor control")
 
-            # Set up host callback for TCP command server
             self.tcp_command_server.set_host_callback(self._host_callback)
 
-            # Set up data callback for TCP data server
-            self.tcp_data_server.set_send_callback(self._get_periodic_data)
+            self.udp_data_server.set_send_callback(self._get_periodic_data)
 
-            # Create and start periodic data sender (for legacy support)
-            self.data_sender = PeriodicDataSender(
-                self.tcp_command_server, self._host_callback, self.use_adc
-            )
-            self.data_sender.start()
+            self.udp_data_server.start()
 
-            # Start TCP data server (listens on port 12345, host connects)
-            self.tcp_data_server.start_server()
-
-            # Start UDP status communication
             self.udp_status_sender.start()
             self.udp_status_receiver.start()
 
             logger.info("Target system started successfully")
-            logger.info("TCP/UDP system is now running!")
-            logger.info(f"TCP Command server listening on port {self.tcp_command_port}")
-            logger.info(f"TCP Data server listening on port 12345")
-            if self.arduino_interface and self.arduino_interface.is_connected():
-                logger.info("Arduino USB interface active")
+            logger.info("Communication protocol:")
+            logger.info(f"  TCP: Commands (port {self.tcp_command_port}) - Host → RPi")
+            logger.info(f"  UDP: Data/Telemetry (port 12345) - RPi → Host")
+            logger.info(f"  UDP: Status (ports 8888/8889) - Bidirectional")
+            arduino = self.bundled_interface.get_arduino()
+            if arduino and arduino.is_connected():
+                logger.info("Arduino Nano USB interface active - motor control ready")
             logger.info(
                 f"Send 'LED_ON' or 'LED_OFF' commands via TCP to control the LED"
             )
@@ -240,13 +253,12 @@ class TargetSystem:
 
         logger.info("Stopping target system...")
 
-        # Disconnect Arduino first
-        if self.arduino_interface:
+        if self.bundled_interface:
             try:
-                self.arduino_interface.cleanup()
-                logger.info("Arduino interface disconnected")
+                self.bundled_interface.cleanup()
+                logger.info("Bundled Interface cleaned up")
             except Exception as e:
-                logger.error(f"Error disconnecting Arduino: {e}")
+                logger.error(f"Error cleaning up bundled interface: {e}")
 
         # Turn off LED first, before stopping services
         try:
@@ -259,18 +271,10 @@ class TargetSystem:
         except Exception as e:
             logger.error(f"Error turning off LED during stop: {e}")
 
-        # Stop data sender
-        if self.data_sender:
-            try:
-                self.data_sender.stop()
-            except Exception as e:
-                logger.error(f"Error stopping data sender: {e}")
-
-        # Stop TCP data server
         try:
-            self.tcp_data_server.stop_server()
+            self.udp_data_server.stop()
         except Exception as e:
-            logger.error(f"Error stopping TCP data server: {e}")
+            logger.error(f"Error stopping UDP data server: {e}")
 
         # Stop TCP command server
         try:

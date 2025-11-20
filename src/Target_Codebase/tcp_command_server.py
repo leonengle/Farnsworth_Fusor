@@ -4,10 +4,7 @@ import socket
 
 from logging_setup import setup_logging, get_logger
 from typing import Optional, Callable
-
-# Import real ADC - no mock fallback
-from adc import MCP3008ADC
-from gpio_handler import GPIOHandler
+from bundled_interface import BundledInterface
 from command_processor import CommandProcessor
 
 # setup logging for this module
@@ -20,64 +17,21 @@ class TCPCommandServer:
         self,
         host: str = "0.0.0.0",
         port: int = 2222,
-        led_pin: int = 26,
-        input_pin: int = 6,
-        use_adc: bool = False,
-        arduino_interface=None,
+        bundled_interface: Optional[BundledInterface] = None,
     ):
         self.host = host
         self.port = port
         self.server_socket = None
         self.server_thread = None
         self.running = False
+        self.bundled_interface = bundled_interface
 
-        # Initialize GPIO handler
-        self.gpio_handler = GPIOHandler(led_pin=led_pin, input_pin=input_pin)
-
-        # Initialize ADC if enabled
-        self.adc = None
-        if use_adc:
-            try:
-                logger.info("Attempting to initialize ADC (MCP3008)...")
-                self.adc = MCP3008ADC()
-                if not self.adc.initialize():
-                    logger.error("Failed to initialize ADC")
-                    logger.error("Troubleshooting steps:")
-                    logger.error("  1. Enable SPI: sudo raspi-config -> Interface Options -> SPI -> Enable")
-                    logger.error("  2. Check SPI device: ls -l /dev/spidev0.0")
-                    logger.error("  3. Fix permissions if needed: sudo chmod 666 /dev/spidev0.0")
-                    logger.error("  4. Verify MCP3008 wiring to SPI0 (CE0 or CE1)")
-                    logger.error("  5. Check if Adafruit_MCP3008 library is installed")
-                    logger.error("ADC will not be available. Continuing without ADC.")
-                    self.adc = None
-                else:
-                    logger.info("ADC initialized successfully")
-            except Exception as e:
-                logger.error(f"ADC setup error: {e}")
-                logger.error(f"Error type: {type(e).__name__}")
-                logger.error("ADC will not be available. Continuing without ADC.")
-                self.adc = None
-        else:
-            logger.info("ADC initialization skipped (use --use-adc flag to enable)")
-
-        # Initialize command processor with Arduino interface
         self.command_processor = CommandProcessor(
-            gpio_handler=self.gpio_handler,
-            adc=self.adc,
-            arduino_interface=arduino_interface,
-            host_callback=None,  # Will be set via set_host_callback
+            bundled_interface=self.bundled_interface,
+            host_callback=None,
         )
 
-        # Log GPIO initialization status
-        gpio_status = "Initialized" if self.gpio_handler.initialized else "NOT INITIALIZED"
-        logger.info(
-            f"TCP Command Server initialized (LED: {led_pin}, Input: {input_pin}, "
-            f"ADC: {use_adc}, Arduino: {'Enabled' if arduino_interface else 'Disabled'}, "
-            f"GPIO: {gpio_status})"
-        )
-        if not self.gpio_handler.initialized:
-            logger.error("WARNING: GPIO not initialized - LED and GPIO commands will fail!")
-            logger.error("Ensure target is running with 'sudo' to access GPIO pins")
+        logger.info(f"TCP Command Server initialized (Bundled Interface: {'Available' if bundled_interface else 'Not available'})")
 
     def set_host_callback(self, callback: Callable[[str], None]):
         self.command_processor.set_host_callback(callback)
@@ -190,86 +144,31 @@ class TCPCommandServer:
         logger.info("TCP Command server stopped")
 
     def read_input_pin(self) -> Optional[int]:
-        return self.gpio_handler.read_input()
+        gpio = self.bundled_interface.get_gpio() if self.bundled_interface else None
+        return gpio.read_input() if gpio else None
 
     def read_adc_channel(self, channel: int) -> int:
-        if self.adc and self.adc.is_initialized():
-            return self.adc.read_channel(channel)
+        adc = self.bundled_interface.get_adc() if self.bundled_interface else None
+        if adc and adc.is_initialized():
+            return adc.read_channel(channel)
         return 0
 
     def read_adc_all_channels(self) -> list:
-        if self.adc and self.adc.is_initialized():
-            return self.adc.read_all_channels()
+        adc = self.bundled_interface.get_adc() if self.bundled_interface else None
+        if adc and adc.is_initialized():
+            return adc.read_all_channels()
         return [0] * 8
+
+    @property
+    def gpio_handler(self):
+        return self.bundled_interface.get_gpio() if self.bundled_interface else None
+
+    @property
+    def adc(self):
+        return self.bundled_interface.get_adc() if self.bundled_interface else None
 
     def cleanup(self):
         self.stop_server()
-
-        # Cleanup GPIO
-        self.gpio_handler.cleanup()
-
-        # Cleanup ADC
-        if self.adc:
-            self.adc.cleanup()
-
+        if self.bundled_interface:
+            self.bundled_interface.cleanup()
         logger.info("TCP Command Server cleanup complete")
-
-
-class PeriodicDataSender:
-    def __init__(
-        self,
-        command_server: TCPCommandServer,
-        send_callback: Callable[[str], None],
-        use_adc: bool = False,
-    ):
-        self.command_server = command_server
-        self.send_callback = send_callback
-        self.use_adc = use_adc
-        self.running = False
-        self.sender_thread = None
-
-        logger.info(f"Periodic data sender initialized (ADC: {self.use_adc})")
-
-    def start(self):
-        if self.running:
-            logger.warning("Periodic sender is already running")
-            return
-        self.running = True
-        self.sender_thread = threading.Thread(target=self._send_loop)
-        self.sender_thread.daemon = True
-        self.sender_thread.start()
-        logger.info("Periodic data sender started")
-
-    def stop(self):
-        self.running = False
-        if self.sender_thread:
-            self.sender_thread.join(timeout=2)
-        logger.info("Periodic data sender stopped")
-
-    def _send_loop(self):
-        while self.running:
-            try:
-                if (
-                    self.use_adc
-                    and self.command_server.adc
-                    and self.command_server.adc.is_initialized()
-                ):
-                    # send adc data - simple format as per diagram
-                    adc_values = self.command_server.read_adc_all_channels()
-                    data_message = f"ADC_DATA:{adc_values[0]}"
-                    logger.debug(f"Sent ADC data: {adc_values[0]}")
-                else:
-                    # send gpio data - simple format as per diagram
-                    pin_value = self.command_server.read_input_pin()
-                    data_message = f"GPIO_INPUT:{pin_value}"
-                    logger.debug(f"Sent GPIO data: {pin_value}")
-
-                # send data to host via callback
-                if self.send_callback:
-                    self.send_callback(data_message)
-
-                # wait 1 second before next send
-                time.sleep(1.0)
-            except Exception as e:
-                logger.error(f"Error in periodic send loop: {e}")
-                time.sleep(1.0)
