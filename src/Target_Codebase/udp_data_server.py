@@ -16,7 +16,7 @@ class UDPDataServer:
         self.running = False
         self.send_thread: Optional[threading.Thread] = None
         self.send_callback: Optional[Callable[[], str]] = None
-        self.send_interval = 1.0
+        self.send_interval = 0.1
 
         logger.info(f"UDP Data Server initialized for {host_ip}:{host_port}")
 

@@ -44,9 +44,12 @@ class ArduinoInterface:
             
             logger.info(f"Found {len(ports)} serial port(s):")
             for port_info in ports:
+                vid_str = f"{port_info.vid:04X}" if port_info.vid else "N/A"
+                pid_str = f"{port_info.pid:04X}" if port_info.pid else "N/A"
+                description = port_info.description if port_info.description else "N/A"
                 logger.info(
-                    f"  - {port_info.device}: {port_info.description} "
-                    f"(VID={port_info.vid:04X}, PID={port_info.pid:04X})"
+                    f"  - {port_info.device}: {description} "
+                    f"(VID={vid_str}, PID={pid_str})"
                 )
             
             for port_info in ports:
@@ -55,25 +58,28 @@ class ArduinoInterface:
                     identifier in description_upper
                     for identifier in ["ARDUINO", "USB", "SERIAL", "CH340", "FTDI", "CP210", "PL2303"]
                 ):
+                    desc = port_info.description if port_info.description else "N/A"
                     logger.info(
                         f"Auto-detected Arduino on port: {port_info.device} "
-                        f"({port_info.description})"
+                        f"({desc})"
                     )
                     return port_info.device
             
             for port_info in ports:
                 device = port_info.device
                 if device.startswith("/dev/ttyUSB") or device.startswith("/dev/ttyACM") or device.startswith("/dev/ttyAMA"):
+                    desc = port_info.description if port_info.description else "N/A"
                     logger.info(
                         f"Auto-detected USB serial port: {device} "
-                        f"({port_info.description})"
+                        f"({desc})"
                     )
                     return device
             
             if len(ports) == 1:
+                desc = ports[0].description if ports[0].description else "N/A"
                 logger.info(
                     f"Only one port found, using it: {ports[0].device} "
-                    f"({ports[0].description})"
+                    f"({desc})"
                 )
                 return ports[0].device
                     
