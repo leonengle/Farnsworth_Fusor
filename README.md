@@ -179,22 +179,28 @@ find . -name "*.pyc" -delete && rm -rf logs/  # Clean up temporary files
 Farnsworth_Fusor/
 ├── src/
 │   ├── Host_Codebase/          # Main control application
-│   │   ├── hostFSM.py          # Legacy standalone FSM UI (logic merged into host_main.py)
+│   │   ├── host_main.py        # Unified GUI with manual controls and FSM
 │   │   ├── tcp_command_client.py  # TCP command client
-│   │   ├── tcp_data_client.py     # TCP data client
+│   │   ├── udp_data_client.py     # UDP data/telemetry client
 │   │   ├── udp_status_client.py   # UDP status/heartbeat client
+│   │   ├── actuator_object.py     # Actuator abstraction
+│   │   ├── sensor_object.py       # Sensor abstraction
+│   │   ├── tcp_client_object.py   # TCP client wrapper
+│   │   ├── udp_client_object.py   # UDP client wrapper
 │   │   ├── base_classes.py        # Abstract base classes
 │   │   └── command_handler.py     # Command handling utilities
 │   ├── Target_Codebase/         # Raspberry Pi code
 │   │   ├── target_main.py       # Main target application
 │   │   ├── tcp_command_server.py  # TCP command server
-│   │   ├── tcp_data_server.py     # TCP data server
+│   │   ├── udp_data_server.py     # UDP data/telemetry server
 │   │   ├── udp_status_server.py   # UDP status/heartbeat server
+│   │   ├── bundled_interface.py   # Unified hardware interface (GPIO, SPI, USB)
 │   │   ├── gpio_handler.py        # GPIO operations (LED, valves, pumps, power supply)
 │   │   ├── command_processor.py   # Command parsing and execution
 │   │   ├── adc.py                 # ADC operations (MCP3008)
+│   │   ├── arduino_interface.py   # Arduino Nano USB communication
 │   │   ├── base_classes.py        # Abstract base classes
-│   │   └── logging_setup.py        # Logging system
+│   │   └── logging_setup.py       # Logging system
 │   └── Test_Cases/               # Test suites
 │       ├── target_test_cases/    # Target codebase tests
 │       │   ├── test_gpio_handler.py
@@ -212,18 +218,20 @@ Farnsworth_Fusor/
 ## Features
 
 ### **Finite State Machine (FSM) Control**
-- 12-state automated control sequence for fusor operation
-- States include: All Off, Rough Pump Down, Turbo Pump Down, Main Chamber Pump Down, Settling, 10kV Operation, Fuel Admission, 27kV Nominal Operation, De-energizing, Shutdown sequences
+- 11-state automated control sequence for fusor operation
+- States include: All Off, Rough Pump Down, Turbo Pump Down, Main Chamber Pump Down, Settling, 10kV Operation, Fuel Admission, 27kV Nominal Operation, De-energizing, Closing Main, Venting Foreline
 - Event-driven state transitions based on sensor readings and user commands
 - Automatic progression through startup and shutdown sequences
+- TelemetryToEventMapper monitors UDP data and triggers state transitions automatically
 
 ### **Hardware Control**
 - **Power Supply Control**: Enable/disable and voltage setting (0-27kV)
 - **Valve Control**: 6 valves with PWM-based proportional control (0-100%)
 - **Pump Control**: Mechanical pump and turbo pump with PWM-based power control (0-100%)
 - **Sensor Reading**: Pressure sensors, voltage/current monitoring, neutron counting
-- **Distributed Motor/Actuator Control**: Arduino Nano (Stepper Controllers 1-4) receives labeled analog commands over USB, while the Raspberry Pi drives Stepper Controller 5 directly via GPIO for the docking-station architecture
+- **Distributed Motor/Actuator Control**: Arduino Nano (Stepper Controllers 1-4) receives labeled analog commands and motor control commands over USB via the BundledInterface
 - **Labeled Analog Datalink**: Every analog command is forwarded to the Arduino as `ANALOG:<FUSOR_COMPONENT>:<value>` so each actuator (valves, pumps, power supply, etc.) carries its destination label across the Pi↔Arduino link
+- **Motor Control**: Motors 1-4 are controlled via Arduino Nano over USB serial (9600 baud) with commands like `MOVE_MOTOR:1:100:FORWARD`, `ENABLE_MOTOR:2`, `SET_MOTOR_SPEED:3:50`
 - **Emergency Shutdown**: Immediate shutdown of all systems
 
 ### **Professional GUI**
@@ -233,20 +241,21 @@ Farnsworth_Fusor/
 - FSM state visualization and control
 
 ### **Communication**
-- **TCP Command Communication**: Host sends commands to target on port 2222
-- **TCP Data Communication**: Target sends sensor data to host on port 12345
-- **UDP Status/Heartbeat**: Bidirectional status messages on ports 8888/8889
+- **TCP Command Communication**: Host sends commands to target on port 2222 (reliable, bidirectional)
+- **UDP Data/Telemetry**: Target sends sensor data to host on port 12345 (efficient, unidirectional)
+- **UDP Status/Heartbeat**: Bidirectional status messages on ports 8888/8889 (non-critical updates)
 - Robust error handling and connection management
 - Real-time command execution and response handling
 - Automatic reconnection capabilities
+- Change detection: Only sends telemetry when sensor values change significantly (noise filtering)
 
 ### **Network Configuration**
 - **Host IP**: 192.168.0.1 (default)
 - **Target IP**: 192.168.0.2 (default)
 - **Subnet**: 255.255.255.0
-- **TCP Command Port**: 2222
-- **TCP Data Port**: 12345
-- **UDP Status Ports**: 8888 (host receive), 8889 (target receive)
+- **TCP Command Port**: 2222 (Host → RPi commands)
+- **UDP Data Port**: 12345 (RPi → Host telemetry)
+- **UDP Status Ports**: 8888 (RPi → Host), 8889 (Host → RPi)
 
 ### **GPIO Pin Assignments**
 - **LED Pin**: GPIO 26
@@ -272,11 +281,11 @@ Farnsworth_Fusor/
 
 ## System Architecture Overview
 
-The system is organized in four layers so the host laptop treats the Raspberry Pi as a “docking station” that aggregates every hardware interface.  
-1. **Communication Layer** – Three dedicated channels keep traffic separated: the TCP Command Server listens on `192.168.0.2:2222`, the TCP Data Stream pushes structured telemetry on `:12345`, and bidirectional UDP status links operate on host `8888` / target `8889` for lightweight heartbeats.  
-2. **Processing Layer** – `CommandProcessor` parses every host command, validates arguments, and routes work to the correct subsystem. It now tags analog actuators (valves 1‑6, power supply, pumps) with semantic labels before handing them to the Arduino.  
-3. **Hardware Abstraction Layer** – GPIO, ADC (MCP3008 over SPI), and the Arduino USB interface each expose clean Python APIs. The Arduino Nano handles Stepper Controllers 1‑4 plus two generic interfaces, while Stepper Controller 5 stays on direct GPIO for redundancy.  
-4. **Hardware Layer** – SPI wiring to the MCP3008, PWM GPIO for valves/pumps, the fiber/USB harness to the Arduino carriers, and the actual motors, valves, and sensors.
+The system is organized in four layers so the host laptop treats the Raspberry Pi as a "bundled interface" that aggregates every hardware interface.  
+1. **Communication Layer** – Three dedicated channels keep traffic separated: the TCP Command Server listens on `192.168.0.2:2222` for reliable command/response, the UDP Data Server pushes structured telemetry on `:12345` (only when values change), and bidirectional UDP status links operate on host `8888` / target `8889` for lightweight heartbeats.  
+2. **Processing Layer** – `CommandProcessor` parses every host command, validates arguments, and routes work to the correct subsystem. It tags analog actuators (valves 1‑6, power supply, pumps) with semantic labels before forwarding them to the Arduino, and routes motor commands (Motors 1-4) directly to the Arduino.  
+3. **Hardware Abstraction Layer** – The `BundledInterface` unifies GPIO, ADC (MCP3008 over SPI), and Arduino USB interface, each exposing clean Python APIs. The Arduino Nano handles Stepper Controllers 1‑4 via USB serial communication (9600 baud).  
+4. **Hardware Layer** – SPI wiring to the MCP3008, PWM GPIO for valves/pumps, USB serial connection to Arduino Nano, and the actual motors, valves, and sensors.
 
 **Arduino Datalink:** Every analog command that originates on the Pi is mirrored to the Arduino as `ANALOG:<FUSOR_COMPONENT>:<value>`. Example labels include `POWER_SUPPLY_VOLTAGE_SETPOINT`, `ATM_DEPRESSURE_VALVE`, `VACUUM_SYSTEM_VALVE`, `ROUGHING_PUMP_POWER`, and `TURBO_PUMP_POWER`. This guarantees the distributed controllers receive unambiguous instructions even when multiple actuators share the same electrical characteristics.
 
@@ -284,14 +293,18 @@ The system is organized in four layers so the host laptop treats the Raspberry P
 
 | Trigger on Host | Pi CommandProcessor Action | USB Payload → Arduino | Target Hardware |
 |-----------------|---------------------------|------------------------|-----------------|
-| `SET_VOLTAGE:X` | Update GPIO + label (`POWER_SUPPLY_VOLTAGE_SETPOINT`) | `ANALOG:POWER_SUPPLY_VOLTAGE_SETPOINT:X` | High-voltage supply variac |
-| `SET_VALVE<i>:Y` | Drive PWM on GPIO | `ANALOG:<VALVE_LABEL_i>:Y` | Valve actuators routed through Nano controllers 1‑4 |
-| `SET_MECHANICAL_PUMP:Y` / legacy pump commands | Set PWM + label | `ANALOG:ROUGHING_PUMP_POWER:Y` | Roughing pump driver |
+| `SET_VOLTAGE:X` | Update GPIO + label (`POWER_SUPPLY_VOLTAGE_SETPOINT`) | `ANALOG:POWER_SUPPLY_VOLTAGE_SETPOINT:X` | High-voltage supply control |
+| `SET_VALVE<i>:Y` | Drive PWM on GPIO + forward to Arduino | `ANALOG:<VALVE_LABEL_i>:Y` | Valve actuators (1-6) |
+| `SET_MECHANICAL_PUMP:Y` | Set PWM + label | `ANALOG:ROUGHING_PUMP_POWER:Y` | Roughing pump driver |
 | `SET_TURBO_PUMP:Y` | Set PWM + label | `ANALOG:TURBO_PUMP_POWER:Y` | Turbo pump driver |
+| `MOVE_MOTOR:ID:STEPS:DIR` | Route to Arduino | `MOVE_MOTOR:ID:STEPS:DIR` | Stepper motors 1-4 |
+| `ENABLE_MOTOR:ID` | Route to Arduino | `ENABLE_MOTOR:ID` | Enable motor 1-4 |
+| `SET_MOTOR_SPEED:ID:SPEED` | Route to Arduino | `SET_MOTOR_SPEED:ID:SPEED` | Set motor speed |
 
 - **Message format:** `ANALOG:<FUSOR_COMPONENT>:<value>` with `value` normalized to two decimal places for floats.  
 - **Label registry:** Defined in `command_processor.py` so every actuator has a fixed string (e.g., `ATM_DEPRESSURE_VALVE`, `FORELINE_VALVE`, `VACUUM_SYSTEM_VALVE`, `DEUTERIUM_SUPPLY_VALVE`, plus placeholders for future channels).  
 - **Flow:** Host GUI → TCP command → CommandProcessor → GPIO action on Pi → labeled USB packet → Arduino Nano (Stepper Controllers 1‑4 + generic analog sinks).  
+- **Motor Commands:** Motor commands (Motors 1-4) are routed directly to Arduino as `MOVE_MOTOR:1:100:FORWARD`, `ENABLE_MOTOR:2`, `DISABLE_MOTOR:3`, `SET_MOTOR_SPEED:4:50` via USB serial.
 - **Resilience:** If the Arduino interface is disconnected, the Pi continues to service GPIO locally and automatically resumes mirroring once the USB link reconnects. The systemd service logs any missed forwards to aid troubleshooting.
 
 ## Code Quality Tools

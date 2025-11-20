@@ -1,9 +1,14 @@
 import logging
-from typing import Optional, Callable, Dict
-from gpio_handler import GPIOHandler
-from adc import MCP3008ADC
+from typing import Optional, Callable, Dict, Union
+from bundled_interface import BundledInterface
 
 logger = logging.getLogger("CommandProcessor")
+
+PRESSURE_SENSOR_CHANNELS: Dict[int, Dict[str, Union[int, str]]] = {
+    1: {"channel": 0, "name": "Turbo Pressure Transducer", "label": "P01"},
+    2: {"channel": 1, "name": "Fusor Pressure Transducer", "label": "P02"},
+    3: {"channel": 2, "name": "Foreline Pressure Transducer", "label": "P03"},
+}
 
 VALVE_ANALOG_LABELS: Dict[int, str] = {
     1: "ATM_DEPRESSURE_VALVE",
@@ -26,39 +31,30 @@ class CommandProcessor:
 
     def __init__(
         self,
-        gpio_handler: GPIOHandler,
-        adc: Optional[MCP3008ADC] = None,
-        arduino_interface=None,
+        bundled_interface: BundledInterface,
         host_callback: Optional[Callable[[str], None]] = None,
     ):
-        self.gpio_handler = gpio_handler
-        self.adc = adc
-        self.arduino_interface = arduino_interface
+        self.bundled_interface = bundled_interface
         self.host_callback = host_callback
+        
+        logger.info("Command processor initialized with Bundled Interface")
 
-        logger.info(
-            f"Command processor initialized (Arduino: {'Enabled' if arduino_interface else 'Disabled'})"
-        )
+    @property
+    def gpio_handler(self):
+        return self.bundled_interface.get_gpio()
+
+    @property
+    def adc(self):
+        return self.bundled_interface.get_adc()
+
+    @property
+    def arduino_interface(self):
+        return self.bundled_interface.get_arduino()
 
     def _forward_analog_command(self, label: Optional[str], value) -> None:
-        if not label or self.arduino_interface is None:
+        if not label:
             return
-        try:
-            if not hasattr(self.arduino_interface, "is_connected") or not self.arduino_interface.is_connected():
-                return
-        except Exception as exc:
-            logger.debug(f"Arduino interface connection check failed for {label}: {exc}")
-            return
-        send_method = getattr(self.arduino_interface, "send_analog_command", None)
-        try:
-            if callable(send_method):
-                send_method(label, value)
-            else:
-                fallback_command = f"ANALOG:{label}:{value}"
-                if hasattr(self.arduino_interface, "send_command"):
-                    self.arduino_interface.send_command(fallback_command)
-        except Exception as exc:
-            logger.error(f"Failed to forward analog command '{label}' to Arduino: {exc}")
+        self.bundled_interface.send_analog_to_arduino(label, value)
 
     def _resolve_valve_label(self, valve_id: int) -> str:
         return VALVE_ANALOG_LABELS.get(valve_id, f"VALVE_{valve_id}")
@@ -75,6 +71,8 @@ class CommandProcessor:
 
         try:
             if command == "LED_ON":
+                if not self.gpio_handler:
+                    return "LED_ON_FAILED: GPIO not available"
                 success, message = self.gpio_handler.led_on()
                 if success:
                     return "LED_ON_SUCCESS"
@@ -82,6 +80,8 @@ class CommandProcessor:
                     return f"LED_ON_FAILED: {message}"
 
             elif command == "LED_OFF":
+                if not self.gpio_handler:
+                    return "LED_OFF_FAILED: GPIO not available"
                 success, message = self.gpio_handler.led_off()
                 if success:
                     return "LED_OFF_SUCCESS"
@@ -89,12 +89,16 @@ class CommandProcessor:
                     return f"LED_OFF_FAILED: {message}"
 
             elif command == "POWER_SUPPLY_ENABLE" or command == "POWER_SUPPLY_ENABLE:1" or command == "POWER_SUPPLY_ENABLE:ON":
+                if not self.gpio_handler:
+                    return "POWER_SUPPLY_ENABLE_FAILED: GPIO not available"
                 if self.gpio_handler.set_power_supply_enable(True):
                     return "POWER_SUPPLY_ENABLE_SUCCESS"
                 else:
                     return "POWER_SUPPLY_ENABLE_FAILED"
             
             elif command == "POWER_SUPPLY_DISABLE" or command == "POWER_SUPPLY_ENABLE:0" or command == "POWER_SUPPLY_ENABLE:OFF":
+                if not self.gpio_handler:
+                    return "POWER_SUPPLY_DISABLE_FAILED: GPIO not available"
                 if self.gpio_handler.set_power_supply_enable(False):
                     return "POWER_SUPPLY_DISABLE_SUCCESS"
                 else:
@@ -127,14 +131,18 @@ class CommandProcessor:
                     if valve_id < 1 or valve_id > 6:
                         return f"SET_VALVE_FAILED: Valve ID must be 1-6"
                     
-                    if self.gpio_handler.set_valve_position(valve_id, position):
+                    if self.gpio_handler and self.gpio_handler.set_valve_position(valve_id, position):
                         self._forward_analog_command(
                             self._resolve_valve_label(valve_id),
                             position,
                         )
                         return f"SET_VALVE{valve_id}_SUCCESS:{position}"
                     else:
-                        return f"SET_VALVE{valve_id}_FAILED"
+                        self._forward_analog_command(
+                            self._resolve_valve_label(valve_id),
+                            position,
+                        )
+                        return f"SET_VALVE{valve_id}_SUCCESS:{position} (via Arduino)"
                 except (ValueError, IndexError):
                     return "SET_VALVE_FAILED: Invalid format"
 
@@ -143,14 +151,18 @@ class CommandProcessor:
                     power = int(command.split(":")[1])
                     if power < 0 or power > 100:
                         return "SET_MECHANICAL_PUMP_FAILED: Power must be 0-100"
-                    if self.gpio_handler.set_mechanical_pump_power(power):
+                    if self.gpio_handler and self.gpio_handler.set_mechanical_pump_power(power):
                         self._forward_analog_command(
                             ANALOG_COMPONENT_LABELS["MECHANICAL_PUMP"],
                             power,
                         )
                         return f"SET_MECHANICAL_PUMP_SUCCESS:{power}"
                     else:
-                        return "SET_MECHANICAL_PUMP_FAILED"
+                        self._forward_analog_command(
+                            ANALOG_COMPONENT_LABELS["MECHANICAL_PUMP"],
+                            power,
+                        )
+                        return f"SET_MECHANICAL_PUMP_SUCCESS:{power} (via Arduino)"
                 except (ValueError, IndexError):
                     return "SET_MECHANICAL_PUMP_FAILED: Invalid format"
 
@@ -159,14 +171,18 @@ class CommandProcessor:
                     power = int(command.split(":")[1])
                     if power < 0 or power > 100:
                         return "SET_TURBO_PUMP_FAILED: Power must be 0-100"
-                    if self.gpio_handler.set_turbo_pump_power(power):
+                    if self.gpio_handler and self.gpio_handler.set_turbo_pump_power(power):
                         self._forward_analog_command(
                             ANALOG_COMPONENT_LABELS["TURBO_PUMP"],
                             power,
                         )
                         return f"SET_TURBO_PUMP_SUCCESS:{power}"
                     else:
-                        return "SET_TURBO_PUMP_FAILED"
+                        self._forward_analog_command(
+                            ANALOG_COMPONENT_LABELS["TURBO_PUMP"],
+                            power,
+                        )
+                        return f"SET_TURBO_PUMP_SUCCESS:{power} (via Arduino)"
                 except (ValueError, IndexError):
                     return "SET_TURBO_PUMP_FAILED: Invalid format"
 
@@ -175,21 +191,34 @@ class CommandProcessor:
                 return "STARTUP_SUCCESS"
             
             elif command == "SHUTDOWN":
-                if self.gpio_handler.set_power_supply_enable(False):
+                if self.gpio_handler:
+                    self.gpio_handler.set_power_supply_enable(False)
                     for i in range(1, 7):
                         self.gpio_handler.set_valve_position(i, 0)
                     self.gpio_handler.set_mechanical_pump_power(0)
                     self.gpio_handler.set_turbo_pump_power(0)
-                    logger.info("Shutdown sequence completed")
-                    return "SHUTDOWN_SUCCESS"
-                else:
-                    return "SHUTDOWN_FAILED"
+                
+                for i in range(1, 5):
+                    self._forward_analog_command(self._resolve_valve_label(i), 0)
+                self._forward_analog_command(ANALOG_COMPONENT_LABELS["MECHANICAL_PUMP"], 0)
+                self._forward_analog_command(ANALOG_COMPONENT_LABELS["TURBO_PUMP"], 0)
+                
+                logger.info("Shutdown sequence completed")
+                return "SHUTDOWN_SUCCESS"
             
             elif command == "EMERGENCY_SHUTOFF":
-                if self.gpio_handler.emergency_shutdown():
+                if self.gpio_handler and self.gpio_handler.emergency_shutdown():
+                    for i in range(1, 5):
+                        self._forward_analog_command(self._resolve_valve_label(i), 0)
+                    self._forward_analog_command(ANALOG_COMPONENT_LABELS["MECHANICAL_PUMP"], 0)
+                    self._forward_analog_command(ANALOG_COMPONENT_LABELS["TURBO_PUMP"], 0)
                     return "EMERGENCY_SHUTOFF_SUCCESS"
                 else:
-                    return "EMERGENCY_SHUTOFF_FAILED"
+                    for i in range(1, 5):
+                        self._forward_analog_command(self._resolve_valve_label(i), 0)
+                    self._forward_analog_command(ANALOG_COMPONENT_LABELS["MECHANICAL_PUMP"], 0)
+                    self._forward_analog_command(ANALOG_COMPONENT_LABELS["TURBO_PUMP"], 0)
+                    return "EMERGENCY_SHUTOFF_SUCCESS (via Arduino)"
 
             elif command == "READ_POWER_SUPPLY_VOLTAGE":
                 if not self.adc or not self.adc.is_initialized():
@@ -226,10 +255,18 @@ class CommandProcessor:
                         return "READ_PRESSURE_SENSOR_FAILED: Sensor ID must be 1-3"
                     if not self.adc or not self.adc.is_initialized():
                         return "READ_PRESSURE_SENSOR_FAILED: ADC not initialized"
-                    channel = sensor_id + 1
+                    
+                    sensor_info = PRESSURE_SENSOR_CHANNELS.get(sensor_id)
+                    if not sensor_info:
+                        return f"READ_PRESSURE_SENSOR_FAILED: Invalid sensor ID {sensor_id}"
+                    
+                    channel = sensor_info["channel"]
+                    sensor_name = sensor_info["name"]
+                    sensor_label = sensor_info["label"]
+                    
                     adc_value = self.adc.read_channel(channel)
                     pressure = (adc_value / 1023.0) * 100.0
-                    response = f"PRESSURE_SENSOR_{sensor_id}_VALUE:{pressure:.2f}"
+                    response = f"PRESSURE_SENSOR_{sensor_id}_VALUE:{pressure:.2f}|{sensor_label}|{sensor_name}"
                     if self.host_callback:
                         self.host_callback(response)
                     return response
@@ -284,6 +321,8 @@ class CommandProcessor:
                 return "NEUTRON_COUNTS:0"
 
             elif command == "READ_INPUT":
+                if not self.gpio_handler:
+                    return "READ_INPUT_FAILED: GPIO not available"
                 value = self.gpio_handler.read_input()
                 if value is not None:
                     response = f"INPUT_VALUE:{value}"
@@ -307,19 +346,43 @@ class CommandProcessor:
                     logger.error(f"ADC read error: {e}")
                     return f"READ_ADC_FAILED: {e}"
 
+            elif command.startswith("READ_PRESSURE_BY_NAME:"):
+                try:
+                    sensor_name = command.split(":", 1)[1].strip().upper()
+                    sensor_id = None
+                    
+                    for sid, info in PRESSURE_SENSOR_CHANNELS.items():
+                        if sensor_name in info["name"].upper() or sensor_name == info["label"]:
+                            sensor_id = sid
+                            break
+                    
+                    if sensor_id is None:
+                        return f"READ_PRESSURE_BY_NAME_FAILED: Unknown sensor name '{sensor_name}'. Use: Turbo, Fusor, Foreline, P01, P02, or P03"
+                    
+                    return self.process_command(f"READ_PRESSURE_SENSOR:{sensor_id}")
+                except (ValueError, IndexError):
+                    return "READ_PRESSURE_BY_NAME_FAILED: Invalid format (expected: READ_PRESSURE_BY_NAME:Turbo|Fusor|Foreline|P01|P02|P03)"
+                except Exception as e:
+                    logger.error(f"Error reading pressure sensor by name: {e}")
+                    return f"READ_PRESSURE_BY_NAME_FAILED: {e}"
+
             elif command.startswith("SET_PUMP_POWER:"):
                 try:
                     power = int(command.split(":")[1])
                     if power < 0 or power > 100:
                         return "SET_PUMP_POWER_FAILED: Power must be 0-100"
-                    if self.gpio_handler.set_mechanical_pump_power(power):
+                    if self.gpio_handler and self.gpio_handler.set_mechanical_pump_power(power):
                         self._forward_analog_command(
                             ANALOG_COMPONENT_LABELS["LEGACY_PUMP"],
                             power,
                         )
                         return f"SET_MECHANICAL_PUMP_SUCCESS:{power}"
                     else:
-                        return "SET_PUMP_POWER_FAILED"
+                        self._forward_analog_command(
+                            ANALOG_COMPONENT_LABELS["LEGACY_PUMP"],
+                            power,
+                        )
+                        return f"SET_MECHANICAL_PUMP_SUCCESS:{power} (via Arduino)"
                 except (ValueError, IndexError):
                     return "SET_PUMP_POWER_FAILED: Invalid format"
 
@@ -333,28 +396,14 @@ class CommandProcessor:
                     steps = int(parts[2])
                     direction = parts[3].upper() if len(parts) > 3 else "FORWARD"
                     
-                    if motor_id < 1 or motor_id > 5:
-                        return f"MOVE_MOTOR_FAILED: Motor ID must be 1-5"
+                    if motor_id < 1 or motor_id > 4:
+                        return f"MOVE_MOTOR_FAILED: Motor ID must be 1-4"
                     
-                    if motor_id >= 1 and motor_id <= 4:
-                        if not self.arduino_interface:
-                            return f"MOVE_MOTOR_FAILED: Motor {motor_id} requires Arduino interface (not available)"
-                        if not self.arduino_interface.is_connected():
-                            return f"MOVE_MOTOR_FAILED: Motor {motor_id} requires Arduino interface (not connected)"
-                        
-                        arduino_cmd = f"MOVE_MOTOR:{motor_id}:{steps}:{direction}"
-                        if self.arduino_interface.send_command(arduino_cmd):
-                            response = self.arduino_interface.read_data(timeout=2.0)
-                            if response:
-                                return f"MOVE_MOTOR{motor_id}_SUCCESS:{response}"
-                            else:
-                                return f"MOVE_MOTOR{motor_id}_COMMAND_SENT"
-                        else:
-                            return f"MOVE_MOTOR{motor_id}_FAILED: Send error"
-                    
-                    elif motor_id == 5:
-                        logger.info(f"Motor 5 move command: {steps} steps, direction: {direction}")
-                        return f"MOVE_MOTOR5_SUCCESS:{steps} (GPIO control - implementation pending)"
+                    response = self.bundled_interface.send_motor_command(motor_id, "MOVE_MOTOR", steps, direction)
+                    if response:
+                        return f"MOVE_MOTOR{motor_id}_SUCCESS:{response}"
+                    else:
+                        return f"MOVE_MOTOR{motor_id}_FAILED"
                     
                 except (ValueError, IndexError) as e:
                     return f"MOVE_MOTOR_FAILED: Invalid format - {e}"
@@ -362,21 +411,14 @@ class CommandProcessor:
             elif command.startswith("ENABLE_MOTOR:"):
                 try:
                     motor_id = int(command.split(":")[1])
-                    if motor_id < 1 or motor_id > 5:
-                        return f"ENABLE_MOTOR_FAILED: Motor ID must be 1-5"
+                    if motor_id < 1 or motor_id > 4:
+                        return f"ENABLE_MOTOR_FAILED: Motor ID must be 1-4"
                     
-                    if motor_id >= 1 and motor_id <= 4:
-                        if not self.arduino_interface or not self.arduino_interface.is_connected():
-                            return f"ENABLE_MOTOR_FAILED: Motor {motor_id} requires Arduino interface"
-                        arduino_cmd = f"ENABLE_MOTOR:{motor_id}"
-                        if self.arduino_interface.send_command(arduino_cmd):
-                            response = self.arduino_interface.read_data(timeout=1.0)
-                            return f"ENABLE_MOTOR{motor_id}_SUCCESS" if not response else f"ENABLE_MOTOR{motor_id}_SUCCESS:{response}"
+                    response = self.bundled_interface.send_motor_command(motor_id, "ENABLE_MOTOR")
+                    if response:
+                        return f"ENABLE_MOTOR{motor_id}_SUCCESS:{response}" if response else f"ENABLE_MOTOR{motor_id}_SUCCESS"
+                    else:
                         return f"ENABLE_MOTOR{motor_id}_FAILED"
-                    
-                    elif motor_id == 5:
-                        logger.info(f"Motor 5 enable command")
-                        return f"ENABLE_MOTOR5_SUCCESS (GPIO control - implementation pending)"
                     
                 except (ValueError, IndexError):
                     return "ENABLE_MOTOR_FAILED: Invalid format"
@@ -384,21 +426,14 @@ class CommandProcessor:
             elif command.startswith("DISABLE_MOTOR:"):
                 try:
                     motor_id = int(command.split(":")[1])
-                    if motor_id < 1 or motor_id > 5:
-                        return f"DISABLE_MOTOR_FAILED: Motor ID must be 1-5"
+                    if motor_id < 1 or motor_id > 4:
+                        return f"DISABLE_MOTOR_FAILED: Motor ID must be 1-4"
                     
-                    if motor_id >= 1 and motor_id <= 4:
-                        if not self.arduino_interface or not self.arduino_interface.is_connected():
-                            return f"DISABLE_MOTOR_FAILED: Motor {motor_id} requires Arduino interface"
-                        arduino_cmd = f"DISABLE_MOTOR:{motor_id}"
-                        if self.arduino_interface.send_command(arduino_cmd):
-                            response = self.arduino_interface.read_data(timeout=1.0)
-                            return f"DISABLE_MOTOR{motor_id}_SUCCESS" if not response else f"DISABLE_MOTOR{motor_id}_SUCCESS:{response}"
+                    response = self.bundled_interface.send_motor_command(motor_id, "DISABLE_MOTOR")
+                    if response:
+                        return f"DISABLE_MOTOR{motor_id}_SUCCESS:{response}" if response else f"DISABLE_MOTOR{motor_id}_SUCCESS"
+                    else:
                         return f"DISABLE_MOTOR{motor_id}_FAILED"
-                    
-                    elif motor_id == 5:
-                        logger.info(f"Motor 5 disable command")
-                        return f"DISABLE_MOTOR5_SUCCESS (GPIO control - implementation pending)"
                     
                 except (ValueError, IndexError):
                     return "DISABLE_MOTOR_FAILED: Invalid format"
@@ -411,21 +446,14 @@ class CommandProcessor:
                     motor_id = int(parts[1])
                     speed = float(parts[2])
                     
-                    if motor_id < 1 or motor_id > 5:
-                        return f"SET_MOTOR_SPEED_FAILED: Motor ID must be 1-5"
+                    if motor_id < 1 or motor_id > 4:
+                        return f"SET_MOTOR_SPEED_FAILED: Motor ID must be 1-4"
                     
-                    if motor_id >= 1 and motor_id <= 4:
-                        if not self.arduino_interface or not self.arduino_interface.is_connected():
-                            return f"SET_MOTOR_SPEED_FAILED: Motor {motor_id} requires Arduino interface"
-                        arduino_cmd = f"SET_MOTOR_SPEED:{motor_id}:{speed}"
-                        if self.arduino_interface.send_command(arduino_cmd):
-                            response = self.arduino_interface.read_data(timeout=1.0)
-                            return f"SET_MOTOR_SPEED{motor_id}_SUCCESS:{speed}" if not response else f"SET_MOTOR_SPEED{motor_id}_SUCCESS:{response}"
+                    response = self.bundled_interface.send_motor_command(motor_id, "SET_MOTOR_SPEED", speed)
+                    if response:
+                        return f"SET_MOTOR_SPEED{motor_id}_SUCCESS:{speed}"
+                    else:
                         return f"SET_MOTOR_SPEED{motor_id}_FAILED"
-                    
-                    elif motor_id == 5:
-                        logger.info(f"Motor 5 speed set to {speed}")
-                        return f"SET_MOTOR_SPEED5_SUCCESS:{speed} (GPIO control - implementation pending)"
                     
                 except (ValueError, IndexError):
                     return "SET_MOTOR_SPEED_FAILED: Invalid format"

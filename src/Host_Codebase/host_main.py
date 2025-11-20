@@ -9,9 +9,13 @@ import atexit
 import json
 from enum import Enum, auto
 from tcp_command_client import TCPCommandClient
-from tcp_data_client import TCPDataClient
+from udp_data_client import UDPDataClient
 from udp_status_client import UDPStatusClient, UDPStatusReceiver
 from command_handler import CommandHandler
+from actuator_object import ActuatorObject
+from sensor_object import SensorObject
+from tcp_client_object import TCPClientObject
+from udp_client_object import UDPClientObject
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("HostMain")
@@ -20,54 +24,24 @@ ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
 
 
-class FusorComponent:
-    def __init__(self, name: str, tcp_client: TCPCommandClient, component_map: dict = None):
-        self.name = name
-        self.tcp_client = tcp_client
-        self.component_map = component_map or {}
-
-    def _send_target_command(self, command: str):
-        if not self.tcp_client.is_connected():
-            if not self.tcp_client.connect():
-                logger.error("Failed to connect to target for command: %s", command)
-                return
-        response = self.tcp_client.send_command(command)
-        if response:
-            logger.info("Command '%s' -> Response: %s", command, response)
-
-    def setDigitalValue(self, command: bool):
-        component_type = self.component_map.get(self.name, {}).get("type")
-        if component_type == "valve":
-            valve_id = self.component_map.get(self.name, {}).get("valve_id", 1)
-            position = 100 if command else 0
-            self._send_target_command(f"SET_VALVE{valve_id}:{position}")
-        elif component_type == "power_supply":
-            cmd = "POWER_SUPPLY_ENABLE" if command else "POWER_SUPPLY_DISABLE"
-            self._send_target_command(cmd)
-        elif component_type == "mechanical_pump":
-            power = 100 if command else 0
-            self._send_target_command(f"SET_MECHANICAL_PUMP:{power}")
-        elif component_type == "turbo_pump":
-            power = 100 if command else 0
-            self._send_target_command(f"SET_TURBO_PUMP:{power}")
-
-    def setAnalogValue(self, command: float):
-        component_type = self.component_map.get(self.name, {}).get("type")
-        if component_type == "power_supply":
-            self._send_target_command(f"SET_VOLTAGE:{command}")
-        elif component_type == "valve":
-            valve_id = self.component_map.get(self.name, {}).get("valve_id", 1)
-            position = int(command)
-            position = max(0, min(position, 100))
-            self._send_target_command(f"SET_VALVE{valve_id}:{position}")
-        elif component_type == "mechanical_pump":
-            power = int(command)
-            power = max(0, min(power, 100))
-            self._send_target_command(f"SET_MECHANICAL_PUMP:{power}")
-        elif component_type == "turbo_pump":
-            power = int(command)
-            power = max(0, min(power, 100))
-            self._send_target_command(f"SET_TURBO_PUMP:{power}")
+def _build_actuator_command(actuator_name: str, value: float) -> str:
+    if "valve" in actuator_name.lower():
+        if "atm" in actuator_name.lower() or "depressure" in actuator_name.lower():
+            return f"SET_VALVE1:{int(value)}"
+        elif "foreline" in actuator_name.lower():
+            return f"SET_VALVE2:{int(value)}"
+        elif "vacuum" in actuator_name.lower() or "system" in actuator_name.lower():
+            return f"SET_VALVE3:{int(value)}"
+        elif "deuterium" in actuator_name.lower() or "supply" in actuator_name.lower():
+            return f"SET_VALVE4:{int(value)}"
+    elif "power" in actuator_name.lower() or "supply" in actuator_name.lower():
+        return f"SET_VOLTAGE:{int(value)}"
+    elif "pump" in actuator_name.lower():
+        if "mechanical" in actuator_name.lower() or "roughing" in actuator_name.lower():
+            return f"SET_MECHANICAL_PUMP:{int(value)}"
+        elif "turbo" in actuator_name.lower():
+            return f"SET_TURBO_PUMP:{int(value)}"
+    return ""
 
 
 class State(Enum):
@@ -103,8 +77,9 @@ class Event(Enum):
 
 
 class AutoController:
-    def __init__(self, components, state_callback=None, log_callback=None):
-        self.components = components
+    def __init__(self, actuators: dict, sensors: dict = None, state_callback=None, log_callback=None):
+        self.actuators = actuators
+        self.sensors = sensors or {}
         self.currentState = State.ALL_OFF
         self.state_callback = state_callback
         self.log_callback = log_callback
@@ -149,7 +124,8 @@ class AutoController:
         logger.info(message)
 
     def _set_voltage_kv(self, kv: float):
-        self.components["power_supply"].setAnalogValue(kv * 1000.0)
+        if "power_supply" in self.actuators:
+            self.actuators["power_supply"].setAnalogValue(kv * 1000.0)
 
     def dispatch_event(self, event: Event):
         key = (self.currentState, event)
@@ -169,123 +145,195 @@ class AutoController:
             self.state_callback(new_state)
 
     def _enter_all_off(self):
-        c = self.components
-        c["atm_valve"].setDigitalValue(False)
-        c["mech_pump"].setDigitalValue(False)
-        c["turbo_pump"].setDigitalValue(False)
-        c["foreline_valve"].setDigitalValue(False)
-        c["fusor_valve"].setDigitalValue(False)
-        c["deuterium_valve"].setDigitalValue(False)
+        a = self.actuators
+        if "atm_valve" in a:
+            a["atm_valve"].setDigitalValue(False)
+        if "mech_pump" in a:
+            a["mech_pump"].setDigitalValue(False)
+        if "turbo_pump" in a:
+            a["turbo_pump"].setDigitalValue(False)
+        if "foreline_valve" in a:
+            a["foreline_valve"].setDigitalValue(False)
+        if "fusor_valve" in a:
+            a["fusor_valve"].setDigitalValue(False)
+        if "deuterium_valve" in a:
+            a["deuterium_valve"].setDigitalValue(False)
         self._set_voltage_kv(0)
 
     def _enter_rough_pump_down(self):
-        c = self.components
-        c["atm_valve"].setDigitalValue(False)
-        c["mech_pump"].setDigitalValue(True)
-        c["turbo_pump"].setDigitalValue(False)
-        c["foreline_valve"].setDigitalValue(False)
-        c["fusor_valve"].setDigitalValue(False)
-        c["deuterium_valve"].setDigitalValue(False)
+        a = self.actuators
+        if "atm_valve" in a:
+            a["atm_valve"].setDigitalValue(False)
+        if "mech_pump" in a:
+            a["mech_pump"].setDigitalValue(True)
+        if "turbo_pump" in a:
+            a["turbo_pump"].setDigitalValue(False)
+        if "foreline_valve" in a:
+            a["foreline_valve"].setDigitalValue(False)
+        if "fusor_valve" in a:
+            a["fusor_valve"].setDigitalValue(False)
+        if "deuterium_valve" in a:
+            a["deuterium_valve"].setDigitalValue(False)
         self._set_voltage_kv(0)
 
     def _enter_rp_down_turbo(self):
-        c = self.components
-        c["atm_valve"].setDigitalValue(False)
-        c["mech_pump"].setDigitalValue(True)
-        c["turbo_pump"].setDigitalValue(False)
-        c["foreline_valve"].setDigitalValue(True)
-        c["fusor_valve"].setDigitalValue(False)
-        c["deuterium_valve"].setDigitalValue(False)
+        a = self.actuators
+        if "atm_valve" in a:
+            a["atm_valve"].setDigitalValue(False)
+        if "mech_pump" in a:
+            a["mech_pump"].setDigitalValue(True)
+        if "turbo_pump" in a:
+            a["turbo_pump"].setDigitalValue(False)
+        if "foreline_valve" in a:
+            a["foreline_valve"].setDigitalValue(True)
+        if "fusor_valve" in a:
+            a["fusor_valve"].setDigitalValue(False)
+        if "deuterium_valve" in a:
+            a["deuterium_valve"].setDigitalValue(False)
         self._set_voltage_kv(0)
 
     def _enter_turbo_pump_down(self):
-        c = self.components
-        c["atm_valve"].setDigitalValue(False)
-        c["mech_pump"].setDigitalValue(True)
-        c["turbo_pump"].setDigitalValue(True)
-        c["foreline_valve"].setDigitalValue(True)
-        c["fusor_valve"].setDigitalValue(False)
-        c["deuterium_valve"].setDigitalValue(False)
+        a = self.actuators
+        if "atm_valve" in a:
+            a["atm_valve"].setDigitalValue(False)
+        if "mech_pump" in a:
+            a["mech_pump"].setDigitalValue(True)
+        if "turbo_pump" in a:
+            a["turbo_pump"].setDigitalValue(True)
+        if "foreline_valve" in a:
+            a["foreline_valve"].setDigitalValue(True)
+        if "fusor_valve" in a:
+            a["fusor_valve"].setDigitalValue(False)
+        if "deuterium_valve" in a:
+            a["deuterium_valve"].setDigitalValue(False)
         self._set_voltage_kv(0)
 
     def _enter_tp_down_main(self):
-        c = self.components
-        c["atm_valve"].setDigitalValue(False)
-        c["mech_pump"].setDigitalValue(True)
-        c["turbo_pump"].setDigitalValue(True)
-        c["foreline_valve"].setDigitalValue(True)
-        c["fusor_valve"].setDigitalValue(True)
-        c["deuterium_valve"].setDigitalValue(False)
+        a = self.actuators
+        if "atm_valve" in a:
+            a["atm_valve"].setDigitalValue(False)
+        if "mech_pump" in a:
+            a["mech_pump"].setDigitalValue(True)
+        if "turbo_pump" in a:
+            a["turbo_pump"].setDigitalValue(True)
+        if "foreline_valve" in a:
+            a["foreline_valve"].setDigitalValue(True)
+        if "fusor_valve" in a:
+            a["fusor_valve"].setDigitalValue(True)
+        if "deuterium_valve" in a:
+            a["deuterium_valve"].setDigitalValue(False)
         self._set_voltage_kv(0)
 
     def _enter_settle_steady_pressure(self):
-        c = self.components
-        c["atm_valve"].setDigitalValue(False)
-        c["mech_pump"].setDigitalValue(True)
-        c["turbo_pump"].setDigitalValue(True)
-        c["foreline_valve"].setDigitalValue(True)
-        c["fusor_valve"].setDigitalValue(True)
-        c["deuterium_valve"].setDigitalValue(True)
+        a = self.actuators
+        if "atm_valve" in a:
+            a["atm_valve"].setDigitalValue(False)
+        if "mech_pump" in a:
+            a["mech_pump"].setDigitalValue(True)
+        if "turbo_pump" in a:
+            a["turbo_pump"].setDigitalValue(True)
+        if "foreline_valve" in a:
+            a["foreline_valve"].setDigitalValue(True)
+        if "fusor_valve" in a:
+            a["fusor_valve"].setDigitalValue(True)
+        if "deuterium_valve" in a:
+            a["deuterium_valve"].setDigitalValue(True)
         self._set_voltage_kv(0)
 
     def _enter_settling_10kv(self):
-        c = self.components
-        c["atm_valve"].setDigitalValue(False)
-        c["mech_pump"].setDigitalValue(True)
-        c["turbo_pump"].setDigitalValue(True)
-        c["foreline_valve"].setDigitalValue(True)
-        c["fusor_valve"].setDigitalValue(True)
-        c["deuterium_valve"].setDigitalValue(True)
+        a = self.actuators
+        if "atm_valve" in a:
+            a["atm_valve"].setDigitalValue(False)
+        if "mech_pump" in a:
+            a["mech_pump"].setDigitalValue(True)
+        if "turbo_pump" in a:
+            a["turbo_pump"].setDigitalValue(True)
+        if "foreline_valve" in a:
+            a["foreline_valve"].setDigitalValue(True)
+        if "fusor_valve" in a:
+            a["fusor_valve"].setDigitalValue(True)
+        if "deuterium_valve" in a:
+            a["deuterium_valve"].setDigitalValue(True)
         self._set_voltage_kv(10)
 
     def _enter_admit_fuel_5ma(self):
-        c = self.components
-        c["atm_valve"].setDigitalValue(False)
-        c["mech_pump"].setDigitalValue(True)
-        c["turbo_pump"].setDigitalValue(True)
-        c["foreline_valve"].setDigitalValue(True)
-        c["fusor_valve"].setDigitalValue(True)
-        c["deuterium_valve"].setDigitalValue(True)
+        a = self.actuators
+        if "atm_valve" in a:
+            a["atm_valve"].setDigitalValue(False)
+        if "mech_pump" in a:
+            a["mech_pump"].setDigitalValue(True)
+        if "turbo_pump" in a:
+            a["turbo_pump"].setDigitalValue(True)
+        if "foreline_valve" in a:
+            a["foreline_valve"].setDigitalValue(True)
+        if "fusor_valve" in a:
+            a["fusor_valve"].setDigitalValue(True)
+        if "deuterium_valve" in a:
+            a["deuterium_valve"].setDigitalValue(True)
         self._set_voltage_kv(10)
 
     def _enter_nominal_27kv(self):
-        c = self.components
-        c["atm_valve"].setDigitalValue(False)
-        c["mech_pump"].setDigitalValue(True)
-        c["turbo_pump"].setDigitalValue(True)
-        c["foreline_valve"].setDigitalValue(True)
-        c["fusor_valve"].setDigitalValue(True)
-        c["deuterium_valve"].setDigitalValue(True)
+        a = self.actuators
+        if "atm_valve" in a:
+            a["atm_valve"].setDigitalValue(False)
+        if "mech_pump" in a:
+            a["mech_pump"].setDigitalValue(True)
+        if "turbo_pump" in a:
+            a["turbo_pump"].setDigitalValue(True)
+        if "foreline_valve" in a:
+            a["foreline_valve"].setDigitalValue(True)
+        if "fusor_valve" in a:
+            a["fusor_valve"].setDigitalValue(True)
+        if "deuterium_valve" in a:
+            a["deuterium_valve"].setDigitalValue(True)
         self._set_voltage_kv(27)
 
     def _enter_deenergizing(self):
-        c = self.components
-        c["atm_valve"].setDigitalValue(False)
-        c["mech_pump"].setDigitalValue(True)
-        c["turbo_pump"].setDigitalValue(True)
-        c["foreline_valve"].setDigitalValue(True)
-        c["fusor_valve"].setDigitalValue(True)
-        c["deuterium_valve"].setDigitalValue(False)
+        a = self.actuators
+        if "atm_valve" in a:
+            a["atm_valve"].setDigitalValue(False)
+        if "mech_pump" in a:
+            a["mech_pump"].setDigitalValue(True)
+        if "turbo_pump" in a:
+            a["turbo_pump"].setDigitalValue(True)
+        if "foreline_valve" in a:
+            a["foreline_valve"].setDigitalValue(True)
+        if "fusor_valve" in a:
+            a["fusor_valve"].setDigitalValue(True)
+        if "deuterium_valve" in a:
+            a["deuterium_valve"].setDigitalValue(False)
         self._set_voltage_kv(0)
 
     def _enter_closing_main(self):
-        c = self.components
-        c["atm_valve"].setDigitalValue(False)
-        c["mech_pump"].setDigitalValue(True)
-        c["turbo_pump"].setDigitalValue(True)
-        c["foreline_valve"].setDigitalValue(True)
-        c["fusor_valve"].setDigitalValue(False)
-        c["deuterium_valve"].setDigitalValue(False)
+        a = self.actuators
+        if "atm_valve" in a:
+            a["atm_valve"].setDigitalValue(False)
+        if "mech_pump" in a:
+            a["mech_pump"].setDigitalValue(True)
+        if "turbo_pump" in a:
+            a["turbo_pump"].setDigitalValue(True)
+        if "foreline_valve" in a:
+            a["foreline_valve"].setDigitalValue(True)
+        if "fusor_valve" in a:
+            a["fusor_valve"].setDigitalValue(False)
+        if "deuterium_valve" in a:
+            a["deuterium_valve"].setDigitalValue(False)
         self._set_voltage_kv(0)
 
     def _enter_venting_foreline(self):
-        c = self.components
-        c["atm_valve"].setDigitalValue(False)
-        c["mech_pump"].setDigitalValue(True)
-        c["turbo_pump"].setDigitalValue(True)
-        c["foreline_valve"].setDigitalValue(True)
-        c["fusor_valve"].setDigitalValue(True)
-        c["deuterium_valve"].setDigitalValue(False)
+        a = self.actuators
+        if "atm_valve" in a:
+            a["atm_valve"].setDigitalValue(False)
+        if "mech_pump" in a:
+            a["mech_pump"].setDigitalValue(True)
+        if "turbo_pump" in a:
+            a["turbo_pump"].setDigitalValue(True)
+        if "foreline_valve" in a:
+            a["foreline_valve"].setDigitalValue(True)
+        if "fusor_valve" in a:
+            a["fusor_valve"].setDigitalValue(True)
+        if "deuterium_valve" in a:
+            a["deuterium_valve"].setDigitalValue(False)
         self._set_voltage_kv(0)
 
 
@@ -355,10 +403,10 @@ class FusorHostApp:
 
         self.tcp_command_client = TCPCommandClient(target_ip, target_tcp_command_port)
 
-        self.tcp_data_client = TCPDataClient(
+        self.udp_data_client = UDPDataClient(
             target_ip=target_ip,
             target_port=tcp_data_port,
-            data_callback=self._handle_tcp_data,
+            data_callback=self._handle_udp_data,
         )
 
         self.udp_status_client = UDPStatusClient(target_ip, 8889)
@@ -384,28 +432,31 @@ class FusorHostApp:
         # Track previous values to only log changes
         self.previous_values = {}
 
-        component_map = {
-            "Main Supply": {"type": "power_supply"},
-            "Atm Depressure Valve": {"type": "valve", "valve_id": 1},
-            "Foreline Valve": {"type": "valve", "valve_id": 2},
-            "Vacuum System Valve": {"type": "valve", "valve_id": 3},
-            "Roughing Pump": {"type": "mechanical_pump"},
-            "Turbo Pump": {"type": "turbo_pump"},
-            "Deuterium Supply Valve": {"type": "valve", "valve_id": 4},
+        self.tcp_client_object = TCPClientObject(self.tcp_command_client)
+        
+        self.actuators = {
+            "power_supply": ActuatorObject("power supply", "power supply", self.tcp_command_client, _build_actuator_command, self.tcp_client_object),
+            "atm_valve": ActuatorObject("valve1", "valve1", self.tcp_command_client, _build_actuator_command, self.tcp_client_object),
+            "foreline_valve": ActuatorObject("valve 2", "valve 2", self.tcp_command_client, _build_actuator_command, self.tcp_client_object),
+            "fusor_valve": ActuatorObject("valve 3", "valve 3", self.tcp_command_client, _build_actuator_command, self.tcp_client_object),
+            "mech_pump": ActuatorObject("roughing pump", "roughing pump", self.tcp_command_client, _build_actuator_command, self.tcp_client_object),
+            "turbo_pump": ActuatorObject("turbo pump", "turbo pump", self.tcp_command_client, _build_actuator_command, self.tcp_client_object),
+            "deuterium_valve": ActuatorObject("valve 4", "valve 4", self.tcp_command_client, _build_actuator_command, self.tcp_client_object),
         }
-
-        self.components = {
-            "power_supply": FusorComponent("Main Supply", self.tcp_command_client, component_map),
-            "atm_valve": FusorComponent("Atm Depressure Valve", self.tcp_command_client, component_map),
-            "foreline_valve": FusorComponent("Foreline Valve", self.tcp_command_client, component_map),
-            "fusor_valve": FusorComponent("Vacuum System Valve", self.tcp_command_client, component_map),
-            "mech_pump": FusorComponent("Roughing Pump", self.tcp_command_client, component_map),
-            "turbo_pump": FusorComponent("Turbo Pump", self.tcp_command_client, component_map),
-            "deuterium_valve": FusorComponent("Deuterium Supply Valve", self.tcp_command_client, component_map),
+        
+        for actuator_name, actuator in self.actuators.items():
+            self.tcp_client_object.register_actuator(actuator.name, actuator.label)
+        
+        self.sensors = {
+            "pressure_sensor_1": SensorObject("pressure sensor 1"),
+            "pressure_sensor_2": SensorObject("pressure sensor 2"),
         }
+        
+        self.udp_client_object = UDPClientObject(self.sensors)
 
         self.auto_controller = AutoController(
-            self.components,
+            self.actuators,
+            sensors=self.sensors,
             state_callback=self._auto_update_state_label,
             log_callback=self._auto_log_event,
         )
@@ -422,12 +473,10 @@ class FusorHostApp:
             self._update_status("Connected to target", "green")
             self._update_data_display("[System] Connected to target successfully")
 
-        # Start TCP data client for periodic updates
-        self.tcp_data_client.start()
-        logger.info("TCP data client started - waiting for periodic updates from target...")
-        print("TCP data client started - waiting for periodic updates from target...")
+        self.udp_data_client.start()
+        logger.info("UDP data client started - receiving telemetry from target...")
+        print("UDP data client started - receiving telemetry from target...")
 
-        # Start UDP status communication
         self.udp_status_client.start()
         self.udp_status_receiver.start()
         logger.info("UDP status receiver started - waiting for status updates from target...")
@@ -891,9 +940,9 @@ class FusorHostApp:
     def _manual_slider_change(self, value):
         if self.manual_mech_label:
             self.manual_mech_label.configure(text=f"Mechanical Pump (Live %): {int(value)}")
-        component = self.components.get("mech_pump")
-        if component:
-            component.setAnalogValue(value)
+        actuator = self.actuators.get("mech_pump")
+        if actuator:
+            actuator.setAnalogValue(value)
 
     def _update_pressure_display(self, value):
         if self.pressure_label:
@@ -961,9 +1010,8 @@ class FusorHostApp:
             self._update_status("Invalid steps value", "red")
             self._update_data_display("[ERROR] Steps must be a number")
 
-    def _handle_tcp_data(self, data: str):
-        """Handle periodic data received from target via TCP."""
-        self._update_data_display(f"[TCP Data] {data}")
+    def _handle_udp_data(self, data: str):
+        self._update_data_display(f"[UDP Data] {data}")
         self._update_target_snapshot(data)
         parsed = self._parse_periodic_packet(data)
         
@@ -1044,36 +1092,33 @@ class FusorHostApp:
                 self._log_terminal_update("TARGET_ERROR", data)
 
     def _handle_udp_status(self, message: str, address: tuple):
-        """Handle status messages received from target via UDP."""
         self._update_data_display(f"[UDP Status] From {address[0]}: {message}")
         self._update_target_snapshot(message)
         
-        # Check for errors (always log errors)
         has_error = "ERROR" in message.upper() or "FAILED" in message.upper() or "WARNING" in message.upper()
+        
+        matched_sensor = self.udp_client_object.process_received_data(message)
+        
+        if matched_sensor:
+            sensor = self.sensors.get(matched_sensor)
+            if sensor and sensor.value is not None:
+                if matched_sensor == "pressure_sensor_1":
+                    self._update_pressure_display(sensor.value)
+                    prev_pressure = self.previous_values.get("Pressure_Sensor_1")
+                    if prev_pressure != sensor.value:
+                        self._log_terminal_update("TARGET_STATUS", f"Pressure Sensor 1: {sensor.value} mT")
+                        self.previous_values["Pressure_Sensor_1"] = sensor.value
         
         try:
             payload = json.loads(message)
-            identifier = payload.get("id")
-            value = payload.get("value")
-            
-            # Track pressure sensor values for changes
-            if identifier == "Pressure Sensor 1" and value is not None:
-                prev_pressure = self.previous_values.get("Pressure_Sensor_1")
-                if prev_pressure != value:
-                    self._log_terminal_update("TARGET_STATUS", f"Pressure Sensor 1: {value} mT")
-                    self.previous_values["Pressure_Sensor_1"] = value
-                self._update_pressure_display(value)
-            
             telemetry = payload.get("telemetry")
             if telemetry:
                 self.telemetry_mapper.handle_telemetry(telemetry)
             
-            # Log if error detected
             if has_error:
                 self._log_terminal_update("TARGET_ERROR", message)
                 
         except json.JSONDecodeError:
-            # Not JSON - log if it looks like an error
             if has_error:
                 self._log_terminal_update("TARGET_ERROR", message)
         except Exception as exc:
@@ -1179,14 +1224,14 @@ class FusorHostApp:
     def run(self):
         print("=" * 70)
         print("Fusor Host Application starting...")
-        print(f"Target IP: {self.target_ip}:{self.target_tcp_command_port}")
-        print(f"TCP Data Port: {self.tcp_data_port}")
-        print(f"UDP Status Port: {self.udp_status_port}")
+        print(f"Target IP: {self.target_ip}")
+        print(f"  TCP Commands: Port {self.target_tcp_command_port} (Host → RPi)")
+        print(f"  UDP Data: Port {self.tcp_data_port} (RPi → Host)")
+        print(f"  UDP Status: Port {self.udp_status_port} (Bidirectional)")
         print("\nControl panel opening...")
-        print("All buttons send commands to target.")
-        print("Target listens, takes action, and sends read-only data back.")
+        print("Commands sent via TCP (reliable), data received via UDP (efficient)")
         print("\n" + "=" * 70)
-        print("PERIODIC UPDATES FROM TARGET (displayed below):")
+        print("TELEMETRY FROM TARGET (displayed below):")
         print("=" * 70)
 
         try:
@@ -1213,11 +1258,10 @@ class FusorHostApp:
         except Exception as e:
             logger.error(f"Error disconnecting TCP client: {e}")
 
-        # Stop TCP data client
         try:
-            self.tcp_data_client.stop()
+            self.udp_data_client.stop()
         except Exception as e:
-            logger.error(f"Error stopping TCP data client: {e}")
+            logger.error(f"Error stopping UDP data client: {e}")
 
         # Stop UDP status communication
         try:
