@@ -44,36 +44,68 @@ class ArduinoInterface:
             
             logger.info(f"Found {len(ports)} serial port(s):")
             for port_info in ports:
+                try:
+                    vid = getattr(port_info, 'vid', None)
+                    if vid is not None:
+                        vid_str = f"{vid:04X}"
+                    else:
+                        vid_str = "N/A"
+                except (AttributeError, TypeError, ValueError):
+                    vid_str = "N/A"
+                
+                try:
+                    pid = getattr(port_info, 'pid', None)
+                    if pid is not None:
+                        pid_str = f"{pid:04X}"
+                    else:
+                        pid_str = "N/A"
+                except (AttributeError, TypeError, ValueError):
+                    pid_str = "N/A"
+                
+                try:
+                    description = getattr(port_info, 'description', None) or "N/A"
+                    device = getattr(port_info, 'device', 'N/A')
+                except (AttributeError, TypeError):
+                    description = "N/A"
+                    device = "N/A"
+                
                 logger.info(
-                    f"  - {port_info.device}: {port_info.description} "
-                    f"(VID={port_info.vid:04X}, PID={port_info.pid:04X})"
+                    f"  - {device}: {description} "
+                    f"(VID={vid_str}, PID={pid_str})"
                 )
             
             for port_info in ports:
+                if not port_info.device:
+                    continue
                 description_upper = port_info.description.upper() if port_info.description else ""
                 if any(
                     identifier in description_upper
                     for identifier in ["ARDUINO", "USB", "SERIAL", "CH340", "FTDI", "CP210", "PL2303"]
                 ):
+                    desc = port_info.description if port_info.description else "N/A"
                     logger.info(
                         f"Auto-detected Arduino on port: {port_info.device} "
-                        f"({port_info.description})"
+                        f"({desc})"
                     )
                     return port_info.device
             
             for port_info in ports:
                 device = port_info.device
+                if not device:
+                    continue
                 if device.startswith("/dev/ttyUSB") or device.startswith("/dev/ttyACM") or device.startswith("/dev/ttyAMA"):
+                    desc = port_info.description if port_info.description else "N/A"
                     logger.info(
                         f"Auto-detected USB serial port: {device} "
-                        f"({port_info.description})"
+                        f"({desc})"
                     )
                     return device
             
-            if len(ports) == 1:
+            if len(ports) == 1 and ports[0].device:
+                desc = ports[0].description if ports[0].description else "N/A"
                 logger.info(
                     f"Only one port found, using it: {ports[0].device} "
-                    f"({ports[0].description})"
+                    f"({desc})"
                 )
                 return ports[0].device
                     
