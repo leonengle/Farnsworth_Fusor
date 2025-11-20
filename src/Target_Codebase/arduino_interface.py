@@ -37,10 +37,23 @@ class ArduinoInterface:
     def _detect_arduino_port(self) -> Optional[str]:
         try:
             ports = serial.tools.list_ports.comports()
+            
+            if not ports:
+                logger.warning("No serial ports found on system")
+                return None
+            
+            logger.info(f"Found {len(ports)} serial port(s):")
             for port_info in ports:
+                logger.info(
+                    f"  - {port_info.device}: {port_info.description} "
+                    f"(VID={port_info.vid:04X}, PID={port_info.pid:04X})"
+                )
+            
+            for port_info in ports:
+                description_upper = port_info.description.upper() if port_info.description else ""
                 if any(
-                    identifier in port_info.description.upper()
-                    for identifier in ["ARDUINO", "USB", "SERIAL", "CH340", "FTDI"]
+                    identifier in description_upper
+                    for identifier in ["ARDUINO", "USB", "SERIAL", "CH340", "FTDI", "CP210", "PL2303"]
                 ):
                     logger.info(
                         f"Auto-detected Arduino on port: {port_info.device} "
@@ -49,16 +62,23 @@ class ArduinoInterface:
                     return port_info.device
             
             for port_info in ports:
-                if port_info.device.startswith("/dev/ttyUSB") or port_info.device.startswith(
-                    "/dev/ttyACM"
-                ):
+                device = port_info.device
+                if device.startswith("/dev/ttyUSB") or device.startswith("/dev/ttyACM") or device.startswith("/dev/ttyAMA"):
                     logger.info(
-                        f"Auto-detected USB serial port: {port_info.device} "
+                        f"Auto-detected USB serial port: {device} "
                         f"({port_info.description})"
                     )
-                    return port_info.device
+                    return device
+            
+            if len(ports) == 1:
+                logger.info(
+                    f"Only one port found, using it: {ports[0].device} "
+                    f"({ports[0].description})"
+                )
+                return ports[0].device
                     
-            logger.warning("No Arduino port auto-detected")
+            logger.warning("No Arduino port auto-detected - multiple ports found or no USB serial ports")
+            logger.warning("Try specifying port manually with --arduino-port argument")
             return None
         except Exception as e:
             logger.error(f"Error during Arduino port detection: {e}")
