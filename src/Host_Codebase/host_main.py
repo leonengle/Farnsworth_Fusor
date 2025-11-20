@@ -611,7 +611,7 @@ class FusorHostApp:
 
         vacuum_label = ctk.CTkLabel(
             vacuum_frame,
-            text="Vacuum Control",
+            text="Depressure Valve",
             font=ctk.CTkFont(size=14, weight="bold"),
         )
         vacuum_label.pack(pady=5)
@@ -646,6 +646,53 @@ class FusorHostApp:
             width=120,
         )
         pump_button.pack(side="left", padx=5)
+
+        # ----------------------------------------------------
+        # NEW: Manual Valve Sliders (Foreline, Vacsys, Deuterium)
+        # ----------------------------------------------------
+
+        new_valve_frame = ctk.CTkFrame(vacuum_frame)
+        new_valve_frame.pack(fill="x", padx=10, pady=10)
+
+        # Foreline Valve
+        foreline_label = ctk.CTkLabel(
+            new_valve_frame, text="Foreline Valve (%):", font=ctk.CTkFont(size=12)
+        )
+        foreline_label.pack(anchor="w")
+
+        self.foreline_manual_slider = ctk.CTkSlider(
+            new_valve_frame, from_=0, to=100,
+            command=lambda v: self._set_valve("foreline_valve", v)
+        )
+        self.foreline_manual_slider.set(0)
+        self.foreline_manual_slider.pack(fill="x", pady=3)
+
+        # Vacsys Valve
+        vacsys_label = ctk.CTkLabel(
+            new_valve_frame, text="Vacsys Valve (%):", font=ctk.CTkFont(size=12)
+        )
+        vacsys_label.pack(anchor="w")
+
+        self.vacsys_manual_slider = ctk.CTkSlider(
+            new_valve_frame, from_=0, to=100,
+            command=lambda v: self._set_valve("fusor_valve", v)
+        )
+        self.vacsys_manual_slider.set(0)
+        self.vacsys_manual_slider.pack(fill="x", pady=3)
+
+        # Deuterium Valve
+        deut_label = ctk.CTkLabel(
+            new_valve_frame, text="Deuterium Valve (%):", font=ctk.CTkFont(size=12)
+        )
+        deut_label.pack(anchor="w")
+
+        self.deuterium_manual_slider = ctk.CTkSlider(
+            new_valve_frame, from_=0, to=100,
+            command=lambda v: self._set_valve("deuterium_valve", v)
+        )
+        self.deuterium_manual_slider.set(0)
+        self.deuterium_manual_slider.pack(fill="x", pady=3)
+
 
         motor_frame = ctk.CTkFrame(manual_tab)
         motor_frame.pack(fill="x", padx=10, pady=5)
