@@ -9,6 +9,8 @@ class ArduinoCommandValidator:
     VALID_MOTOR_IDS = [1, 2, 3, 4]
     MIN_MOTOR_STEPS = -10000
     MAX_MOTOR_STEPS = 10000
+    MIN_MOTOR_DEGREE = 0.0
+    MAX_MOTOR_DEGREE = 360.0
     MIN_MOTOR_SPEED = 0.0
     MAX_MOTOR_SPEED = 100.0
     VALID_DIRECTIONS = ["FORWARD", "BACKWARD", "REVERSE"]
@@ -41,6 +43,57 @@ class ArduinoCommandValidator:
     
     def __init__(self):
         logger.info("Arduino Command Validator initialized")
+    
+    @staticmethod
+    def map_percentage_to_degree(percentage: float) -> float:
+        """
+        Maps percentage (0-100) or power level (0-100) to motor degree (0-360).
+        
+        Args:
+            percentage: Value between 0 and 100 (slider percentage or power level)
+        
+        Returns:
+            Motor degree value between 0 and 360
+        """
+        percentage = max(0.0, min(100.0, float(percentage)))
+        degree = (percentage / 100.0) * 360.0
+        return round(degree, 2)
+    
+    def validate_motor_degree_object(self, component_name: str, motor_degree: float) -> Tuple[bool, Optional[str]]:
+        """
+        Validates a motor command object with component_name and motor_degree.
+        
+        Args:
+            component_name: Name of the motor component (e.g., "MOTOR_1", "MOTOR_2")
+            motor_degree: Motor degree value (0-360)
+        
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        if not component_name or not isinstance(component_name, str):
+            return False, "Component name must be a non-empty string"
+        
+        try:
+            motor_id = None
+            if component_name.upper().startswith("MOTOR_"):
+                try:
+                    motor_id = int(component_name.upper().replace("MOTOR_", ""))
+                except ValueError:
+                    pass
+            
+            if motor_id is None or motor_id not in self.VALID_MOTOR_IDS:
+                return False, f"Invalid component name: {component_name} (must be MOTOR_1, MOTOR_2, MOTOR_3, or MOTOR_4)"
+            
+            try:
+                degree_float = float(motor_degree)
+                if degree_float < self.MIN_MOTOR_DEGREE or degree_float > self.MAX_MOTOR_DEGREE:
+                    return False, f"Motor degree out of range: {degree_float} (must be {self.MIN_MOTOR_DEGREE} to {self.MAX_MOTOR_DEGREE})"
+                
+                return True, None
+            except (ValueError, TypeError):
+                return False, f"Invalid motor degree value: {motor_degree}"
+        except Exception as e:
+            return False, f"Error validating motor degree object: {e}"
     
     def validate_motor_command(self, motor_id: int, command: str, *args) -> Tuple[bool, Optional[str]]:
         if motor_id not in self.VALID_MOTOR_IDS:

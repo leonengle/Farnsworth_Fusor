@@ -54,6 +54,44 @@ class BundledInterface:
             return response
         return None
 
+    def send_motor_object(self, motor_id: int, percentage_or_power: float) -> bool:
+        """
+        Sends a motor command object to Arduino with component_name and motor_degree.
+        Maps percentage/power (0-100) to motor degree (0-360).
+        
+        Args:
+            motor_id: Motor ID (1-4)
+            percentage_or_power: Slider percentage or power level (0-100)
+        
+        Returns:
+            True if command was sent successfully, False otherwise
+        """
+        if not self.arduino_interface:
+            logger.error("Motor control requires Arduino interface (not available)")
+            return False
+        
+        if not self.arduino_interface.is_connected():
+            logger.error("Motor control requires Arduino interface (not connected)")
+            return False
+        
+        if motor_id < 1 or motor_id > 4:
+            logger.error(f"Invalid motor ID: {motor_id} (must be 1-4)")
+            return False
+        
+        component_name = f"MOTOR_{motor_id}"
+        motor_degree = self.validator.map_percentage_to_degree(percentage_or_power)
+        
+        is_valid, error = self.validator.validate_motor_degree_object(component_name, motor_degree)
+        if not is_valid:
+            logger.error(f"Motor degree object validation failed: {error}")
+            return False
+        
+        if self.arduino_interface.send_motor_object(component_name, motor_degree):
+            logger.debug(f"Sent motor object: {component_name}, degree: {motor_degree} (from {percentage_or_power}%)")
+            return True
+        
+        return False
+
     def send_analog_to_arduino(self, label: str, value) -> bool:
         if not self.arduino_interface:
             return False

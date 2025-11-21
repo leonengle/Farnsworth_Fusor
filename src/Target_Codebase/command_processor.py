@@ -458,6 +458,30 @@ class CommandProcessor:
                 except (ValueError, IndexError):
                     return "SET_MOTOR_SPEED_FAILED: Invalid format"
 
+            elif command.startswith("SET_MOTOR_POSITION:"):
+                try:
+                    parts = command.split(":")
+                    if len(parts) < 3:
+                        return "SET_MOTOR_POSITION_FAILED: Invalid format (expected: SET_MOTOR_POSITION:ID:PERCENTAGE)"
+                    
+                    motor_id = int(parts[1])
+                    percentage = float(parts[2])
+                    
+                    if motor_id < 1 or motor_id > 4:
+                        return f"SET_MOTOR_POSITION_FAILED: Motor ID must be 1-4"
+                    
+                    if percentage < 0 or percentage > 100:
+                        return f"SET_MOTOR_POSITION_FAILED: Percentage must be 0-100"
+                    
+                    if self.bundled_interface.send_motor_object(motor_id, percentage):
+                        motor_degree = self.bundled_interface.validator.map_percentage_to_degree(percentage)
+                        return f"SET_MOTOR_POSITION{motor_id}_SUCCESS:{percentage}% ({motor_degree}°)"
+                    else:
+                        return f"SET_MOTOR_POSITION{motor_id}_FAILED"
+                    
+                except (ValueError, IndexError) as e:
+                    return f"SET_MOTOR_POSITION_FAILED: Invalid format - {e}"
+
             elif command.startswith("MOVE_VAR:"):
                 try:
                     steps = int(command.split(":")[1])

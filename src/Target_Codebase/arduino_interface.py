@@ -2,7 +2,8 @@ import serial
 import serial.tools.list_ports
 import time
 import threading
-from typing import Optional, Callable
+import json
+from typing import Optional, Callable, Dict
 from logging_setup import setup_logging, get_logger
 
 setup_logging()
@@ -234,6 +235,26 @@ class ArduinoInterface:
             value_str = str(value)
         command = f"ANALOG:{component_label}:{value_str}"
         return self.send_command(command)
+
+    def send_motor_object(self, component_name: str, motor_degree: float) -> bool:
+        if not component_name:
+            logger.warning("Motor command missing component name")
+            return False
+        
+        try:
+            motor_object = {
+                "component_name": component_name,
+                "motor_degree": float(motor_degree)
+            }
+            command_json = json.dumps(motor_object)
+            command = f"MOTOR:{command_json}"
+            return self.send_command(command)
+        except (ValueError, TypeError) as e:
+            logger.error(f"Invalid motor degree value: {motor_degree} - {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Error creating motor command object: {e}")
+            return False
 
     def read_data(self, timeout: Optional[float] = None) -> Optional[str]:
         if not self.connected or not self.serial_connection or not self.serial_connection.is_open:
