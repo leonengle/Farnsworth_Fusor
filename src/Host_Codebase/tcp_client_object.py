@@ -1,5 +1,6 @@
 from typing import Dict, Optional
 from tcp_command_client import TCPCommandClient
+import threading
 import logging
 
 logger = logging.getLogger("TCPClientObject")
@@ -10,22 +11,32 @@ class TCPClientObject:
         self.tcp_client = tcp_client
         self.actuator_registry: Dict[str, Dict] = {}
         self.label_counter = 0
+        self._registry_lock = threading.Lock()
 
     def register_actuator(self, actuator_name: str, actuator_label: str):
-        label_hex = format(self.label_counter, '04x')
-        self.actuator_registry[actuator_name] = {
-            "name": actuator_name,
-            "label": actuator_label,
-            "label_hex": label_hex
-        }
-        self.label_counter += 1
-        logger.info(f"Registered actuator: {actuator_name} with label '{actuator_label}' (hex: {label_hex})")
+        with self._registry_lock:
+            label_hex = format(self.label_counter, '04x')
+            self.actuator_registry[actuator_name] = {
+                "name": actuator_name,
+                "label": actuator_label,
+                "label_hex": label_hex
+            }
+            self.label_counter += 1
+            logger.info(f"Registered actuator: {actuator_name} with label '{actuator_label}' (hex: {label_hex})")
 
     def send_actuator_command(self, actuator_name: str, actuator_value: float, actuator_label: str):
-        if actuator_name not in self.actuator_registry:
-            self.register_actuator(actuator_name, actuator_label)
-        
-        actuator_info = self.actuator_registry[actuator_name]
+        with self._registry_lock:
+            if actuator_name not in self.actuator_registry:
+                label_hex = format(self.label_counter, '04x')
+                self.actuator_registry[actuator_name] = {
+                    "name": actuator_name,
+                    "label": actuator_label,
+                    "label_hex": label_hex
+                }
+                self.label_counter += 1
+                logger.info(f"Registered actuator: {actuator_name} with label '{actuator_label}' (hex: {label_hex})")
+            
+            actuator_info = self.actuator_registry[actuator_name]
         
         if not self.tcp_client.is_connected():
             if not self.tcp_client.connect():

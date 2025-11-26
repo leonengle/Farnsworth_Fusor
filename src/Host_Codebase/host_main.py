@@ -7,7 +7,9 @@ import signal
 import sys
 import atexit
 import json
+import threading
 from enum import Enum, auto
+from queue import Queue
 from tcp_command_client import TCPCommandClient
 from udp_data_client import UDPDataClient
 from udp_status_client import UDPStatusClient, UDPStatusReceiver
@@ -34,6 +36,8 @@ def _build_actuator_command(actuator_name: str, value: float) -> str:
             return f"SET_VALVE3:{int(value)}"
         elif "deuterium" in actuator_name.lower() or "supply" in actuator_name.lower():
             return f"SET_VALVE4:{int(value)}"
+        elif "turbo" in actuator_name.lower():
+            return f"SET_VALVE5:{int(value)}"
     elif "power" in actuator_name.lower() or "supply" in actuator_name.lower():
         return f"SET_VOLTAGE:{int(value)}"
     elif "pump" in actuator_name.lower():
@@ -124,6 +128,8 @@ class AutoController:
         logger.info(message)
 
     def _set_voltage_kv(self, kv: float):
+        # Note: AutoController accesses actuators, but it's called from main thread
+        # via telemetry mapper, so no lock needed here
         if "power_supply" in self.actuators:
             self.actuators["power_supply"].setAnalogValue(kv * 1000.0)
 
@@ -416,6 +422,16 @@ class FusorHostApp:
 
         self.root = None
         self.data_display = None
+        self.data_log_window = None
+        self.target_logs_display = None
+        self.adc_ch0_label = None
+        self.adc_ch1_label = None
+        self.adc_ch2_label = None
+        self.adc_ch3_label = None
+        self.adc_ch4_label = None
+        self.adc_ch5_label = None
+        self.adc_ch6_label = None
+        self.adc_ch7_label = None
         self.status_label = None
         self.voltage_scale = None
         self.pump_power_scale = None
@@ -425,12 +441,16 @@ class FusorHostApp:
         self.adc_label = None
         self.auto_state_label = None
         self.auto_log_display = None
-        self.target_snapshot_var = None
-        self.target_snapshot_entry = None
         self.terminal_updates_enabled = terminal_updates
+        self._initial_log_message = None
         
-        # Track previous values to only log changes
         self.previous_values = {}
+        
+        self._previous_values_lock = threading.Lock()
+        self._actuators_lock = threading.Lock()
+        self._sensors_lock = threading.Lock()
+        self._gui_update_queue = Queue()
+        self._shutdown_event = threading.Event()
 
         self.tcp_client_object = TCPClientObject(self.tcp_command_client)
         
@@ -438,6 +458,7 @@ class FusorHostApp:
             "power_supply": ActuatorObject("power supply", "power supply", self.tcp_command_client, _build_actuator_command, self.tcp_client_object),
             "atm_valve": ActuatorObject("valve1", "valve1", self.tcp_command_client, _build_actuator_command, self.tcp_client_object),
             "foreline_valve": ActuatorObject("valve 2", "valve 2", self.tcp_command_client, _build_actuator_command, self.tcp_client_object),
+            "turbo_valve": ActuatorObject("turbo valve", "turbo valve", self.tcp_command_client, _build_actuator_command, self.tcp_client_object),
             "fusor_valve": ActuatorObject("valve 3", "valve 3", self.tcp_command_client, _build_actuator_command, self.tcp_client_object),
             "mech_pump": ActuatorObject("roughing pump", "roughing pump", self.tcp_command_client, _build_actuator_command, self.tcp_client_object),
             "turbo_pump": ActuatorObject("turbo pump", "turbo pump", self.tcp_command_client, _build_actuator_command, self.tcp_client_object),
@@ -466,12 +487,16 @@ class FusorHostApp:
 
         if not self.tcp_command_client.connect():
             self._update_status("Failed to connect to target on startup", "red")
-            self._update_data_display(
-                "[ERROR] Failed to connect to target - check network connection"
-            )
+            initial_msg = "[ERROR] Failed to connect to target - check network connection"
+            self._initial_log_message = initial_msg
+            if self.data_display:
+                self._update_data_display(initial_msg)
         else:
             self._update_status("Connected to target", "green")
-            self._update_data_display("[System] Connected to target successfully")
+            initial_msg = "[System] Connected to target successfully"
+            self._initial_log_message = initial_msg
+            if self.data_display:
+                self._update_data_display(initial_msg)
 
         self.udp_data_client.start()
         logger.info("UDP data client started - receiving telemetry from target...")
@@ -501,300 +526,390 @@ class FusorHostApp:
         self.tabview.pack(fill="both", expand=True, padx=5, pady=5)
         manual_tab = self.tabview.add("Manual Control")
         auto_tab = self.tabview.add("Auto / FSM")
+        data_reading_tab = self.tabview.add("Data Reading")
+        log_reading_tab = self.tabview.add("Log Reading")
 
-        manual_header = ctk.CTkLabel(
+        title_label_manual = ctk.CTkLabel(
             manual_tab,
-            text="Manual Controls & Telemetry",
+            text="Fusor Manual Control Panel",
             font=ctk.CTkFont(size=18, weight="bold"),
         )
-        manual_header.pack(pady=5)
+        title_label_manual.pack(pady=10)
 
-        slider_frame = ctk.CTkFrame(manual_tab)
-        slider_frame.pack(fill="x", padx=10, pady=5)
+        main_container = ctk.CTkFrame(manual_tab)
+        main_container.pack(fill="both", expand=True, padx=10, pady=5)
 
-        self.manual_mech_slider = ctk.CTkSlider(
-            slider_frame, from_=0.0, to=100.0, command=self._manual_slider_change
+        left_column = ctk.CTkFrame(main_container)
+        left_column.pack(fill="both", expand=True, padx=5)
+
+        power_supply_section = ctk.CTkFrame(left_column)
+        power_supply_section.pack(fill="x", padx=5, pady=5)
+
+        voltage_slider_frame = ctk.CTkFrame(power_supply_section)
+        voltage_slider_frame.pack(fill="x", padx=5, pady=5)
+
+        voltage_slider_label = ctk.CTkLabel(
+            voltage_slider_frame, text="Voltage Output Slider", font=ctk.CTkFont(size=12)
         )
-        self.manual_mech_slider.pack(side="left", padx=10, pady=10, fill="x", expand=True)
-        self.manual_mech_slider.set(0)
-        self.manual_mech_label = ctk.CTkLabel(
-            slider_frame, text="Mechanical Pump (Live %): 0"
-        )
-        self.manual_mech_label.pack(side="left", padx=10)
-
-        self.pressure_label = ctk.CTkLabel(
-            manual_tab,
-            text="Pressure Sensor 1: --- mT",
-            font=ctk.CTkFont(size=14),
-        )
-        self.pressure_label.pack(pady=5)
-
-        self.adc_label = ctk.CTkLabel(
-            manual_tab,
-            text="ADC CH0: ---",
-            font=ctk.CTkFont(size=14),
-        )
-        self.adc_label.pack(pady=5)
-
-        led_frame = ctk.CTkFrame(manual_tab)
-        led_frame.pack(fill="x", padx=10, pady=5)
-
-        led_label = ctk.CTkLabel(led_frame, text="LED Control", font=ctk.CTkFont(size=14, weight="bold"))
-        led_label.pack(pady=5)
-
-        led_button_frame = ctk.CTkFrame(led_frame)
-        led_button_frame.pack(pady=5)
-
-        led_on_button = ctk.CTkButton(
-            led_button_frame,
-            text="LED ON",
-            command=lambda: self._send_command("LED_ON"),
-            font=ctk.CTkFont(size=14),
-            width=150,
-            height=40,
-            fg_color="green",
-            hover_color="darkgreen",
-        )
-        led_on_button.pack(side="left", padx=10, pady=10)
-
-        led_off_button = ctk.CTkButton(
-            led_button_frame,
-            text="LED OFF",
-            command=lambda: self._send_command("LED_OFF"),
-            font=ctk.CTkFont(size=14),
-            width=150,
-            height=40,
-            fg_color="red",
-            hover_color="darkred",
-        )
-        led_off_button.pack(side="left", padx=10, pady=10)
-
-        power_frame = ctk.CTkFrame(manual_tab)
-        power_frame.pack(fill="x", padx=10, pady=5)
-
-        power_label = ctk.CTkLabel(power_frame, text="Power Control", font=ctk.CTkFont(size=14, weight="bold"))
-        power_label.pack(pady=5)
-
-        power_control_frame = ctk.CTkFrame(power_frame)
-        power_control_frame.pack(pady=5)
-
-        voltage_label = ctk.CTkLabel(
-            power_control_frame, text="Desired Voltage (V):", font=ctk.CTkFont(size=12)
-        )
-        voltage_label.pack(side="left", padx=5)
-
-        self.voltage_value_label = ctk.CTkLabel(
-            power_control_frame, text="0", font=ctk.CTkFont(size=12), width=60
-        )
-        self.voltage_value_label.pack(side="left", padx=5)
+        voltage_slider_label.pack(pady=2)
 
         self.voltage_scale = ctk.CTkSlider(
-            power_control_frame,
+            voltage_slider_frame,
             from_=0,
             to=28000,
-            width=300,
             command=self._update_voltage_label,
         )
-        self.voltage_scale.pack(side="left", padx=5)
+        self.voltage_scale.set(0)
+        self.voltage_scale.pack(fill="x", padx=5, pady=5)
 
-        voltage_button = ctk.CTkButton(
-            power_control_frame,
+        self.voltage_value_label = ctk.CTkLabel(
+            voltage_slider_frame, text="0 V", font=ctk.CTkFont(size=11)
+        )
+        self.voltage_value_label.pack()
+
+        voltage_set_button = ctk.CTkButton(
+            voltage_slider_frame,
             text="Set Voltage",
             command=self._set_voltage,
-            font=ctk.CTkFont(size=12),
-            width=120,
+            font=ctk.CTkFont(size=11),
+            width=100,
         )
-        voltage_button.pack(side="left", padx=5)
+        voltage_set_button.pack(pady=5)
 
-        vacuum_frame = ctk.CTkFrame(manual_tab)
-        vacuum_frame.pack(fill="x", padx=10, pady=5)
+        pump_section = ctk.CTkFrame(left_column)
+        pump_section.pack(fill="x", padx=5, pady=5)
 
-        vacuum_label = ctk.CTkLabel(
-            vacuum_frame,
-            text="Depressure Valve",
-            font=ctk.CTkFont(size=14, weight="bold"),
+        pump_row = ctk.CTkFrame(pump_section)
+        pump_row.pack(fill="x", padx=5, pady=5)
+
+        mech_pump_frame = ctk.CTkFrame(pump_row)
+        mech_pump_frame.pack(side="left", fill="both", expand=True, padx=5)
+
+        mech_pump_label = ctk.CTkLabel(
+            mech_pump_frame, text="Mechanical Vacuum", font=ctk.CTkFont(size=12)
         )
-        vacuum_label.pack(pady=5)
+        mech_pump_label.pack(pady=2)
 
-        vacuum_control_frame = ctk.CTkFrame(vacuum_frame)
-        vacuum_control_frame.pack(pady=5)
-
-        pump_label = ctk.CTkLabel(
-            vacuum_control_frame, text="Pump Power (%):", font=ctk.CTkFont(size=12)
+        self.manual_mech_slider = ctk.CTkSlider(
+            mech_pump_frame, from_=0.0, to=100.0, command=self._manual_slider_change
         )
-        pump_label.pack(side="left", padx=5)
+        self.manual_mech_slider.set(0)
+        self.manual_mech_slider.pack(fill="x", padx=5, pady=5)
 
-        self.pump_value_label = ctk.CTkLabel(
-            vacuum_control_frame, text="0", font=ctk.CTkFont(size=12), width=60
+        self.manual_mech_label = ctk.CTkLabel(
+            mech_pump_frame, text="0%", font=ctk.CTkFont(size=11)
         )
-        self.pump_value_label.pack(side="left", padx=5)
+        self.manual_mech_label.pack()
 
-        self.pump_power_scale = ctk.CTkSlider(
-            vacuum_control_frame,
+        mech_pump_set_button = ctk.CTkButton(
+            mech_pump_frame,
+            text="Set",
+            command=lambda: self._set_mech_pump_power(self.manual_mech_slider.get()),
+            font=ctk.CTkFont(size=10),
+            width=80,
+            height=30,
+        )
+        mech_pump_set_button.pack(pady=5)
+
+        turbo_pump_frame = ctk.CTkFrame(pump_row)
+        turbo_pump_frame.pack(side="left", fill="both", expand=True, padx=5)
+
+        turbo_pump_label = ctk.CTkLabel(
+            turbo_pump_frame, text="Turbo Vacuum", font=ctk.CTkFont(size=12)
+        )
+        turbo_pump_label.pack(pady=2)
+
+        self.turbo_pump_slider = ctk.CTkSlider(
+            turbo_pump_frame, from_=0.0, to=100.0, command=self._update_turbo_pump_label
+        )
+        self.turbo_pump_slider.set(0)
+        self.turbo_pump_slider.pack(fill="x", padx=5, pady=5)
+
+        self.turbo_pump_value_label = ctk.CTkLabel(
+            turbo_pump_frame, text="0%", font=ctk.CTkFont(size=11)
+        )
+        self.turbo_pump_value_label.pack()
+
+        turbo_pump_set_button = ctk.CTkButton(
+            turbo_pump_frame,
+            text="Set",
+            command=lambda: self._set_turbo_pump_power(self.turbo_pump_slider.get()),
+            font=ctk.CTkFont(size=10),
+            width=80,
+            height=30,
+        )
+        turbo_pump_set_button.pack(pady=5)
+
+        valve_section = ctk.CTkFrame(left_column)
+        valve_section.pack(fill="x", padx=5, pady=5)
+
+        valve_label = ctk.CTkLabel(
+            valve_section, text="Valve Controls", font=ctk.CTkFont(size=12, weight="bold")
+        )
+        valve_label.pack(pady=5)
+
+        valve_row = ctk.CTkFrame(valve_section)
+        valve_row.pack(fill="x", padx=5, pady=5)
+
+        valve_names = ["ATM/Depressure", "Foreline", "Vacsys", "Deuterium", "Turbo"]
+        valve_actuator_keys = ["atm_valve", "foreline_valve", "fusor_valve", "deuterium_valve", "turbo_valve"]
+        self.valve_sliders = {}
+        self.valve_value_labels = {}
+
+        for i, (valve_name, actuator_key) in enumerate(zip(valve_names, valve_actuator_keys)):
+            valve_frame = ctk.CTkFrame(valve_row)
+            valve_frame.pack(side="left", fill="both", expand=True, padx=2)
+
+            valve_title = ctk.CTkLabel(
+                valve_frame, text=f"{valve_name} Valve", font=ctk.CTkFont(size=10)
+            )
+            valve_title.pack(pady=2)
+
+            slider = ctk.CTkSlider(
+                valve_frame,
             from_=0,
             to=100,
+                command=lambda v, k=actuator_key, idx=i: self._update_valve_label(k, idx, v)
+            )
+            slider.set(0)
+            slider.pack(fill="x", padx=3, pady=3)
+
+            value_label = ctk.CTkLabel(
+                valve_frame, text="0%", font=ctk.CTkFont(size=9)
+            )
+            value_label.pack()
+
+            set_button = ctk.CTkButton(
+                valve_frame,
+                text="Set",
+                command=lambda k=actuator_key, s=slider: self._set_valve(k, s.get()),
+                font=ctk.CTkFont(size=9),
+                width=50,
+                height=25,
+            )
+            set_button.pack(pady=2)
+
+            self.valve_sliders[actuator_key] = slider
+            self.valve_value_labels[actuator_key] = value_label
+
+        self.foreline_manual_slider = self.valve_sliders.get("foreline_valve")
+        self.turbo_valve_manual_slider = self.valve_sliders.get("turbo_valve")
+        self.vacsys_manual_slider = self.valve_sliders.get("fusor_valve")
+        self.deuterium_manual_slider = self.valve_sliders.get("deuterium_valve")
+        self.foreline_value_label = self.valve_value_labels.get("foreline_valve")
+        self.turbo_valve_value_label = self.valve_value_labels.get("turbo_valve")
+        self.vacsys_value_label = self.valve_value_labels.get("fusor_valve")
+        self.deuterium_value_label = self.valve_value_labels.get("deuterium_valve")
+
+        data_reading_title = ctk.CTkLabel(
+            data_reading_tab,
+            text="Sensor Data Readouts",
+            font=ctk.CTkFont(size=18, weight="bold"),
+        )
+        data_reading_title.pack(pady=10)
+
+        data_reading_container = ctk.CTkFrame(data_reading_tab)
+        data_reading_container.pack(fill="both", expand=True, padx=10, pady=10)
+
+        pressure_readout_frame = ctk.CTkFrame(data_reading_container)
+        pressure_readout_frame.pack(fill="x", padx=5, pady=8)
+
+        pressure_readout_label = ctk.CTkLabel(
+            pressure_readout_frame, text="Pressure Sensor Readouts", font=ctk.CTkFont(size=14, weight="bold")
+        )
+        pressure_readout_label.pack(pady=8)
+
+        pressure_row1 = ctk.CTkFrame(pressure_readout_frame)
+        pressure_row1.pack(fill="x", padx=5, pady=5)
+
+        self.pressure_display1 = ctk.CTkLabel(
+            pressure_row1,
+            text="Turbo Pressure Sensor [ADC CH1]: --- mT",
+            font=ctk.CTkFont(size=13),
+            anchor="w",
+            width=400,
+            height=30,
+        )
+        self.pressure_display1.pack(side="left", padx=8, pady=3)
+
+        pressure_row2 = ctk.CTkFrame(pressure_readout_frame)
+        pressure_row2.pack(fill="x", padx=5, pady=5)
+
+        self.pressure_display2 = ctk.CTkLabel(
+            pressure_row2,
+            text="Fusor Pressure Sensor [ADC CH2]: --- mT",
+            font=ctk.CTkFont(size=13),
+            anchor="w",
+            width=400,
+            height=30,
+        )
+        self.pressure_display2.pack(side="left", padx=8, pady=3)
+
+        pressure_row3 = ctk.CTkFrame(pressure_readout_frame)
+        pressure_row3.pack(fill="x", padx=5, pady=5)
+
+        self.pressure_display3 = ctk.CTkLabel(
+            pressure_row3,
+            text="Foreline Pressure Sensor [ADC CH3]: --- mT",
+            font=ctk.CTkFont(size=13),
+            anchor="w",
+            width=400,
+            height=30,
+        )
+        self.pressure_display3.pack(side="left", padx=8, pady=3)
+
+        self.pressure_label = self.pressure_display1
+
+        adc_readout_frame = ctk.CTkFrame(data_reading_container)
+        adc_readout_frame.pack(fill="x", padx=5, pady=8)
+
+        adc_readout_label = ctk.CTkLabel(
+            adc_readout_frame, text="ADC Channel Readouts", font=ctk.CTkFont(size=14, weight="bold")
+        )
+        adc_readout_label.pack(pady=8)
+
+        adc_row1 = ctk.CTkFrame(adc_readout_frame)
+        adc_row1.pack(fill="x", padx=5, pady=5)
+
+        self.adc_ch0_label = ctk.CTkLabel(
+            adc_row1,
+            text="ADC CH0 [Potentiometer - Testing]: ---",
+            font=ctk.CTkFont(size=13),
+            anchor="w",
             width=300,
-            command=self._update_pump_label,
+            height=30,
         )
-        self.pump_power_scale.pack(side="left", padx=5)
+        self.adc_ch0_label.pack(side="left", padx=8, pady=3)
 
-        pump_button = ctk.CTkButton(
-            vacuum_control_frame,
-            text="Set Pump Power",
-            command=self._set_pump_power,
-            font=ctk.CTkFont(size=12),
-            width=120,
+        adc_row2 = ctk.CTkFrame(adc_readout_frame)
+        adc_row2.pack(fill="x", padx=5, pady=5)
+
+        self.adc_ch1_label = ctk.CTkLabel(
+            adc_row2,
+            text="ADC CH1: ---",
+            font=ctk.CTkFont(size=13),
+            anchor="w",
+            width=180,
+            height=30,
         )
-        pump_button.pack(side="left", padx=5)
+        self.adc_ch1_label.pack(side="left", padx=8, pady=3)
 
-        # ----------------------------------------------------
-        # NEW: Manual Valve Sliders (Foreline, Vacsys, Deuterium)
-        # ----------------------------------------------------
-
-        new_valve_frame = ctk.CTkFrame(vacuum_frame)
-        new_valve_frame.pack(fill="x", padx=10, pady=10)
-
-        # Foreline Valve
-        foreline_label = ctk.CTkLabel(
-            new_valve_frame, text="Foreline Valve (%):", font=ctk.CTkFont(size=12)
+        self.adc_ch2_label = ctk.CTkLabel(
+            adc_row2,
+            text="ADC CH2: ---",
+            font=ctk.CTkFont(size=13),
+            anchor="w",
+            width=180,
+            height=30,
         )
-        foreline_label.pack(anchor="w")
+        self.adc_ch2_label.pack(side="left", padx=8, pady=3)
 
-        self.foreline_manual_slider = ctk.CTkSlider(
-            new_valve_frame, from_=0, to=100,
-            command=lambda v: self._set_valve("foreline_valve", v)
+        self.adc_ch3_label = ctk.CTkLabel(
+            adc_row2,
+            text="ADC CH3: ---",
+            font=ctk.CTkFont(size=13),
+            anchor="w",
+            width=180,
+            height=30,
         )
-        self.foreline_manual_slider.set(0)
-        self.foreline_manual_slider.pack(fill="x", pady=3)
+        self.adc_ch3_label.pack(side="left", padx=8, pady=3)
 
-        # Vacsys Valve
-        vacsys_label = ctk.CTkLabel(
-            new_valve_frame, text="Vacsys Valve (%):", font=ctk.CTkFont(size=12)
+        adc_row3 = ctk.CTkFrame(adc_readout_frame)
+        adc_row3.pack(fill="x", padx=5, pady=5)
+
+        self.adc_ch4_label = ctk.CTkLabel(
+            adc_row3,
+            text="ADC CH4: ---",
+            font=ctk.CTkFont(size=13),
+            anchor="w",
+            width=180,
+            height=30,
         )
-        vacsys_label.pack(anchor="w")
+        self.adc_ch4_label.pack(side="left", padx=8, pady=3)
 
-        self.vacsys_manual_slider = ctk.CTkSlider(
-            new_valve_frame, from_=0, to=100,
-            command=lambda v: self._set_valve("fusor_valve", v)
+        self.adc_ch5_label = ctk.CTkLabel(
+            adc_row3,
+            text="ADC CH5: ---",
+            font=ctk.CTkFont(size=13),
+            anchor="w",
+            width=180,
+            height=30,
         )
-        self.vacsys_manual_slider.set(0)
-        self.vacsys_manual_slider.pack(fill="x", pady=3)
+        self.adc_ch5_label.pack(side="left", padx=8, pady=3)
 
-        # Deuterium Valve
-        deut_label = ctk.CTkLabel(
-            new_valve_frame, text="Deuterium Valve (%):", font=ctk.CTkFont(size=12)
+        self.adc_ch6_label = ctk.CTkLabel(
+            adc_row3,
+            text="ADC CH6: ---",
+            font=ctk.CTkFont(size=13),
+            anchor="w",
+            width=180,
+            height=30,
         )
-        deut_label.pack(anchor="w")
+        self.adc_ch6_label.pack(side="left", padx=8, pady=3)
 
-        self.deuterium_manual_slider = ctk.CTkSlider(
-            new_valve_frame, from_=0, to=100,
-            command=lambda v: self._set_valve("deuterium_valve", v)
+        self.adc_ch7_label = ctk.CTkLabel(
+            adc_row3,
+            text="ADC CH7: ---",
+            font=ctk.CTkFont(size=13),
+            anchor="w",
+            width=180,
+            height=30,
         )
-        self.deuterium_manual_slider.set(0)
-        self.deuterium_manual_slider.pack(fill="x", pady=3)
+        self.adc_ch7_label.pack(side="left", padx=8, pady=3)
 
+        self.adc_label = self.adc_ch0_label
 
-        motor_frame = ctk.CTkFrame(manual_tab)
-        motor_frame.pack(fill="x", padx=10, pady=5)
+        log_window_button_frame = ctk.CTkFrame(data_reading_container)
+        log_window_button_frame.pack(fill="x", padx=5, pady=10)
 
-        motor_label = ctk.CTkLabel(
-            motor_frame, text="Motor Control", font=ctk.CTkFont(size=14, weight="bold")
+        open_log_window_button = ctk.CTkButton(
+            log_window_button_frame,
+            text="Open Data Log Window",
+            command=self._open_data_log_window,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            width=200,
+            height=40,
+            fg_color="blue",
+            hover_color="darkblue",
         )
-        motor_label.pack(pady=5)
+        open_log_window_button.pack(pady=10)
 
-        motor_control_frame = ctk.CTkFrame(motor_frame)
-        motor_control_frame.pack(pady=5)
-
-        steps_label = ctk.CTkLabel(
-            motor_control_frame, text="Steps:", font=ctk.CTkFont(size=12)
+        log_reading_title = ctk.CTkLabel(
+            log_reading_tab,
+            text="Target Logs (Live from Raspberry Pi)",
+            font=ctk.CTkFont(size=18, weight="bold"),
         )
-        steps_label.pack(side="left", padx=5)
+        log_reading_title.pack(pady=10)
 
-        self.steps_entry = ctk.CTkEntry(
-            motor_control_frame, width=100, font=ctk.CTkFont(size=12)
+        log_reading_container = ctk.CTkFrame(log_reading_tab)
+        log_reading_container.pack(fill="both", expand=True, padx=10, pady=10)
+
+        target_logs_frame = ctk.CTkFrame(log_reading_container)
+        target_logs_frame.pack(fill="both", expand=True, padx=5, pady=8)
+
+        target_logs_label = ctk.CTkLabel(
+            target_logs_frame, text="Live Target Logs", font=ctk.CTkFont(size=14, weight="bold")
         )
-        self.steps_entry.pack(side="left", padx=5)
-        self.steps_entry.insert(0, "100")
+        target_logs_label.pack(pady=8)
 
-        motor_button = ctk.CTkButton(
-            motor_control_frame,
-            text="Move Motor",
-            command=self._move_motor,
-            font=ctk.CTkFont(size=12),
-            width=120,
-        )
-        motor_button.pack(side="left", padx=5)
-
-        read_frame = ctk.CTkFrame(manual_tab)
-        read_frame.pack(fill="x", padx=10, pady=5)
-
-        read_label = ctk.CTkLabel(
-            read_frame, text="Read Data", font=ctk.CTkFont(size=14, weight="bold")
-        )
-        read_label.pack(pady=5)
-
-        read_button_frame = ctk.CTkFrame(read_frame)
-        read_button_frame.pack(pady=5)
-
-        read_input_button = ctk.CTkButton(
-            read_button_frame,
-            text="Read GPIO Input",
-            command=lambda: self._send_command(
-                self.command_handler.build_read_input_command()
-            ),
-            font=ctk.CTkFont(size=12),
-            width=150,
-        )
-        read_input_button.pack(side="left", padx=5)
-
-        read_adc_button = ctk.CTkButton(
-            read_button_frame,
-            text="Read ADC",
-            command=lambda: self._send_command(
-                self.command_handler.build_read_adc_command()
-            ),
-            font=ctk.CTkFont(size=12),
-            width=150,
-        )
-        read_adc_button.pack(side="left", padx=5)
-
-        data_frame = ctk.CTkFrame(manual_tab)
-        data_frame.pack(fill="both", expand=True, padx=10, pady=5)
-
-        data_label = ctk.CTkLabel(
-            data_frame,
-            text="Data Display (Read-Only from Target)",
-            font=ctk.CTkFont(size=14, weight="bold"),
-        )
-        data_label.pack(pady=5)
-
-        # Text display with built-in scrolling
-        self.data_display = ctk.CTkTextbox(
-            data_frame,
-            font=ctk.CTkFont(size=11, family="Courier"),
+        self.target_logs_display = ctk.CTkTextbox(
+            target_logs_frame,
+            font=ctk.CTkFont(size=10, family="Courier"),
             wrap="word",
-            height=200,
         )
-        self.data_display.pack(fill="both", expand=True, padx=5, pady=5)
+        self.target_logs_display.pack(fill="both", expand=True, padx=10, pady=10)
+        self.target_logs_display.insert("end", "[Target Logs] Waiting for logs from Raspberry Pi...\n")
+        self.target_logs_display.configure(state="disabled")
 
-        snapshot_frame = ctk.CTkFrame(manual_tab)
-        snapshot_frame.pack(fill="x", padx=10, pady=5)
-
-        snapshot_label = ctk.CTkLabel(
-            snapshot_frame,
-            text="Latest Target Message (read-only)",
-            font=ctk.CTkFont(size=13, weight="bold"),
+        clear_target_logs_button = ctk.CTkButton(
+            target_logs_frame,
+            text="Clear Target Logs",
+            command=self._clear_target_logs,
+            font=ctk.CTkFont(size=12),
+            width=150,
+            height=35,
         )
-        snapshot_label.pack(side="left", padx=5)
-
-        self.target_snapshot_var = ctk.StringVar(value="(no data yet)")
-        self.target_snapshot_entry = ctk.CTkEntry(
-            snapshot_frame,
-            textvariable=self.target_snapshot_var,
-            state="disabled",
-            width=600,
-        )
-        self.target_snapshot_entry.pack(side="left", padx=5, fill="x", expand=True)
+        clear_target_logs_button.pack(pady=10)
 
         auto_section = ctk.CTkFrame(auto_tab)
         auto_section.pack(fill="both", expand=True, padx=10, pady=10)
@@ -845,6 +960,8 @@ class FusorHostApp:
         self.status_label.pack(pady=5)
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
+        
+        self._process_gui_updates()
 
     def _send_command(self, command: str):
         if not command:
@@ -979,25 +1096,110 @@ class FusorHostApp:
             self._update_data_display(f"[ERROR] Command {command} failed: {e}")
 
     def _update_voltage_label(self, value):
-        self.voltage_value_label.configure(text=str(int(value)))
+        if hasattr(self, 'voltage_value_label'):
+            self.voltage_value_label.configure(text=f"{int(value)} V")
 
     def _update_pump_label(self, value):
-        self.pump_value_label.configure(text=f"{int(value)}%")
+        if hasattr(self, 'pump_value_label'):
+            self.pump_value_label.configure(text=f"{int(value)}%")
 
     def _manual_slider_change(self, value):
-        if self.manual_mech_label:
-            self.manual_mech_label.configure(text=f"Mechanical Pump (Live %): {int(value)}")
-        actuator = self.actuators.get("mech_pump")
+        if hasattr(self, 'manual_mech_label'):
+            self.manual_mech_label.configure(text=f"{int(value)}%")
+        with self._actuators_lock:
+            try:
+                actuator = self.actuators.get("mech_pump")
+                if actuator:
+                    actuator.setAnalogValue(value)
+            except Exception:
+                pass
+
+    def _update_turbo_pump_label(self, value):
+        if hasattr(self, 'turbo_pump_value_label'):
+            self.turbo_pump_value_label.configure(text=f"{int(value)}%")
+        with self._actuators_lock:
+            actuator = self.actuators.get("turbo_pump")
+            if actuator:
+                actuator.setAnalogValue(value)
+
+    def _update_valve_label(self, valve_key, idx, value):
+        if valve_key and valve_key in self.valve_value_labels:
+            self.valve_value_labels[valve_key].configure(text=f"{int(value)}%")
+
+    def _set_valve(self, valve_name: str, value: float):
+        with self._actuators_lock:
+            actuator = self.actuators.get(valve_name)
         if actuator:
             actuator.setAnalogValue(value)
 
     def _update_pressure_display(self, value):
-        if self.pressure_label:
-            self.pressure_label.configure(text=f"Pressure Sensor 1: {value} mT")
+        if not self.root:
+            return
+        
+        def _do_update():
+            try:
+                if hasattr(self, 'pressure_display1') and self.pressure_display1:
+                    self.pressure_display1.configure(text=f"Turbo Pressure Sensor [ADC CH1]: {value} mT")
+                if hasattr(self, 'pressure_label') and self.pressure_label:
+                    self.pressure_label.configure(text=f"Turbo Pressure Sensor [ADC CH1]: {value} mT")
+            except Exception:
+                pass
+        
+        self._schedule_gui_update(_do_update)
 
     def _update_adc_display(self, value):
-        if self.adc_label:
-            self.adc_label.configure(text=f"ADC CH0: {value}")
+        if not self.root:
+            return
+        
+        def _do_update():
+            try:
+                if hasattr(self, 'adc_ch0_label') and self.adc_ch0_label:
+                    self.adc_ch0_label.configure(text=f"ADC CH0 [Potentiometer - Testing]: {value}")
+                if hasattr(self, 'adc_label') and self.adc_label:
+                    self.adc_label.configure(text=f"ADC CH0 [Potentiometer - Testing]: {value}")
+            except Exception:
+                pass
+        
+        self._schedule_gui_update(_do_update)
+
+    def _update_all_adc_channels(self, adc_data):
+        if not self.root:
+            return
+        
+        def _do_update():
+            try:
+                adc_channels = {
+                    'adc_ch0_label': 0,
+                    'adc_ch1_label': 1,
+                    'adc_ch2_label': 2,
+                    'adc_ch3_label': 3,
+                    'adc_ch4_label': 4,
+                    'adc_ch5_label': 5,
+                    'adc_ch6_label': 6,
+                    'adc_ch7_label': 7,
+                }
+                
+                if isinstance(adc_data, (list, tuple)) and len(adc_data) >= 8:
+                    channel_labels = {
+                        0: "ADC CH0 [Potentiometer - Testing]",
+                        1: "ADC CH1",
+                        2: "ADC CH2",
+                        3: "ADC CH3",
+                        4: "ADC CH4",
+                        5: "ADC CH5",
+                        6: "ADC CH6",
+                        7: "ADC CH7",
+                    }
+                    for label_attr, channel in adc_channels.items():
+                        if hasattr(self, label_attr):
+                            label = getattr(self, label_attr)
+                            if label:
+                                label_text = channel_labels.get(channel, f"ADC CH{channel}")
+                                label.configure(text=f"{label_text}: {adc_data[channel]}")
+            except Exception:
+                pass
+        
+        self._schedule_gui_update(_do_update)
 
     def _auto_start(self):
         if self.auto_log_display:
@@ -1014,26 +1216,44 @@ class FusorHostApp:
         self.auto_controller.dispatch_event(Event.STOP_CMD)
 
     def _auto_update_state_label(self, state: State):
-        if self.auto_state_label:
-            self.auto_state_label.configure(text=f"Current State: {state.name}")
+        if not self.auto_state_label or not self.root:
+            return
+        
+        def _do_update():
+            try:
+                self.auto_state_label.configure(text=f"Current State: {state.name}")
+            except Exception:
+                pass
+        
+        self._schedule_gui_update(_do_update)
 
     def _auto_log_event(self, message: str):
-        if not hasattr(self, "auto_log_display") or self.auto_log_display is None:
+        if not hasattr(self, "auto_log_display") or self.auto_log_display is None or not self.root:
             return
-        timestamp = time.strftime("%H:%M:%S")
-        self.auto_log_display.configure(state="normal")
-        self.auto_log_display.insert("end", f"[{timestamp}] {message}\n")
-        self.auto_log_display.see("end")
-        self.auto_log_display.configure(state="disabled")
+        
+        def _do_update():
+            try:
+                timestamp = time.strftime("%H:%M:%S")
+                self.auto_log_display.configure(state="normal")
+                self.auto_log_display.insert("end", f"[{timestamp}] {message}\n")
+                self.auto_log_display.see("end")
+                self.auto_log_display.configure(state="disabled")
+            except Exception:
+                pass
+        
+        self._schedule_gui_update(_do_update)
 
     def _set_voltage(self):
         voltage = int(self.voltage_scale.get())
+        if voltage > 0:
+            self._send_command("POWER_SUPPLY_ENABLE")
         command = self.command_handler.build_set_voltage_command(voltage)
         if command:
             self._send_command(command)
         else:
             self._update_status("Invalid voltage value", "red")
-            self._update_data_display(f"[ERROR] Invalid voltage: {voltage}")
+            if hasattr(self, 'data_display') and self.data_display:
+                self._update_data_display(f"[ERROR] Invalid voltage: {voltage}")
 
     def _set_pump_power(self):
         power = int(self.pump_power_scale.get())
@@ -1042,7 +1262,18 @@ class FusorHostApp:
             self._send_command(command)
         else:
             self._update_status("Invalid power value", "red")
-            self._update_data_display(f"[ERROR] Invalid power: {power}")
+            if hasattr(self, 'data_display') and self.data_display:
+                self._update_data_display(f"[ERROR] Invalid power: {power}")
+
+    def _set_mech_pump_power(self, power):
+        power = int(power)
+        command = f"SET_MECHANICAL_PUMP:{power}"
+        self._send_command(command)
+
+    def _set_turbo_pump_power(self, power):
+        power = int(power)
+        command = f"SET_TURBO_PUMP:{power}"
+        self._send_command(command)
 
     def _move_motor(self):
         try:
@@ -1059,7 +1290,6 @@ class FusorHostApp:
 
     def _handle_udp_data(self, data: str):
         self._update_data_display(f"[UDP Data] {data}")
-        self._update_target_snapshot(data)
         parsed = self._parse_periodic_packet(data)
         
         # Check for errors first (always log errors)
@@ -1076,48 +1306,69 @@ class FusorHostApp:
             values_changed = False
             changed_items = []
             
-            for key, value in parsed.items():
-                # Skip TIME field for change detection (always changes)
-                if key == "TIME":
-                    continue
+            with self._previous_values_lock:
+                for key, value in parsed.items():
+                    # Skip TIME field for change detection (always changes)
+                    if key == "TIME":
+                        continue
                     
-                prev_value = self.previous_values.get(key)
-                
-                # For numeric values (like ADC_CH0), compare as numbers to handle string/int differences
-                try:
-                    if key.startswith("ADC_CH") or key == "Pressure_Sensor_1":
-                        value_num = float(value) if value else None
-                        prev_value_num = float(prev_value) if prev_value else None
-                        if prev_value_num is None or abs(value_num - prev_value_num) >= 1.0:  # At least 1 unit change
-                            values_changed = True
-                            changed_items.append(f"{key}={value}")
-                            self.previous_values[key] = value
-                    else:
-                        # String comparison for non-numeric values
+                    prev_value = self.previous_values.get(key)
+                    
+                    # For numeric values (like ADC_CH0), compare as numbers to handle string/int differences
+                    try:
+                        if key.startswith("ADC_CH") or key == "Pressure_Sensor_1":
+                            value_num = float(value) if value else None
+                            prev_value_num = float(prev_value) if prev_value else None
+                            if prev_value_num is None or abs(value_num - prev_value_num) >= 1.0:  # At least 1 unit change
+                                values_changed = True
+                                changed_items.append(f"{key}={value}")
+                                self.previous_values[key] = value
+                        else:
+                            # String comparison for non-numeric values
+                            if prev_value != value:
+                                values_changed = True
+                                changed_items.append(f"{key}={value}")
+                                self.previous_values[key] = value
+                            elif key not in self.previous_values:
+                                # First time seeing this value
+                                values_changed = True
+                                changed_items.append(f"{key}={value}")
+                                self.previous_values[key] = value
+                    except (ValueError, TypeError):
+                        # Fallback to string comparison if conversion fails
                         if prev_value != value:
                             values_changed = True
                             changed_items.append(f"{key}={value}")
                             self.previous_values[key] = value
                         elif key not in self.previous_values:
-                            # First time seeing this value
                             values_changed = True
                             changed_items.append(f"{key}={value}")
                             self.previous_values[key] = value
-                except (ValueError, TypeError):
-                    # Fallback to string comparison if conversion fails
-                    if prev_value != value:
-                        values_changed = True
-                        changed_items.append(f"{key}={value}")
-                        self.previous_values[key] = value
-                    elif key not in self.previous_values:
-                        values_changed = True
-                        changed_items.append(f"{key}={value}")
-                        self.previous_values[key] = value
             
-            # Update ADC display
-            adc_value = parsed.get("ADC_CH0")
-            if adc_value is not None:
-                self._update_adc_display(adc_value)
+            # Update ADC displays
+            adc_values = []
+            for ch in range(8):
+                adc_key = f"ADC_CH{ch}"
+                adc_value = parsed.get(adc_key)
+                if adc_value is not None:
+                    adc_values.append(adc_value)
+                    if ch == 0:
+                        self._update_adc_display(adc_value)
+            
+            if len(adc_values) >= 8:
+                self._update_all_adc_channels(adc_values)
+            
+            adc_data = parsed.get("ADC_DATA")
+            if adc_data:
+                try:
+                    if isinstance(adc_data, str):
+                        adc_list = [int(x.strip()) for x in adc_data.split(',')]
+                    else:
+                        adc_list = list(adc_data)
+                    if len(adc_list) >= 8:
+                        self._update_all_adc_channels(adc_list)
+                except (ValueError, TypeError):
+                    pass
             
             # Only log to terminal if values changed or there's an error
             if values_changed or has_error:
@@ -1125,6 +1376,7 @@ class FusorHostApp:
                     summary = ", ".join(changed_items)
                     if has_error:
                         summary += " [ERROR DETECTED]"
+                        self._update_target_logs(f"[UDP Data] {summary}")
                     self._log_terminal_update("TARGET_DATA", summary)
                 elif has_error:
                     # Error but no value changes
@@ -1132,59 +1384,181 @@ class FusorHostApp:
                                        "ERROR" in str(v).upper() or 
                                        "NOT_AVAILABLE" in str(v).upper() or 
                                        "NOT_INITIALIZED" in str(v).upper())
+                    self._update_target_logs(f"[UDP Data] {summary}")
                     self._log_terminal_update("TARGET_ERROR", summary)
         else:
             # Unparsed data - check for error keywords
             if has_error or "ERROR" in data.upper():
+                self._update_target_logs(f"[UDP Data] {data}")
                 self._log_terminal_update("TARGET_ERROR", data)
 
     def _handle_udp_status(self, message: str, address: tuple):
         self._update_data_display(f"[UDP Status] From {address[0]}: {message}")
-        self._update_target_snapshot(message)
+        self._update_target_logs(f"[UDP Status] {message}")
         
         has_error = "ERROR" in message.upper() or "FAILED" in message.upper() or "WARNING" in message.upper()
         
         matched_sensor = self.udp_client_object.process_received_data(message)
         
         if matched_sensor:
-            sensor = self.sensors.get(matched_sensor)
-            if sensor and sensor.value is not None:
-                if matched_sensor == "pressure_sensor_1":
-                    self._update_pressure_display(sensor.value)
-                    prev_pressure = self.previous_values.get("Pressure_Sensor_1")
-                    if prev_pressure != sensor.value:
-                        self._log_terminal_update("TARGET_STATUS", f"Pressure Sensor 1: {sensor.value} mT")
-                        self.previous_values["Pressure_Sensor_1"] = sensor.value
+            with self._sensors_lock:
+                sensor = self.sensors.get(matched_sensor)
+                if sensor and sensor.value is not None:
+                    if matched_sensor == "pressure_sensor_1":
+                        try:
+                            self._update_pressure_display(sensor.value)
+                        except Exception:
+                            pass
+                        with self._previous_values_lock:
+                            prev_pressure = self.previous_values.get("Pressure_Sensor_1")
+                            if prev_pressure != sensor.value:
+                                try:
+                                    self._log_terminal_update("TARGET_STATUS", f"Pressure Sensor 1: {sensor.value} mT")
+                                except Exception:
+                                    pass
+                                self.previous_values["Pressure_Sensor_1"] = sensor.value
         
         try:
-            payload = json.loads(message)
-            telemetry = payload.get("telemetry")
-            if telemetry:
-                self.telemetry_mapper.handle_telemetry(telemetry)
-            
-            if has_error:
-                self._log_terminal_update("TARGET_ERROR", message)
-                
-        except json.JSONDecodeError:
-            if has_error:
-                self._log_terminal_update("TARGET_ERROR", message)
+            try:
+                payload = json.loads(message)
+                telemetry = payload.get("telemetry")
+                if telemetry:
+                    self.telemetry_mapper.handle_telemetry(telemetry)
+            except json.JSONDecodeError:
+                if has_error:
+                    try:
+                        self._log_terminal_update("TARGET_ERROR", message)
+                    except Exception:
+                        pass
         except Exception as exc:
-            logger.error("Error parsing UDP status message: %s", exc)
-            self._log_terminal_update("TARGET_ERROR", f"Parse error: {exc}")
+            if has_error:
+                try:
+                    logger.error("Error parsing UDP status message: %s", exc)
+                    self._log_terminal_update("TARGET_ERROR", f"Parse error: {exc}")
+                except Exception:
+                    pass
+
+    def _process_gui_updates(self):
+        try:
+            while not self._gui_update_queue.empty():
+                try:
+                    update_func, args, kwargs = self._gui_update_queue.get_nowait()
+                    update_func(*args, **kwargs)
+                except Exception as e:
+                    logger.error(f"Error processing GUI update: {e}")
+        except Exception:
+            pass
+        
+        if self.root and not self._shutdown_event.is_set():
+            self.root.after(50, self._process_gui_updates)
+    
+    def _schedule_gui_update(self, func, *args, **kwargs):
+        if self.root and not self._shutdown_event.is_set():
+            self._gui_update_queue.put((func, args, kwargs))
+    
+    def _open_data_log_window(self):
+        if self.data_log_window is not None:
+            try:
+                if self.data_log_window.winfo_exists():
+                    self.data_log_window.lift()
+                    self.data_log_window.focus()
+                    return
+            except:
+                self.data_log_window = None
+
+        self.data_log_window = ctk.CTkToplevel(self.root)
+        self.data_log_window.title("Data Logs - Read-Only from Target")
+        self.data_log_window.geometry("900x600")
+        
+        log_window_frame = ctk.CTkFrame(self.data_log_window)
+        log_window_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        log_title = ctk.CTkLabel(
+            log_window_frame,
+            text="Data Logs (Read-Only from Target)",
+            font=ctk.CTkFont(size=16, weight="bold"),
+        )
+        log_title.pack(pady=10)
+        
+        self.data_display = ctk.CTkTextbox(
+            log_window_frame,
+            font=ctk.CTkFont(size=11, family="Courier"),
+            wrap="word",
+        )
+        self.data_display.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        clear_button = ctk.CTkButton(
+            log_window_frame,
+            text="Clear Logs",
+            command=self._clear_data_display,
+            font=ctk.CTkFont(size=12),
+            width=120,
+            height=35,
+        )
+        clear_button.pack(pady=5)
+        
+        self.data_log_window.protocol("WM_DELETE_WINDOW", self._close_data_log_window)
+        
+        if hasattr(self, '_initial_log_message'):
+            self._update_data_display(self._initial_log_message)
+
+    def _close_data_log_window(self):
+        if hasattr(self, 'data_log_window') and self.data_log_window:
+            try:
+                self.data_log_window.destroy()
+            except:
+                pass
+            self.data_log_window = None
+            self.data_display = None
+
+    def _clear_data_display(self):
+        if self.data_display:
+            self.data_display.delete("1.0", "end")
+
+    def _clear_target_logs(self):
+        if self.target_logs_display:
+            self.target_logs_display.configure(state="normal")
+            self.target_logs_display.delete("1.0", "end")
+            self.target_logs_display.insert("end", "[Target Logs] Logs cleared.\n")
+            self.target_logs_display.configure(state="disabled")
+
+    def _update_target_logs(self, log_message: str):
+        if not self.target_logs_display or not self.root:
+            return
+        
+        def _do_update():
+            try:
+                if self.target_logs_display:
+                    timestamp = time.strftime("%H:%M:%S")
+                    self.target_logs_display.configure(state="normal")
+                    self.target_logs_display.insert("end", f"[{timestamp}] {log_message}\n")
+                    self.target_logs_display.see("end")
+                    # Limit log size to prevent memory issues (keep last 1000 lines)
+                    lines = self.target_logs_display.get("1.0", "end").split("\n")
+                    if len(lines) > 1000:
+                        self.target_logs_display.delete("1.0", f"{len(lines) - 1000}.0")
+                    self.target_logs_display.configure(state="disabled")
+            except Exception:
+                pass
+        
+        self._schedule_gui_update(_do_update)
 
     def _update_data_display(self, data: str):
-        # Only log to terminal if it's an error (when GUI not available)
         if not self.data_display or not self.root:
             if "ERROR" in data.upper() or "FAILED" in data.upper():
                 self._log_terminal_update("ERROR", data)
             return
-        try:
-            timestamp = time.strftime("%H:%M:%S")
-            self.data_display.insert("end", f"{timestamp} - {data}\n")
-            # Auto-scroll to bottom
-            self.data_display.see("end")
-        except Exception:
-            pass
+        
+        def _do_update():
+            try:
+                if self.data_display:
+                    timestamp = time.strftime("%H:%M:%S")
+                    self.data_display.insert("end", f"{timestamp} - {data}\n")
+                    self.data_display.see("end")
+            except Exception:
+                pass
+        
+        self._schedule_gui_update(_do_update)
 
     def _log_terminal_update(self, tag: str, message: str):
         """Log periodic updates to terminal for visibility."""
@@ -1199,18 +1573,15 @@ class FusorHostApp:
     def _update_status(self, message: str, color: str = "white"):
         if not self.status_label or not self.root:
             return
-        try:
-            self.status_label.configure(text=message, text_color=color)
-        except Exception:
-            pass
-
-    def _update_target_snapshot(self, message: str):
-        if not self.target_snapshot_var:
-            return
-        truncated = message.strip()
-        if len(truncated) > 200:
-            truncated = truncated[:197] + "..."
-        self.target_snapshot_var.set(truncated if truncated else "(empty message)")
+        
+        def _do_update():
+            try:
+                if self.status_label:
+                    self.status_label.configure(text=message, text_color=color)
+            except Exception:
+                pass
+        
+        self._schedule_gui_update(_do_update)
 
     def _parse_periodic_packet(self, payload: str) -> dict:
         result = {}
@@ -1228,9 +1599,13 @@ class FusorHostApp:
         return result
 
     def _on_closing(self):
-        # Send LED_OFF command before shutting down
+        if hasattr(self, 'data_log_window') and self.data_log_window:
+            try:
+                self.data_log_window.destroy()
+            except:
+                pass
+            self.data_log_window = None
         self._turn_off_led()
-        # Destroy root first to prevent UI update errors
         if self.root:
             try:
                 self.root.destroy()
@@ -1288,18 +1663,18 @@ class FusorHostApp:
         except Exception as e:
             print(f"\nUnexpected error: {e}")
         finally:
-            # Always try to turn off LED before stopping
+            self._shutdown_event.set()
             self._turn_off_led()
             self.stop()
 
     def stop(self):
-        # Try to turn off LED before disconnecting
+        self._shutdown_event.set()
+        
         try:
             self._turn_off_led()
         except Exception as e:
             logger.error(f"Error turning off LED in stop: {e}")
 
-        # Disconnect TCP command client
         try:
             self.tcp_command_client.disconnect()
         except Exception as e:
@@ -1310,12 +1685,20 @@ class FusorHostApp:
         except Exception as e:
             logger.error(f"Error stopping UDP data client: {e}")
 
-        # Stop UDP status communication
         try:
             self.udp_status_client.stop()
             self.udp_status_receiver.stop()
         except Exception as e:
             logger.error(f"Error stopping UDP communication: {e}")
+        
+        try:
+            while not self._gui_update_queue.empty():
+                try:
+                    self._gui_update_queue.get_nowait()
+                except Exception:
+                    break
+        except Exception as e:
+            logger.error(f"Error clearing GUI update queue: {e}")
 
 
 # Global app instance for signal handler access

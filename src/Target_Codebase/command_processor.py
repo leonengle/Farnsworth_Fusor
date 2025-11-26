@@ -1,3 +1,4 @@
+import threading
 import logging
 from typing import Optional, Callable, Dict, Union
 from bundled_interface import BundledInterface
@@ -5,9 +6,9 @@ from bundled_interface import BundledInterface
 logger = logging.getLogger("CommandProcessor")
 
 PRESSURE_SENSOR_CHANNELS: Dict[int, Dict[str, Union[int, str]]] = {
-    1: {"channel": 0, "name": "Turbo Pressure Transducer", "label": "P01"},
-    2: {"channel": 1, "name": "Fusor Pressure Transducer", "label": "P02"},
-    3: {"channel": 2, "name": "Foreline Pressure Transducer", "label": "P03"},
+    1: {"channel": 0, "name": "Turbo Pressure Sensor", "label": "P01"},
+    2: {"channel": 1, "name": "Fusor Pressure Sensor", "label": "P02"},
+    3: {"channel": 2, "name": "Foreline Pressure Sensor", "label": "P03"},
 }
 
 VALVE_ANALOG_LABELS: Dict[int, str] = {
@@ -36,6 +37,7 @@ class CommandProcessor:
     ):
         self.bundled_interface = bundled_interface
         self.host_callback = host_callback
+        self._callback_lock = threading.Lock()
         
         logger.info("Command processor initialized with Bundled Interface")
 
@@ -60,7 +62,8 @@ class CommandProcessor:
         return VALVE_ANALOG_LABELS.get(valve_id, f"VALVE_{valve_id}")
 
     def set_host_callback(self, callback: Callable[[str], None]):
-        self.host_callback = callback
+        with self._callback_lock:
+            self.host_callback = callback
         logger.info("Host callback set")
 
     def process_command(self, command: str) -> str:
@@ -227,8 +230,10 @@ class CommandProcessor:
                     adc_value = self.adc.read_channel(0)
                     voltage = self.adc.convert_to_voltage(adc_value) * 10
                     response = f"POWER_SUPPLY_VOLTAGE:{voltage:.2f}"
-                    if self.host_callback:
-                        self.host_callback(response)
+                    with self._callback_lock:
+                        callback = self.host_callback
+                    if callback:
+                        callback(response)
                     return response
                 except Exception as e:
                     logger.error(f"Error reading power supply voltage: {e}")
@@ -241,8 +246,10 @@ class CommandProcessor:
                     adc_value = self.adc.read_channel(1)
                     current = (adc_value / 1023.0) * 5.0
                     response = f"POWER_SUPPLY_CURRENT:{current:.3f}"
-                    if self.host_callback:
-                        self.host_callback(response)
+                    with self._callback_lock:
+                        callback = self.host_callback
+                    if callback:
+                        callback(response)
                     return response
                 except Exception as e:
                     logger.error(f"Error reading power supply current: {e}")
@@ -267,8 +274,10 @@ class CommandProcessor:
                     adc_value = self.adc.read_channel(channel)
                     pressure = (adc_value / 1023.0) * 100.0
                     response = f"PRESSURE_SENSOR_{sensor_id}_VALUE:{pressure:.2f}|{sensor_label}|{sensor_name}"
-                    if self.host_callback:
-                        self.host_callback(response)
+                    with self._callback_lock:
+                        callback = self.host_callback
+                    if callback:
+                        callback(response)
                     return response
                 except (ValueError, IndexError):
                     return "READ_PRESSURE_SENSOR_FAILED: Invalid format"
@@ -287,8 +296,10 @@ class CommandProcessor:
                     adc_value = self.adc.read_channel(channel)
                     voltage = self.adc.convert_to_voltage(adc_value) * 10
                     response = f"NODE_{node_id}_VOLTAGE:{voltage:.2f}"
-                    if self.host_callback:
-                        self.host_callback(response)
+                    with self._callback_lock:
+                        callback = self.host_callback
+                    if callback:
+                        callback(response)
                     return response
                 except (ValueError, IndexError):
                     return "READ_NODE_VOLTAGE_FAILED: Invalid format"
@@ -307,8 +318,10 @@ class CommandProcessor:
                     adc_value = self.adc.read_channel(channel)
                     current = (adc_value / 1023.0) * 5.0
                     response = f"NODE_{node_id}_CURRENT:{current:.3f}"
-                    if self.host_callback:
-                        self.host_callback(response)
+                    with self._callback_lock:
+                        callback = self.host_callback
+                    if callback:
+                        callback(response)
                     return response
                 except (ValueError, IndexError):
                     return "READ_NODE_CURRENT_FAILED: Invalid format"
@@ -326,8 +339,10 @@ class CommandProcessor:
                 value = self.gpio_handler.read_input()
                 if value is not None:
                     response = f"INPUT_VALUE:{value}"
-                    if self.host_callback:
-                        self.host_callback(f"GPIO_INPUT:{value}")
+                    with self._callback_lock:
+                        callback = self.host_callback
+                    if callback:
+                        callback(f"GPIO_INPUT:{value}")
                     return response
                 else:
                     return "READ_INPUT_FAILED"
@@ -339,8 +354,10 @@ class CommandProcessor:
                 try:
                     adc_values = self.adc.read_all_channels()
                     response = f"ADC_DATA:{','.join(map(str, adc_values))}"
-                    if self.host_callback:
-                        self.host_callback(response)
+                    with self._callback_lock:
+                        callback = self.host_callback
+                    if callback:
+                        callback(response)
                     return response
                 except Exception as e:
                     logger.error(f"ADC read error: {e}")

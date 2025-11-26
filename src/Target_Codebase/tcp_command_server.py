@@ -25,6 +25,7 @@ class TCPCommandServer:
         self.server_thread = None
         self.running = False
         self.bundled_interface = bundled_interface
+        self._running_lock = threading.Lock()
 
         self.command_processor = CommandProcessor(
             bundled_interface=self.bundled_interface,
@@ -54,8 +55,10 @@ class TCPCommandServer:
         try:
             client_socket.settimeout(30)  # 30 second timeout for commands
 
-            # Keep connection alive and process commands
-            while self.running:
+            while True:
+                with self._running_lock:
+                    if not self.running:
+                        break
                 try:
                     # Receive command from client
                     data = client_socket.recv(1024)
@@ -88,11 +91,11 @@ class TCPCommandServer:
             logger.info(f"TCP session ended with {client_address}")
 
     def start_server(self):
-        if self.running:
-            logger.warning("Server is already running")
-            return
-
-        self.running = True
+        with self._running_lock:
+            if self.running:
+                logger.warning("Server is already running")
+                return
+            self.running = True
 
         try:
             # create and configure socket
@@ -106,8 +109,10 @@ class TCPCommandServer:
 
             logger.info(f"TCP Command server started on {self.host}:{self.port}")
 
-            # main server loop - accept connections
-            while self.running:
+            while True:
+                with self._running_lock:
+                    if not self.running:
+                        break
                 try:
                     client_socket, client_address = self.server_socket.accept()
 
@@ -123,8 +128,9 @@ class TCPCommandServer:
                     # Timeout is expected, continue loop to check self.running
                     continue
                 except socket.error as e:
-                    if self.running:
-                        logger.error(f"Socket error: {e}")
+                    with self._running_lock:
+                        if self.running:
+                            logger.error(f"Socket error: {e}")
                     break
 
         except Exception as e:
@@ -133,7 +139,8 @@ class TCPCommandServer:
             self.stop_server()
 
     def stop_server(self):
-        self.running = False
+        with self._running_lock:
+            self.running = False
 
         if self.server_socket:
             try:
