@@ -436,6 +436,7 @@ class FusorHostApp:
         self.root = None
         self.data_display = None
         self.data_log_window = None
+        self.data_reading_window = None
         self.target_logs_display = None
         self.adc_ch0_label = None
         self.adc_ch1_label = None
@@ -448,15 +449,19 @@ class FusorHostApp:
         self.status_label = None
         self.voltage_scale = None
         self.pump_power_scale = None
-        self.manual_mech_slider = None
-        self.manual_mech_label = None
+        self.manual_mech_switch = None
+        self.manual_mech_switch_state = False
+        self.turbo_pump_switch = None
+        self.turbo_pump_switch_state = False
+        self.voltage_set_button = None
+        self.valve_set_buttons = {}
         self.pressure_label = None
         self.adc_label = None
         self.auto_state_label = None
         self.auto_log_display = None
         self.terminal_updates_enabled = terminal_updates
         self._initial_log_message = None
-
+        
         self.previous_values = {}
 
         self._previous_values_lock = threading.Lock()
@@ -466,7 +471,7 @@ class FusorHostApp:
         self._shutdown_event = threading.Event()
 
         self.tcp_client_object = TCPClientObject(self.tcp_command_client)
-
+        
         self.actuators = {
             "power_supply": ActuatorObject(
                 "power supply",
@@ -525,15 +530,15 @@ class FusorHostApp:
                 self.tcp_client_object,
             ),
         }
-
+        
         for actuator_name, actuator in self.actuators.items():
             self.tcp_client_object.register_actuator(actuator.name, actuator.label)
-
+        
         self.sensors = {
             "pressure_sensor_1": SensorObject("pressure sensor 1"),
             "pressure_sensor_2": SensorObject("pressure sensor 2"),
         }
-
+        
         self.udp_client_object = UDPClientObject(self.sensors)
 
         self.auto_controller = AutoController(
@@ -594,9 +599,11 @@ class FusorHostApp:
         self.tabview = ctk.CTkTabview(main_frame)
         self.tabview.pack(fill="both", expand=True, padx=5, pady=5)
         manual_tab = self.tabview.add("Manual Control")
-        auto_tab = self.tabview.add("Auto / FSM")
-        data_reading_tab = self.tabview.add("Data Reading")
+        auto_tab = self.tabview.add("Auto Control")
         log_reading_tab = self.tabview.add("Log Reading")
+
+        # Data Reading will be a popup window, not a tab
+        self.data_reading_window = None
 
         title_label_manual = ctk.CTkLabel(
             manual_tab,
@@ -638,14 +645,14 @@ class FusorHostApp:
         )
         self.voltage_value_label.pack()
 
-        voltage_set_button = ctk.CTkButton(
+        self.voltage_set_button = ctk.CTkButton(
             voltage_slider_frame,
             text="Set Voltage",
             command=self._set_voltage,
             font=ctk.CTkFont(size=11),
             width=100,
         )
-        voltage_set_button.pack(pady=5)
+        self.voltage_set_button.pack(pady=5)
 
         pump_section = ctk.CTkFrame(left_column)
         pump_section.pack(fill="x", padx=5, pady=5)
@@ -661,26 +668,14 @@ class FusorHostApp:
         )
         mech_pump_label.pack(pady=2)
 
-        self.manual_mech_slider = ctk.CTkSlider(
-            mech_pump_frame, from_=0.0, to=100.0, command=self._manual_slider_change
-        )
-        self.manual_mech_slider.set(0)
-        self.manual_mech_slider.pack(fill="x", padx=5, pady=5)
-
-        self.manual_mech_label = ctk.CTkLabel(
-            mech_pump_frame, text="0%", font=ctk.CTkFont(size=11)
-        )
-        self.manual_mech_label.pack()
-
-        mech_pump_set_button = ctk.CTkButton(
+        self.manual_mech_switch = ctk.CTkSwitch(
             mech_pump_frame,
-            text="Set",
-            command=lambda: self._set_mech_pump_power(self.manual_mech_slider.get()),
-            font=ctk.CTkFont(size=10),
-            width=80,
-            height=30,
+            text="OFF",
+            command=self._toggle_mech_pump,
+            font=ctk.CTkFont(size=11),
         )
-        mech_pump_set_button.pack(pady=5)
+        self.manual_mech_switch.pack(pady=10)
+        self.manual_mech_switch_state = False
 
         turbo_pump_frame = ctk.CTkFrame(pump_row)
         turbo_pump_frame.pack(side="left", fill="both", expand=True, padx=5)
@@ -690,26 +685,14 @@ class FusorHostApp:
         )
         turbo_pump_label.pack(pady=2)
 
-        self.turbo_pump_slider = ctk.CTkSlider(
-            turbo_pump_frame, from_=0.0, to=100.0, command=self._update_turbo_pump_label
-        )
-        self.turbo_pump_slider.set(0)
-        self.turbo_pump_slider.pack(fill="x", padx=5, pady=5)
-
-        self.turbo_pump_value_label = ctk.CTkLabel(
-            turbo_pump_frame, text="0%", font=ctk.CTkFont(size=11)
-        )
-        self.turbo_pump_value_label.pack()
-
-        turbo_pump_set_button = ctk.CTkButton(
+        self.turbo_pump_switch = ctk.CTkSwitch(
             turbo_pump_frame,
-            text="Set",
-            command=lambda: self._set_turbo_pump_power(self.turbo_pump_slider.get()),
-            font=ctk.CTkFont(size=10),
-            width=80,
-            height=30,
+            text="OFF",
+            command=self._toggle_turbo_pump,
+            font=ctk.CTkFont(size=11),
         )
-        turbo_pump_set_button.pack(pady=5)
+        self.turbo_pump_switch.pack(pady=10)
+        self.turbo_pump_switch_state = False
 
         valve_section = ctk.CTkFrame(left_column)
         valve_section.pack(fill="x", padx=5, pady=5)
@@ -742,7 +725,7 @@ class FusorHostApp:
             valve_frame.pack(side="left", fill="both", expand=True, padx=2)
 
             valve_title = ctk.CTkLabel(
-                valve_frame, text=f"{valve_name} Valve", font=ctk.CTkFont(size=10)
+                valve_frame, text=valve_name, font=ctk.CTkFont(size=10)
             )
             valve_title.pack(pady=2)
 
@@ -772,6 +755,7 @@ class FusorHostApp:
 
             self.valve_sliders[actuator_key] = slider
             self.valve_value_labels[actuator_key] = value_label
+            self.valve_set_buttons[actuator_key] = set_button
 
         self.foreline_manual_slider = self.valve_sliders.get("foreline_valve")
         self.turbo_valve_manual_slider = self.valve_sliders.get("turbo_valve")
@@ -782,15 +766,857 @@ class FusorHostApp:
         self.vacsys_value_label = self.valve_value_labels.get("fusor_valve")
         self.deuterium_value_label = self.valve_value_labels.get("deuterium_valve")
 
+        # Button to open Data Reading popup window
+        data_reading_button_frame = ctk.CTkFrame(left_column)
+        data_reading_button_frame.pack(fill="x", padx=5, pady=10)
+
+        open_data_reading_button = ctk.CTkButton(
+            data_reading_button_frame,
+            text="Open Data Reading Window",
+            command=self._open_data_reading_window,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            width=250,
+            height=40,
+            fg_color="green",
+            hover_color="darkgreen",
+        )
+        open_data_reading_button.pack(pady=10)
+
+        # Initialize data reading window widgets as None (will be created in popup)
+        self.pressure_display1 = None
+        self.pressure_display2 = None
+        self.pressure_display3 = None
+        self.adc_ch0_label = None
+        self.adc_ch1_label = None
+        self.adc_ch2_label = None
+        self.adc_ch3_label = None
+        self.adc_ch4_label = None
+        self.adc_ch5_label = None
+        self.adc_ch6_label = None
+        self.adc_ch7_label = None
+        self.pressure_label = None
+        self.adc_label = None
+
+        log_reading_title = ctk.CTkLabel(
+            log_reading_tab,
+            text="Target Logs (Live from Raspberry Pi)",
+            font=ctk.CTkFont(size=18, weight="bold"),
+        )
+        log_reading_title.pack(pady=10)
+
+        log_reading_container = ctk.CTkFrame(log_reading_tab)
+        log_reading_container.pack(fill="both", expand=True, padx=10, pady=10)
+
+        target_logs_frame = ctk.CTkFrame(log_reading_container)
+        target_logs_frame.pack(fill="both", expand=True, padx=5, pady=8)
+
+        target_logs_label = ctk.CTkLabel(
+            target_logs_frame,
+            text="Live Target Logs",
+            font=ctk.CTkFont(size=14, weight="bold"),
+        )
+        target_logs_label.pack(pady=8)
+
+        self.target_logs_display = ctk.CTkTextbox(
+            target_logs_frame,
+            font=ctk.CTkFont(size=10, family="Courier"),
+            wrap="word",
+        )
+        self.target_logs_display.pack(fill="both", expand=True, padx=10, pady=10)
+        self.target_logs_display.insert(
+            "end", "[Target Logs] Waiting for logs from Raspberry Pi...\n"
+        )
+        self.target_logs_display.configure(state="disabled")
+
+        clear_target_logs_button = ctk.CTkButton(
+            target_logs_frame,
+            text="Clear Target Logs",
+            command=self._clear_target_logs,
+            font=ctk.CTkFont(size=12),
+            width=150,
+            height=35,
+        )
+        clear_target_logs_button.pack(pady=10)
+
+        auto_section = ctk.CTkFrame(auto_tab)
+        auto_section.pack(fill="both", expand=True, padx=10, pady=10)
+
+        auto_header = ctk.CTkLabel(
+            auto_section,
+            text="Finite State Machine Control",
+            font=ctk.CTkFont(size=18, weight="bold"),
+        )
+        auto_header.pack(pady=5)
+
+        auto_button_frame = ctk.CTkFrame(auto_section)
+        auto_button_frame.pack(pady=5)
+
+        auto_start = ctk.CTkButton(
+            auto_button_frame,
+            text="Start Auto Sequence",
+            command=self._auto_start,
+            width=180,
+        )
+        auto_start.pack(side="left", padx=5, pady=5)
+
+        auto_stop = ctk.CTkButton(
+            auto_button_frame,
+            text="Stop / Emergency",
+            command=self._auto_stop,
+            width=180,
+            fg_color="red",
+        )
+        auto_stop.pack(side="left", padx=5, pady=5)
+
+        self.auto_state_label = ctk.CTkLabel(
+            auto_section,
+            text="Current State: ALL_OFF",
+            font=ctk.CTkFont(size=16),
+        )
+        self.auto_state_label.pack(pady=10)
+
+        self.auto_log_display = ctk.CTkTextbox(
+            auto_section,
+            font=ctk.CTkFont(size=11, family="Courier"),
+            wrap="word",
+            height=300,
+        )
+        self.auto_log_display.pack(fill="both", expand=True, padx=10, pady=10)
+        self.auto_log_display.insert("end", "[FSM] Ready.\n")
+        self.auto_log_display.configure(state="disabled")
+
+        self.status_label = ctk.CTkLabel(
+            main_frame,
+            text="Ready - Waiting for commands",
+            font=ctk.CTkFont(size=12),
+            text_color="blue",
+        )
+        self.status_label.pack(pady=5)
+
+        self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
+
+        self._process_gui_updates()
+
+    def _send_command(self, command: str):
+        if not command:
+            logger.warning("Attempted to send empty command")
+            return
+
+        try:
+            # Ensure connected - try to connect if not connected
+            if not self.tcp_command_client.is_connected():
+                self._update_status(
+                    f"Connecting to {self.target_ip}:{self.target_tcp_command_port}...",
+                    "blue",
+                )
+                self._update_data_display(
+                    f"[System] Attempting to connect to target at {self.target_ip}:{self.target_tcp_command_port}"
+                )
+
+                if not self.tcp_command_client.connect():
+                    self._update_status(
+                        f"Failed to connect to {self.target_ip}:{self.target_tcp_command_port}",
+                        "red",
+                    )
+                    self._update_data_display(
+                        f"[ERROR] Cannot send command {command} - connection failed"
+                    )
+                    self._update_data_display(f"[TROUBLESHOOTING] Check:")
+                    self._update_data_display(
+                        f"  - Is target running? (python src/Target_Codebase/target_main.py)"
+                    )
+                    self._update_data_display(
+                        f"  - Is target IP correct? (Expected: {self.target_ip})"
+                    )
+                    self._update_data_display(
+                        f"  - Can you ping target? (ping {self.target_ip})"
+                    )
+                    self._update_data_display(
+                        f"  - Is firewall blocking port {self.target_tcp_command_port}?"
+                    )
+                    return
+
+            # Send command
+            self._update_status(f"Sending command: {command}...", "blue")
+            response = self.tcp_command_client.send_command(command)
+
+            # Display response
+            if response:
+                # Check for success/failure in response
+                if "SUCCESS" in response.upper():
+                    self._update_status(
+                        f"Command sent: {command} - Response: {response}", "green"
+                )
+                elif "FAILED" in response.upper() or "ERROR" in response.upper():
+                    self._update_status(
+                        f"Command sent: {command} - Response: {response}", "red"
+                    )
+                    
+                    # Extract and display detailed error message
+                    if ":" in response:
+                        error_detail = response.split(":", 1)[1].strip()
+                        
+                        # Comprehensive terminal logging for LED errors
+                        if command in ["LED_ON", "LED_OFF"]:
+                            print("\n" + "=" * 70, flush=True)
+                            print(f"LED COMMAND FAILED: {command}", flush=True)
+                            print("=" * 70, flush=True)
+                            print(f"Error from target: {error_detail}", flush=True)
+                            print("-" * 70, flush=True)
+                            
+                            # Provide specific troubleshooting based on error type
+                            if "GPIO not initialized" in error_detail:
+                                print(
+                                    "ROOT CAUSE: GPIO hardware not initialized on target",
+                                    flush=True,
+                                )
+                                print(
+                                    "SOLUTION: Target must be running with 'sudo' privileges",
+                                    flush=True,
+                                )
+                                print(
+                                    "ACTION: Run target with: sudo python3 target_main.py",
+                                    flush=True,
+                                )
+                                self._update_data_display(
+                                    "[TROUBLESHOOTING] GPIO not initialized - ensure target is running with 'sudo'"
+                                )
+                            elif "Permission denied" in error_detail:
+                                print(
+                                    "ROOT CAUSE: Insufficient permissions to access GPIO pins",
+                                    flush=True,
+                                )
+                                print(
+                                    "SOLUTION: Target process needs root/sudo access",
+                                    flush=True,
+                                )
+                                print(
+                                    "ACTION: Restart target with: sudo python3 target_main.py",
+                                    flush=True,
+                                )
+                                self._update_data_display(
+                                    "[TROUBLESHOOTING] Permission denied - target must run with 'sudo' to access GPIO"
+                                )
+                            elif (
+                                "RuntimeError" in error_detail
+                                or "GPIO channels already in use" in error_detail
+                            ):
+                                print(
+                                    "ROOT CAUSE: GPIO pins are locked/in use by another process",
+                                    flush=True,
+                                )
+                                print(
+                                    "SOLUTION: Clean up GPIO state and restart target",
+                                    flush=True,
+                                )
+                                print(
+                                    "ACTION: Restart target with: sudo python3 target_main.py",
+                                    flush=True,
+                                )
+                                print(
+                                    "        Or stop any other processes using GPIO pins",
+                                    flush=True,
+                                )
+                                self._update_data_display(
+                                    "[TROUBLESHOOTING] GPIO RuntimeError - pins may be in use, restart target"
+                                )
+                            elif "OS Error" in error_detail:
+                                print(
+                                    "ROOT CAUSE: GPIO hardware access error", flush=True
+                                )
+                                print(
+                                    "SOLUTION: Check hardware connections and GPIO wiring",
+                                    flush=True,
+                                )
+                                print(
+                                    "ACTION: Verify LED is connected to correct GPIO pin (default: pin 26)",
+                                    flush=True,
+                                )
+                                self._update_data_display(
+                                    "[TROUBLESHOOTING] GPIO hardware error - check wiring and GPIO connections"
+                                )
+                            else:
+                                print(f"ROOT CAUSE: {error_detail}", flush=True)
+                                print(
+                                    "SOLUTION: Check target logs for more details",
+                                    flush=True,
+                                )
+                            
+                            print("=" * 70 + "\n", flush=True)
+                            
+                            # Also log via standard method
+                            self._log_terminal_update(
+                                "LED_ERROR", f"{command} failed: {error_detail}"
+                            )
+                        else:
+                            # Non-LED errors - standard logging
+                            self._log_terminal_update(
+                                "COMMAND_ERROR", f"{command} -> {response}"
+                            )
+                        
+                        self._update_data_display(
+                            f"[ERROR] {command} failed: {error_detail}"
+                        )
+                    else:
+                        # No detailed error message
+                        self._log_terminal_update(
+                            "COMMAND_ERROR", f"{command} -> {response}"
+                        )
+                        self._update_data_display(
+                            f"[ERROR] {command} failed: {response}"
+                        )
+                else:
+                    self._update_status(
+                        f"Command sent: {command} - Response: {response}", "blue"
+                    )
+                self._update_data_display(
+                    f"[COMMAND] {command} -> [RESPONSE] {response}"
+                )
+            else:
+                self._update_status(f"Command sent: {command} - No response", "yellow")
+                self._update_data_display(
+                    f"[COMMAND] {command} -> [RESPONSE] (no response)"
+                )
+
+        except Exception as e:
+            logger.error(f"Error sending command {command}: {e}")
+            self._update_status(f"Error sending command: {e}", "red")
+            self._update_data_display(f"[ERROR] Command {command} failed: {e}")
+
+    def _update_voltage_label(self, value):
+        if hasattr(self, "voltage_value_label"):
+            self.voltage_value_label.configure(text=f"{int(value)} V")
+
+    def _update_pump_label(self, value):
+        if hasattr(self, "pump_value_label"):
+            self.pump_value_label.configure(text=f"{int(value)}%")
+
+    # Removed _manual_slider_change and _update_turbo_pump_label - replaced with toggle switches
+
+    def _update_valve_label(self, valve_key, idx, value):
+        if valve_key and valve_key in self.valve_value_labels:
+            self.valve_value_labels[valve_key].configure(text=f"{int(value)}%")
+
+    def _set_valve(self, valve_name: str, value: float):
+        if self._is_auto_mode_active():
+            self._update_status("Cannot control manually while auto mode is active", "red")
+            return
+        with self._actuators_lock:
+            actuator = self.actuators.get(valve_name)
+        if actuator:
+            actuator.setAnalogValue(value)
+
+    def _update_pressure_display(self, value):
+        if not self.root:
+            return
+
+        def _do_update():
+            try:
+                if hasattr(self, "pressure_display1") and self.pressure_display1:
+                    self.pressure_display1.configure(
+                        text=f"Turbo Pressure Sensor [ADC CH1]: {value} mT"
+                    )
+                if hasattr(self, "pressure_label") and self.pressure_label:
+                    self.pressure_label.configure(
+                        text=f"Turbo Pressure Sensor [ADC CH1]: {value} mT"
+                    )
+            except Exception:
+                pass
+
+        self._schedule_gui_update(_do_update)
+
+    def _update_adc_display(self, value):
+        if not self.root:
+            return
+
+        def _do_update():
+            try:
+                if hasattr(self, "adc_ch0_label") and self.adc_ch0_label:
+                    self.adc_ch0_label.configure(
+                        text=f"ADC CH0 [Potentiometer - Testing]: {value}"
+                    )
+                if hasattr(self, "adc_label") and self.adc_label:
+                    self.adc_label.configure(
+                        text=f"ADC CH0 [Potentiometer - Testing]: {value}"
+                    )
+            except Exception:
+                pass
+
+        self._schedule_gui_update(_do_update)
+
+    def _update_all_adc_channels(self, adc_data):
+        if not self.root:
+            return
+
+        def _do_update():
+            try:
+                adc_channels = {
+                    "adc_ch0_label": 0,
+                    "adc_ch1_label": 1,
+                    "adc_ch2_label": 2,
+                    "adc_ch3_label": 3,
+                    "adc_ch4_label": 4,
+                    "adc_ch5_label": 5,
+                    "adc_ch6_label": 6,
+                    "adc_ch7_label": 7,
+                }
+
+                if isinstance(adc_data, (list, tuple)) and len(adc_data) >= 8:
+                    channel_labels = {
+                        0: "ADC CH0 [Potentiometer - Testing]",
+                        1: "ADC CH1",
+                        2: "ADC CH2",
+                        3: "ADC CH3",
+                        4: "ADC CH4",
+                        5: "ADC CH5",
+                        6: "ADC CH6",
+                        7: "ADC CH7",
+                    }
+                    for label_attr, channel in adc_channels.items():
+                        if hasattr(self, label_attr):
+                            label = getattr(self, label_attr)
+                            if label:
+                                label_text = channel_labels.get(
+                                    channel, f"ADC CH{channel}"
+                                )
+                                label.configure(
+                                    text=f"{label_text}: {adc_data[channel]}"
+                                )
+            except Exception:
+                pass
+
+        self._schedule_gui_update(_do_update)
+
+    def _is_auto_mode_active(self):
+        """Check if auto mode is currently active (not in ALL_OFF state)"""
+        return self.auto_controller.currentState != State.ALL_OFF
+
+    def _enable_manual_controls(self):
+        """Enable all manual control widgets"""
+        if not self.root:
+            return
+        def _do_update():
+            try:
+                if self.voltage_scale:
+                    self.voltage_scale.configure(state="normal")
+                if self.voltage_set_button:
+                    self.voltage_set_button.configure(state="normal")
+                if self.manual_mech_switch:
+                    self.manual_mech_switch.configure(state="normal")
+                if self.turbo_pump_switch:
+                    self.turbo_pump_switch.configure(state="normal")
+                for slider in self.valve_sliders.values():
+                    if slider:
+                        slider.configure(state="normal")
+                for button in self.valve_set_buttons.values():
+                    if button:
+                        button.configure(state="normal")
+            except Exception:
+                pass
+        self._schedule_gui_update(_do_update)
+
+    def _disable_manual_controls(self):
+        """Disable all manual control widgets"""
+        if not self.root:
+            return
+        def _do_update():
+            try:
+                if self.voltage_scale:
+                    self.voltage_scale.configure(state="disabled")
+                if self.voltage_set_button:
+                    self.voltage_set_button.configure(state="disabled")
+                if self.manual_mech_switch:
+                    self.manual_mech_switch.configure(state="disabled")
+                if self.turbo_pump_switch:
+                    self.turbo_pump_switch.configure(state="disabled")
+                for slider in self.valve_sliders.values():
+                    if slider:
+                        slider.configure(state="disabled")
+                for button in self.valve_set_buttons.values():
+                    if button:
+                        button.configure(state="disabled")
+            except Exception:
+                pass
+        self._schedule_gui_update(_do_update)
+
+    def _auto_start(self):
+        if self._is_auto_mode_active():
+            self._update_status("Auto mode is already running", "orange")
+            return
+        if self.auto_log_display:
+            self.auto_log_display.configure(state="normal")
+            self.auto_log_display.insert("end", "[FSM] Start requested\n")
+            self.auto_log_display.configure(state="disabled")
+        self._disable_manual_controls()
+        self.auto_controller.dispatch_event(Event.START)
+
+    def _auto_stop(self):
+        if self.auto_log_display:
+            self.auto_log_display.configure(state="normal")
+            self.auto_log_display.insert("end", "[FSM] Stop requested\n")
+            self.auto_log_display.configure(state="disabled")
+        self.auto_controller.dispatch_event(Event.STOP_CMD)
+        # Re-enable manual controls when auto mode stops (will be called when state returns to ALL_OFF)
+
+    def _auto_update_state_label(self, state: State):
+        if not self.auto_state_label or not self.root:
+            return
+
+        def _do_update():
+            try:
+                self.auto_state_label.configure(text=f"Current State: {state.name}")
+                # Re-enable manual controls when auto mode returns to ALL_OFF
+                if state == State.ALL_OFF:
+                    self._enable_manual_controls()
+            except Exception:
+                pass
+
+        self._schedule_gui_update(_do_update)
+
+    def _auto_log_event(self, message: str):
+        if (
+            not hasattr(self, "auto_log_display")
+            or self.auto_log_display is None
+            or not self.root
+        ):
+            return
+
+        def _do_update():
+            try:
+                timestamp = time.strftime("%H:%M:%S")
+                self.auto_log_display.configure(state="normal")
+                self.auto_log_display.insert("end", f"[{timestamp}] {message}\n")
+                self.auto_log_display.see("end")
+                self.auto_log_display.configure(state="disabled")
+            except Exception:
+                pass
+
+        self._schedule_gui_update(_do_update)
+
+    def _set_voltage(self):
+        if self._is_auto_mode_active():
+            self._update_status("Cannot control manually while auto mode is active", "red")
+            return
+        voltage = int(self.voltage_scale.get())
+        if voltage > 0:
+            self._send_command("POWER_SUPPLY_ENABLE")
+        command = self.command_handler.build_set_voltage_command(voltage)
+        if command:
+            self._send_command(command)
+        else:
+            self._update_status("Invalid voltage value", "red")
+            if hasattr(self, "data_display") and self.data_display:
+                self._update_data_display(f"[ERROR] Invalid voltage: {voltage}")
+
+    def _set_pump_power(self):
+        power = int(self.pump_power_scale.get())
+        command = self.command_handler.build_set_pump_power_command(power)
+        if command:
+            self._send_command(command)
+        else:
+            self._update_status("Invalid power value", "red")
+            if hasattr(self, "data_display") and self.data_display:
+                self._update_data_display(f"[ERROR] Invalid power: {power}")
+
+    def _toggle_mech_pump(self):
+        if self._is_auto_mode_active():
+            self._update_status("Cannot control manually while auto mode is active", "red")
+            # Reset switch to previous state
+            self.manual_mech_switch.deselect() if not self.manual_mech_switch_state else self.manual_mech_switch.select()
+            return
+        
+        self.manual_mech_switch_state = self.manual_mech_switch.get()
+        power = 100 if self.manual_mech_switch_state else 0
+        self.manual_mech_switch.configure(text="ON" if self.manual_mech_switch_state else "OFF")
+        command = f"SET_MECHANICAL_PUMP:{power}"
+        self._send_command(command)
+
+    def _toggle_turbo_pump(self):
+        if self._is_auto_mode_active():
+            self._update_status("Cannot control manually while auto mode is active", "red")
+            # Reset switch to previous state
+            self.turbo_pump_switch.deselect() if not self.turbo_pump_switch_state else self.turbo_pump_switch.select()
+            return
+        
+        self.turbo_pump_switch_state = self.turbo_pump_switch.get()
+        power = 100 if self.turbo_pump_switch_state else 0
+        self.turbo_pump_switch.configure(text="ON" if self.turbo_pump_switch_state else "OFF")
+        command = f"SET_TURBO_PUMP:{power}"
+        self._send_command(command)
+
+    def _move_motor(self):
+        try:
+            steps = int(self.steps_entry.get())
+            command = self.command_handler.build_move_motor_command(steps)
+            if command:
+                self._send_command(command)
+            else:
+                self._update_status("Invalid steps value", "red")
+                self._update_data_display("[ERROR] Steps must be a number")
+        except ValueError:
+            self._update_status("Invalid steps value", "red")
+            self._update_data_display("[ERROR] Steps must be a number")
+
+    def _handle_udp_data(self, data: str):
+        self._update_data_display(f"[UDP Data] {data}")
+        parsed = self._parse_periodic_packet(data)
+        
+        # Check for errors first (always log errors)
+        has_error = any(
+            "ERROR" in str(v).upper()
+            or "NOT_AVAILABLE" in str(v).upper()
+            or "NOT_INITIALIZED" in str(v).upper()
+            or "DISCONNECTED" in str(v).upper()
+            for v in (parsed.values() if parsed else [data])
+        )
+        
+        if parsed:
+            # Check if any values changed
+            values_changed = False
+            changed_items = []
+            
+            with self._previous_values_lock:
+                for key, value in parsed.items():
+                    # Skip TIME field for change detection (always changes)
+                    if key == "TIME":
+                        continue
+                    
+                    prev_value = self.previous_values.get(key)
+                    
+                    # For numeric values (like ADC_CH0), compare as numbers to handle string/int differences
+                    try:
+                        if key.startswith("ADC_CH") or key == "Pressure_Sensor_1":
+                            value_num = float(value) if value else None
+                            prev_value_num = float(prev_value) if prev_value else None
+                            if (
+                                prev_value_num is None
+                                or abs(value_num - prev_value_num) >= 1.0
+                            ):  # At least 1 unit change
+                                values_changed = True
+                                changed_items.append(f"{key}={value}")
+                                self.previous_values[key] = value
+                        else:
+                            # String comparison for non-numeric values
+                            if prev_value != value:
+                                values_changed = True
+                                changed_items.append(f"{key}={value}")
+                                self.previous_values[key] = value
+                            elif key not in self.previous_values:
+                                # First time seeing this value
+                                values_changed = True
+                                changed_items.append(f"{key}={value}")
+                                self.previous_values[key] = value
+                    except (ValueError, TypeError):
+                        # Fallback to string comparison if conversion fails
+                        if prev_value != value:
+                            values_changed = True
+                            changed_items.append(f"{key}={value}")
+                            self.previous_values[key] = value
+                        elif key not in self.previous_values:
+                            values_changed = True
+                            changed_items.append(f"{key}={value}")
+                            self.previous_values[key] = value
+            
+            # Update ADC displays
+            adc_values = []
+            for ch in range(8):
+                adc_key = f"ADC_CH{ch}"
+                adc_value = parsed.get(adc_key)
+                if adc_value is not None:
+                    adc_values.append(adc_value)
+                    if ch == 0:
+                        self._update_adc_display(adc_value)
+            
+            if len(adc_values) >= 8:
+                self._update_all_adc_channels(adc_values)
+
+            adc_data = parsed.get("ADC_DATA")
+            if adc_data:
+                try:
+                    if isinstance(adc_data, str):
+                        adc_list = [int(x.strip()) for x in adc_data.split(",")]
+                    else:
+                        adc_list = list(adc_data)
+                    if len(adc_list) >= 8:
+                        self._update_all_adc_channels(adc_list)
+                except (ValueError, TypeError):
+                    pass
+            
+            # Only log to terminal if values changed or there's an error
+            if values_changed or has_error:
+                if changed_items:
+                    summary = ", ".join(changed_items)
+                    if has_error:
+                        summary += " [ERROR DETECTED]"
+                        self._update_target_logs(f"[UDP Data] {summary}")
+                    self._log_terminal_update("TARGET_DATA", summary)
+                elif has_error:
+                    # Error but no value changes
+                    summary = ", ".join(
+                        f"{k}={v}"
+                        for k, v in parsed.items()
+                        if "ERROR" in str(v).upper()
+                        or "NOT_AVAILABLE" in str(v).upper()
+                        or "NOT_INITIALIZED" in str(v).upper()
+                    )
+                    self._update_target_logs(f"[UDP Data] {summary}")
+                    self._log_terminal_update("TARGET_ERROR", summary)
+        else:
+            # Unparsed data - check for error keywords
+            if has_error or "ERROR" in data.upper():
+                self._update_target_logs(f"[UDP Data] {data}")
+                self._log_terminal_update("TARGET_ERROR", data)
+
+    def _handle_udp_status(self, message: str, address: tuple):
+        self._update_data_display(f"[UDP Status] From {address[0]}: {message}")
+        self._update_target_logs(f"[UDP Status] {message}")
+
+        has_error = (
+            "ERROR" in message.upper()
+            or "FAILED" in message.upper()
+            or "WARNING" in message.upper()
+        )
+        
+        matched_sensor = self.udp_client_object.process_received_data(message)
+        
+        if matched_sensor:
+            with self._sensors_lock:
+                sensor = self.sensors.get(matched_sensor)
+                if sensor and sensor.value is not None:
+                    if matched_sensor == "pressure_sensor_1":
+                        try:
+                            self._update_pressure_display(sensor.value)
+                        except Exception:
+                            pass
+                        with self._previous_values_lock:
+                            prev_pressure = self.previous_values.get(
+                                "Pressure_Sensor_1"
+                            )
+                            if prev_pressure != sensor.value:
+                                try:
+                                    self._log_terminal_update(
+                                        "TARGET_STATUS",
+                                        f"Pressure Sensor 1: {sensor.value} mT",
+                                    )
+                                except Exception:
+                                    pass
+                            self.previous_values["Pressure_Sensor_1"] = sensor.value
+        
+        try:
+            payload = json.loads(message)
+            telemetry = payload.get("telemetry")
+            if telemetry:
+                self.telemetry_mapper.handle_telemetry(telemetry)
+        except json.JSONDecodeError:
+            if has_error:
+                try:
+                    self._log_terminal_update("TARGET_ERROR", message)
+                except Exception:
+                    pass
+        except Exception as exc:
+            if has_error:
+                try:
+                    logger.error("Error parsing UDP status message: %s", exc)
+                    self._log_terminal_update("TARGET_ERROR", f"Parse error: {exc}")
+                except Exception:
+                    pass
+
+    def _process_gui_updates(self):
+        try:
+            while not self._gui_update_queue.empty():
+                try:
+                    update_func, args, kwargs = self._gui_update_queue.get_nowait()
+                    update_func(*args, **kwargs)
+                except Exception as e:
+                    logger.error(f"Error processing GUI update: {e}")
+        except Exception:
+            pass
+
+        if self.root and not self._shutdown_event.is_set():
+            self.root.after(50, self._process_gui_updates)
+
+    def _schedule_gui_update(self, func, *args, **kwargs):
+        if self.root and not self._shutdown_event.is_set():
+            self._gui_update_queue.put((func, args, kwargs))
+
+    def _open_data_log_window(self):
+        if self.data_log_window is not None:
+            try:
+                if self.data_log_window.winfo_exists():
+                    self.data_log_window.lift()
+                    self.data_log_window.focus()
+                    return
+            except:
+                self.data_log_window = None
+
+        self.data_log_window = ctk.CTkToplevel(self.root)
+        self.data_log_window.title("Data Logs - Read-Only from Target")
+        self.data_log_window.geometry("900x600")
+
+        log_window_frame = ctk.CTkFrame(self.data_log_window)
+        log_window_frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        log_title = ctk.CTkLabel(
+            log_window_frame,
+            text="Data Logs (Read-Only from Target)",
+            font=ctk.CTkFont(size=16, weight="bold"),
+        )
+        log_title.pack(pady=10)
+
+        self.data_display = ctk.CTkTextbox(
+            log_window_frame,
+            font=ctk.CTkFont(size=11, family="Courier"),
+            wrap="word",
+        )
+        self.data_display.pack(fill="both", expand=True, padx=10, pady=10)
+
+        clear_button = ctk.CTkButton(
+            log_window_frame,
+            text="Clear Logs",
+            command=self._clear_data_display,
+            font=ctk.CTkFont(size=12),
+            width=120,
+            height=35,
+        )
+        clear_button.pack(pady=5)
+
+        self.data_log_window.protocol("WM_DELETE_WINDOW", self._close_data_log_window)
+
+        if hasattr(self, "_initial_log_message"):
+            self._update_data_display(self._initial_log_message)
+
+    def _close_data_log_window(self):
+        if hasattr(self, "data_log_window") and self.data_log_window:
+            try:
+                self.data_log_window.destroy()
+            except:
+                pass
+            self.data_log_window = None
+            self.data_display = None
+
+    def _open_data_reading_window(self):
+        if self.data_reading_window is not None:
+            try:
+                if self.data_reading_window.winfo_exists():
+                    self.data_reading_window.lift()
+                    self.data_reading_window.focus()
+                    return
+            except:
+                self.data_reading_window = None
+
+        self.data_reading_window = ctk.CTkToplevel(self.root)
+        self.data_reading_window.title("Sensor Data Readouts")
+        self.data_reading_window.geometry("800x600")
+
+        data_reading_container = ctk.CTkFrame(self.data_reading_window)
+        data_reading_container.pack(fill="both", expand=True, padx=10, pady=10)
+
         data_reading_title = ctk.CTkLabel(
-            data_reading_tab,
+            data_reading_container,
             text="Sensor Data Readouts",
             font=ctk.CTkFont(size=18, weight="bold"),
         )
         data_reading_title.pack(pady=10)
-
-        data_reading_container = ctk.CTkFrame(data_reading_tab)
-        data_reading_container.pack(fill="both", expand=True, padx=10, pady=10)
 
         pressure_readout_frame = ctk.CTkFrame(data_reading_container)
         pressure_readout_frame.pack(fill="x", padx=5, pady=8)
@@ -944,753 +1770,29 @@ class FusorHostApp:
 
         self.adc_label = self.adc_ch0_label
 
-        log_window_button_frame = ctk.CTkFrame(data_reading_container)
-        log_window_button_frame.pack(fill="x", padx=5, pady=10)
+        self.data_reading_window.protocol("WM_DELETE_WINDOW", self._close_data_reading_window)
 
-        open_log_window_button = ctk.CTkButton(
-            log_window_button_frame,
-            text="Open Data Log Window",
-            command=self._open_data_log_window,
-            font=ctk.CTkFont(size=12, weight="bold"),
-            width=200,
-            height=40,
-            fg_color="blue",
-            hover_color="darkblue",
-        )
-        open_log_window_button.pack(pady=10)
-
-        log_reading_title = ctk.CTkLabel(
-            log_reading_tab,
-            text="Target Logs (Live from Raspberry Pi)",
-            font=ctk.CTkFont(size=18, weight="bold"),
-        )
-        log_reading_title.pack(pady=10)
-
-        log_reading_container = ctk.CTkFrame(log_reading_tab)
-        log_reading_container.pack(fill="both", expand=True, padx=10, pady=10)
-
-        target_logs_frame = ctk.CTkFrame(log_reading_container)
-        target_logs_frame.pack(fill="both", expand=True, padx=5, pady=8)
-
-        target_logs_label = ctk.CTkLabel(
-            target_logs_frame,
-            text="Live Target Logs",
-            font=ctk.CTkFont(size=14, weight="bold"),
-        )
-        target_logs_label.pack(pady=8)
-
-        self.target_logs_display = ctk.CTkTextbox(
-            target_logs_frame,
-            font=ctk.CTkFont(size=10, family="Courier"),
-            wrap="word",
-        )
-        self.target_logs_display.pack(fill="both", expand=True, padx=10, pady=10)
-        self.target_logs_display.insert(
-            "end", "[Target Logs] Waiting for logs from Raspberry Pi...\n"
-        )
-        self.target_logs_display.configure(state="disabled")
-
-        clear_target_logs_button = ctk.CTkButton(
-            target_logs_frame,
-            text="Clear Target Logs",
-            command=self._clear_target_logs,
-            font=ctk.CTkFont(size=12),
-            width=150,
-            height=35,
-        )
-        clear_target_logs_button.pack(pady=10)
-
-        auto_section = ctk.CTkFrame(auto_tab)
-        auto_section.pack(fill="both", expand=True, padx=10, pady=10)
-
-        auto_header = ctk.CTkLabel(
-            auto_section,
-            text="Finite State Machine Control",
-            font=ctk.CTkFont(size=18, weight="bold"),
-        )
-        auto_header.pack(pady=5)
-
-        auto_button_frame = ctk.CTkFrame(auto_section)
-        auto_button_frame.pack(pady=5)
-
-        auto_start = ctk.CTkButton(
-            auto_button_frame,
-            text="Start Auto Sequence",
-            command=self._auto_start,
-            width=180,
-        )
-        auto_start.pack(side="left", padx=5, pady=5)
-
-        auto_stop = ctk.CTkButton(
-            auto_button_frame,
-            text="Stop / Emergency",
-            command=self._auto_stop,
-            width=180,
-            fg_color="red",
-        )
-        auto_stop.pack(side="left", padx=5, pady=5)
-
-        self.auto_state_label = ctk.CTkLabel(
-            auto_section,
-            text="Current State: ALL_OFF",
-            font=ctk.CTkFont(size=16),
-        )
-        self.auto_state_label.pack(pady=10)
-
-        self.auto_log_display = ctk.CTkTextbox(
-            auto_section,
-            font=ctk.CTkFont(size=11, family="Courier"),
-            wrap="word",
-            height=300,
-        )
-        self.auto_log_display.pack(fill="both", expand=True, padx=10, pady=10)
-        self.auto_log_display.insert("end", "[FSM] Ready.\n")
-        self.auto_log_display.configure(state="disabled")
-
-        self.status_label = ctk.CTkLabel(
-            main_frame,
-            text="Ready - Waiting for commands",
-            font=ctk.CTkFont(size=12),
-            text_color="blue",
-        )
-        self.status_label.pack(pady=5)
-
-        self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
-
-        self._process_gui_updates()
-
-    def _send_command(self, command: str):
-        if not command:
-            logger.warning("Attempted to send empty command")
-            return
-
-        try:
-            # Ensure connected - try to connect if not connected
-            if not self.tcp_command_client.is_connected():
-                self._update_status(
-                    f"Connecting to {self.target_ip}:{self.target_tcp_command_port}...",
-                    "blue",
-                )
-                self._update_data_display(
-                    f"[System] Attempting to connect to target at {self.target_ip}:{self.target_tcp_command_port}"
-                )
-
-                if not self.tcp_command_client.connect():
-                    self._update_status(
-                        f"Failed to connect to {self.target_ip}:{self.target_tcp_command_port}",
-                        "red",
-                    )
-                    self._update_data_display(
-                        f"[ERROR] Cannot send command {command} - connection failed"
-                    )
-                    self._update_data_display(f"[TROUBLESHOOTING] Check:")
-                    self._update_data_display(
-                        f"  - Is target running? (python src/Target_Codebase/target_main.py)"
-                    )
-                    self._update_data_display(
-                        f"  - Is target IP correct? (Expected: {self.target_ip})"
-                    )
-                    self._update_data_display(
-                        f"  - Can you ping target? (ping {self.target_ip})"
-                    )
-                    self._update_data_display(
-                        f"  - Is firewall blocking port {self.target_tcp_command_port}?"
-                    )
-                    return
-
-            # Send command
-            self._update_status(f"Sending command: {command}...", "blue")
-            response = self.tcp_command_client.send_command(command)
-
-            # Display response
-            if response:
-                # Check for success/failure in response
-                if "SUCCESS" in response.upper():
-                    self._update_status(
-                        f"Command sent: {command} - Response: {response}", "green"
-                    )
-                elif "FAILED" in response.upper() or "ERROR" in response.upper():
-                    self._update_status(
-                        f"Command sent: {command} - Response: {response}", "red"
-                    )
-
-                    # Extract and display detailed error message
-                    if ":" in response:
-                        error_detail = response.split(":", 1)[1].strip()
-
-                        # Comprehensive terminal logging for LED errors
-                        if command in ["LED_ON", "LED_OFF"]:
-                            print("\n" + "=" * 70, flush=True)
-                            print(f"LED COMMAND FAILED: {command}", flush=True)
-                            print("=" * 70, flush=True)
-                            print(f"Error from target: {error_detail}", flush=True)
-                            print("-" * 70, flush=True)
-
-                            # Provide specific troubleshooting based on error type
-                            if "GPIO not initialized" in error_detail:
-                                print(
-                                    "ROOT CAUSE: GPIO hardware not initialized on target",
-                                    flush=True,
-                                )
-                                print(
-                                    "SOLUTION: Target must be running with 'sudo' privileges",
-                                    flush=True,
-                                )
-                                print(
-                                    "ACTION: Run target with: sudo python3 target_main.py",
-                                    flush=True,
-                                )
-                                self._update_data_display(
-                                    "[TROUBLESHOOTING] GPIO not initialized - ensure target is running with 'sudo'"
-                                )
-                            elif "Permission denied" in error_detail:
-                                print(
-                                    "ROOT CAUSE: Insufficient permissions to access GPIO pins",
-                                    flush=True,
-                                )
-                                print(
-                                    "SOLUTION: Target process needs root/sudo access",
-                                    flush=True,
-                                )
-                                print(
-                                    "ACTION: Restart target with: sudo python3 target_main.py",
-                                    flush=True,
-                                )
-                                self._update_data_display(
-                                    "[TROUBLESHOOTING] Permission denied - target must run with 'sudo' to access GPIO"
-                                )
-                            elif (
-                                "RuntimeError" in error_detail
-                                or "GPIO channels already in use" in error_detail
-                            ):
-                                print(
-                                    "ROOT CAUSE: GPIO pins are locked/in use by another process",
-                                    flush=True,
-                                )
-                                print(
-                                    "SOLUTION: Clean up GPIO state and restart target",
-                                    flush=True,
-                                )
-                                print(
-                                    "ACTION: Restart target with: sudo python3 target_main.py",
-                                    flush=True,
-                                )
-                                print(
-                                    "        Or stop any other processes using GPIO pins",
-                                    flush=True,
-                                )
-                                self._update_data_display(
-                                    "[TROUBLESHOOTING] GPIO RuntimeError - pins may be in use, restart target"
-                                )
-                            elif "OS Error" in error_detail:
-                                print(
-                                    "ROOT CAUSE: GPIO hardware access error", flush=True
-                                )
-                                print(
-                                    "SOLUTION: Check hardware connections and GPIO wiring",
-                                    flush=True,
-                                )
-                                print(
-                                    "ACTION: Verify LED is connected to correct GPIO pin (default: pin 26)",
-                                    flush=True,
-                                )
-                                self._update_data_display(
-                                    "[TROUBLESHOOTING] GPIO hardware error - check wiring and GPIO connections"
-                                )
-                            else:
-                                print(f"ROOT CAUSE: {error_detail}", flush=True)
-                                print(
-                                    "SOLUTION: Check target logs for more details",
-                                    flush=True,
-                                )
-
-                            print("=" * 70 + "\n", flush=True)
-
-                            # Also log via standard method
-                            self._log_terminal_update(
-                                "LED_ERROR", f"{command} failed: {error_detail}"
-                            )
-                        else:
-                            # Non-LED errors - standard logging
-                            self._log_terminal_update(
-                                "COMMAND_ERROR", f"{command} -> {response}"
-                            )
-
-                        self._update_data_display(
-                            f"[ERROR] {command} failed: {error_detail}"
-                        )
-                    else:
-                        # No detailed error message
-                        self._log_terminal_update(
-                            "COMMAND_ERROR", f"{command} -> {response}"
-                        )
-                        self._update_data_display(
-                            f"[ERROR] {command} failed: {response}"
-                        )
-                else:
-                    self._update_status(
-                        f"Command sent: {command} - Response: {response}", "blue"
-                    )
-                self._update_data_display(
-                    f"[COMMAND] {command} -> [RESPONSE] {response}"
-                )
-            else:
-                self._update_status(f"Command sent: {command} - No response", "yellow")
-                self._update_data_display(
-                    f"[COMMAND] {command} -> [RESPONSE] (no response)"
-                )
-
-        except Exception as e:
-            logger.error(f"Error sending command {command}: {e}")
-            self._update_status(f"Error sending command: {e}", "red")
-            self._update_data_display(f"[ERROR] Command {command} failed: {e}")
-
-    def _update_voltage_label(self, value):
-        if hasattr(self, "voltage_value_label"):
-            self.voltage_value_label.configure(text=f"{int(value)} V")
-
-    def _update_pump_label(self, value):
-        if hasattr(self, "pump_value_label"):
-            self.pump_value_label.configure(text=f"{int(value)}%")
-
-    def _manual_slider_change(self, value):
-        if hasattr(self, "manual_mech_label"):
-            self.manual_mech_label.configure(text=f"{int(value)}%")
-        with self._actuators_lock:
+    def _close_data_reading_window(self):
+        if hasattr(self, "data_reading_window") and self.data_reading_window:
             try:
-                actuator = self.actuators.get("mech_pump")
-                if actuator:
-                    actuator.setAnalogValue(value)
-            except Exception:
-                pass
-
-    def _update_turbo_pump_label(self, value):
-        if hasattr(self, "turbo_pump_value_label"):
-            self.turbo_pump_value_label.configure(text=f"{int(value)}%")
-        with self._actuators_lock:
-            actuator = self.actuators.get("turbo_pump")
-            if actuator:
-                actuator.setAnalogValue(value)
-
-    def _update_valve_label(self, valve_key, idx, value):
-        if valve_key and valve_key in self.valve_value_labels:
-            self.valve_value_labels[valve_key].configure(text=f"{int(value)}%")
-
-    def _set_valve(self, valve_name: str, value: float):
-        with self._actuators_lock:
-            actuator = self.actuators.get(valve_name)
-        if actuator:
-            actuator.setAnalogValue(value)
-
-    def _update_pressure_display(self, value):
-        if not self.root:
-            return
-
-        def _do_update():
-            try:
-                if hasattr(self, "pressure_display1") and self.pressure_display1:
-                    self.pressure_display1.configure(
-                        text=f"Turbo Pressure Sensor [ADC CH1]: {value} mT"
-                    )
-                if hasattr(self, "pressure_label") and self.pressure_label:
-                    self.pressure_label.configure(
-                        text=f"Turbo Pressure Sensor [ADC CH1]: {value} mT"
-                    )
-            except Exception:
-                pass
-
-        self._schedule_gui_update(_do_update)
-
-    def _update_adc_display(self, value):
-        if not self.root:
-            return
-
-        def _do_update():
-            try:
-                if hasattr(self, "adc_ch0_label") and self.adc_ch0_label:
-                    self.adc_ch0_label.configure(
-                        text=f"ADC CH0 [Potentiometer - Testing]: {value}"
-                    )
-                if hasattr(self, "adc_label") and self.adc_label:
-                    self.adc_label.configure(
-                        text=f"ADC CH0 [Potentiometer - Testing]: {value}"
-                    )
-            except Exception:
-                pass
-
-        self._schedule_gui_update(_do_update)
-
-    def _update_all_adc_channels(self, adc_data):
-        if not self.root:
-            return
-
-        def _do_update():
-            try:
-                adc_channels = {
-                    "adc_ch0_label": 0,
-                    "adc_ch1_label": 1,
-                    "adc_ch2_label": 2,
-                    "adc_ch3_label": 3,
-                    "adc_ch4_label": 4,
-                    "adc_ch5_label": 5,
-                    "adc_ch6_label": 6,
-                    "adc_ch7_label": 7,
-                }
-
-                if isinstance(adc_data, (list, tuple)) and len(adc_data) >= 8:
-                    channel_labels = {
-                        0: "ADC CH0 [Potentiometer - Testing]",
-                        1: "ADC CH1",
-                        2: "ADC CH2",
-                        3: "ADC CH3",
-                        4: "ADC CH4",
-                        5: "ADC CH5",
-                        6: "ADC CH6",
-                        7: "ADC CH7",
-                    }
-                    for label_attr, channel in adc_channels.items():
-                        if hasattr(self, label_attr):
-                            label = getattr(self, label_attr)
-                            if label:
-                                label_text = channel_labels.get(
-                                    channel, f"ADC CH{channel}"
-                                )
-                                label.configure(
-                                    text=f"{label_text}: {adc_data[channel]}"
-                                )
-            except Exception:
-                pass
-
-        self._schedule_gui_update(_do_update)
-
-    def _auto_start(self):
-        if self.auto_log_display:
-            self.auto_log_display.configure(state="normal")
-            self.auto_log_display.insert("end", "[FSM] Start requested\n")
-            self.auto_log_display.configure(state="disabled")
-        self.auto_controller.dispatch_event(Event.START)
-
-    def _auto_stop(self):
-        if self.auto_log_display:
-            self.auto_log_display.configure(state="normal")
-            self.auto_log_display.insert("end", "[FSM] Stop requested\n")
-            self.auto_log_display.configure(state="disabled")
-        self.auto_controller.dispatch_event(Event.STOP_CMD)
-
-    def _auto_update_state_label(self, state: State):
-        if not self.auto_state_label or not self.root:
-            return
-
-        def _do_update():
-            try:
-                self.auto_state_label.configure(text=f"Current State: {state.name}")
-            except Exception:
-                pass
-
-        self._schedule_gui_update(_do_update)
-
-    def _auto_log_event(self, message: str):
-        if (
-            not hasattr(self, "auto_log_display")
-            or self.auto_log_display is None
-            or not self.root
-        ):
-            return
-
-        def _do_update():
-            try:
-                timestamp = time.strftime("%H:%M:%S")
-                self.auto_log_display.configure(state="normal")
-                self.auto_log_display.insert("end", f"[{timestamp}] {message}\n")
-                self.auto_log_display.see("end")
-                self.auto_log_display.configure(state="disabled")
-            except Exception:
-                pass
-
-        self._schedule_gui_update(_do_update)
-
-    def _set_voltage(self):
-        voltage = int(self.voltage_scale.get())
-        if voltage > 0:
-            self._send_command("POWER_SUPPLY_ENABLE")
-        command = self.command_handler.build_set_voltage_command(voltage)
-        if command:
-            self._send_command(command)
-        else:
-            self._update_status("Invalid voltage value", "red")
-            if hasattr(self, "data_display") and self.data_display:
-                self._update_data_display(f"[ERROR] Invalid voltage: {voltage}")
-
-    def _set_pump_power(self):
-        power = int(self.pump_power_scale.get())
-        command = self.command_handler.build_set_pump_power_command(power)
-        if command:
-            self._send_command(command)
-        else:
-            self._update_status("Invalid power value", "red")
-            if hasattr(self, "data_display") and self.data_display:
-                self._update_data_display(f"[ERROR] Invalid power: {power}")
-
-    def _set_mech_pump_power(self, power):
-        power = int(power)
-        command = f"SET_MECHANICAL_PUMP:{power}"
-        self._send_command(command)
-
-    def _set_turbo_pump_power(self, power):
-        power = int(power)
-        command = f"SET_TURBO_PUMP:{power}"
-        self._send_command(command)
-
-    def _move_motor(self):
-        try:
-            steps = int(self.steps_entry.get())
-            command = self.command_handler.build_move_motor_command(steps)
-            if command:
-                self._send_command(command)
-            else:
-                self._update_status("Invalid steps value", "red")
-                self._update_data_display("[ERROR] Steps must be a number")
-        except ValueError:
-            self._update_status("Invalid steps value", "red")
-            self._update_data_display("[ERROR] Steps must be a number")
-
-    def _handle_udp_data(self, data: str):
-        self._update_data_display(f"[UDP Data] {data}")
-        parsed = self._parse_periodic_packet(data)
-
-        # Check for errors first (always log errors)
-        has_error = any(
-            "ERROR" in str(v).upper()
-            or "NOT_AVAILABLE" in str(v).upper()
-            or "NOT_INITIALIZED" in str(v).upper()
-            or "DISCONNECTED" in str(v).upper()
-            for v in (parsed.values() if parsed else [data])
-        )
-
-        if parsed:
-            # Check if any values changed
-            values_changed = False
-            changed_items = []
-
-            with self._previous_values_lock:
-                for key, value in parsed.items():
-                    # Skip TIME field for change detection (always changes)
-                    if key == "TIME":
-                        continue
-
-                    prev_value = self.previous_values.get(key)
-
-                    # For numeric values (like ADC_CH0), compare as numbers to handle string/int differences
-                    try:
-                        if key.startswith("ADC_CH") or key == "Pressure_Sensor_1":
-                            value_num = float(value) if value else None
-                            prev_value_num = float(prev_value) if prev_value else None
-                            if (
-                                prev_value_num is None
-                                or abs(value_num - prev_value_num) >= 1.0
-                            ):  # At least 1 unit change
-                                values_changed = True
-                                changed_items.append(f"{key}={value}")
-                                self.previous_values[key] = value
-                        else:
-                            # String comparison for non-numeric values
-                            if prev_value != value:
-                                values_changed = True
-                                changed_items.append(f"{key}={value}")
-                                self.previous_values[key] = value
-                            elif key not in self.previous_values:
-                                # First time seeing this value
-                                values_changed = True
-                                changed_items.append(f"{key}={value}")
-                                self.previous_values[key] = value
-                    except (ValueError, TypeError):
-                        # Fallback to string comparison if conversion fails
-                        if prev_value != value:
-                            values_changed = True
-                            changed_items.append(f"{key}={value}")
-                            self.previous_values[key] = value
-                        elif key not in self.previous_values:
-                            values_changed = True
-                            changed_items.append(f"{key}={value}")
-                            self.previous_values[key] = value
-
-            # Update ADC displays
-            adc_values = []
-            for ch in range(8):
-                adc_key = f"ADC_CH{ch}"
-                adc_value = parsed.get(adc_key)
-                if adc_value is not None:
-                    adc_values.append(adc_value)
-                    if ch == 0:
-                        self._update_adc_display(adc_value)
-
-            if len(adc_values) >= 8:
-                self._update_all_adc_channels(adc_values)
-
-            adc_data = parsed.get("ADC_DATA")
-            if adc_data:
-                try:
-                    if isinstance(adc_data, str):
-                        adc_list = [int(x.strip()) for x in adc_data.split(",")]
-                    else:
-                        adc_list = list(adc_data)
-                    if len(adc_list) >= 8:
-                        self._update_all_adc_channels(adc_list)
-                except (ValueError, TypeError):
-                    pass
-
-            # Only log to terminal if values changed or there's an error
-            if values_changed or has_error:
-                if changed_items:
-                    summary = ", ".join(changed_items)
-                    if has_error:
-                        summary += " [ERROR DETECTED]"
-                        self._update_target_logs(f"[UDP Data] {summary}")
-                    self._log_terminal_update("TARGET_DATA", summary)
-                elif has_error:
-                    # Error but no value changes
-                    summary = ", ".join(
-                        f"{k}={v}"
-                        for k, v in parsed.items()
-                        if "ERROR" in str(v).upper()
-                        or "NOT_AVAILABLE" in str(v).upper()
-                        or "NOT_INITIALIZED" in str(v).upper()
-                    )
-                    self._update_target_logs(f"[UDP Data] {summary}")
-                    self._log_terminal_update("TARGET_ERROR", summary)
-        else:
-            # Unparsed data - check for error keywords
-            if has_error or "ERROR" in data.upper():
-                self._update_target_logs(f"[UDP Data] {data}")
-                self._log_terminal_update("TARGET_ERROR", data)
-
-    def _handle_udp_status(self, message: str, address: tuple):
-        self._update_data_display(f"[UDP Status] From {address[0]}: {message}")
-        self._update_target_logs(f"[UDP Status] {message}")
-
-        has_error = (
-            "ERROR" in message.upper()
-            or "FAILED" in message.upper()
-            or "WARNING" in message.upper()
-        )
-
-        matched_sensor = self.udp_client_object.process_received_data(message)
-
-        if matched_sensor:
-            with self._sensors_lock:
-                sensor = self.sensors.get(matched_sensor)
-                if sensor and sensor.value is not None:
-                    if matched_sensor == "pressure_sensor_1":
-                        try:
-                            self._update_pressure_display(sensor.value)
-                        except Exception:
-                            pass
-                        with self._previous_values_lock:
-                            prev_pressure = self.previous_values.get(
-                                "Pressure_Sensor_1"
-                            )
-                            if prev_pressure != sensor.value:
-                                try:
-                                    self._log_terminal_update(
-                                        "TARGET_STATUS",
-                                        f"Pressure Sensor 1: {sensor.value} mT",
-                                    )
-                                except Exception:
-                                    pass
-                                self.previous_values["Pressure_Sensor_1"] = sensor.value
-
-        try:
-            try:
-                payload = json.loads(message)
-                telemetry = payload.get("telemetry")
-                if telemetry:
-                    self.telemetry_mapper.handle_telemetry(telemetry)
-            except json.JSONDecodeError:
-                if has_error:
-                    try:
-                        self._log_terminal_update("TARGET_ERROR", message)
-                    except Exception:
-                        pass
-        except Exception as exc:
-            if has_error:
-                try:
-                    logger.error("Error parsing UDP status message: %s", exc)
-                    self._log_terminal_update("TARGET_ERROR", f"Parse error: {exc}")
-                except Exception:
-                    pass
-
-    def _process_gui_updates(self):
-        try:
-            while not self._gui_update_queue.empty():
-                try:
-                    update_func, args, kwargs = self._gui_update_queue.get_nowait()
-                    update_func(*args, **kwargs)
-                except Exception as e:
-                    logger.error(f"Error processing GUI update: {e}")
-        except Exception:
-            pass
-
-        if self.root and not self._shutdown_event.is_set():
-            self.root.after(50, self._process_gui_updates)
-
-    def _schedule_gui_update(self, func, *args, **kwargs):
-        if self.root and not self._shutdown_event.is_set():
-            self._gui_update_queue.put((func, args, kwargs))
-
-    def _open_data_log_window(self):
-        if self.data_log_window is not None:
-            try:
-                if self.data_log_window.winfo_exists():
-                    self.data_log_window.lift()
-                    self.data_log_window.focus()
-                    return
-            except:
-                self.data_log_window = None
-
-        self.data_log_window = ctk.CTkToplevel(self.root)
-        self.data_log_window.title("Data Logs - Read-Only from Target")
-        self.data_log_window.geometry("900x600")
-
-        log_window_frame = ctk.CTkFrame(self.data_log_window)
-        log_window_frame.pack(fill="both", expand=True, padx=10, pady=10)
-
-        log_title = ctk.CTkLabel(
-            log_window_frame,
-            text="Data Logs (Read-Only from Target)",
-            font=ctk.CTkFont(size=16, weight="bold"),
-        )
-        log_title.pack(pady=10)
-
-        self.data_display = ctk.CTkTextbox(
-            log_window_frame,
-            font=ctk.CTkFont(size=11, family="Courier"),
-            wrap="word",
-        )
-        self.data_display.pack(fill="both", expand=True, padx=10, pady=10)
-
-        clear_button = ctk.CTkButton(
-            log_window_frame,
-            text="Clear Logs",
-            command=self._clear_data_display,
-            font=ctk.CTkFont(size=12),
-            width=120,
-            height=35,
-        )
-        clear_button.pack(pady=5)
-
-        self.data_log_window.protocol("WM_DELETE_WINDOW", self._close_data_log_window)
-
-        if hasattr(self, "_initial_log_message"):
-            self._update_data_display(self._initial_log_message)
-
-    def _close_data_log_window(self):
-        if hasattr(self, "data_log_window") and self.data_log_window:
-            try:
-                self.data_log_window.destroy()
+                self.data_reading_window.destroy()
             except:
                 pass
-            self.data_log_window = None
-            self.data_display = None
+            self.data_reading_window = None
+            # Keep labels as None so updates don't crash
+            self.pressure_display1 = None
+            self.pressure_display2 = None
+            self.pressure_display3 = None
+            self.adc_ch0_label = None
+            self.adc_ch1_label = None
+            self.adc_ch2_label = None
+            self.adc_ch3_label = None
+            self.adc_ch4_label = None
+            self.adc_ch5_label = None
+            self.adc_ch6_label = None
+            self.adc_ch7_label = None
+            self.pressure_label = None
+            self.adc_label = None
 
     def _clear_data_display(self):
         if self.data_display:
