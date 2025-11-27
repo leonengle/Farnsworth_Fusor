@@ -1,6 +1,7 @@
 import time
 import sys
 import argparse
+import threading
 from base_classes import ADCInterface
 from logging_setup import setup_logging, get_logger
 
@@ -39,22 +40,27 @@ class MCP3008ADC(ADCInterface):
     def __init__(self, spi_port=0, spi_device=0):
         super().__init__(spi_port, spi_device)
         self.mcp = None
+        self._mcp_lock = threading.Lock()
+        self._init_lock = threading.Lock()
 
     def initialize(self):
         if not RPI_AVAILABLE or Adafruit_MCP3008 is None or SPI is None:
             logger.error("ADC libraries not available (likely in test environment)")
             return False
-        
+
         # Check SPI device permissions before attempting initialization
         import os
+
         spi_device_path = f"/dev/spidev{self.spi_port}.{self.spi_device}"
-        
+
         if not os.path.exists(spi_device_path):
             logger.error(f"ADC error: SPI device {spi_device_path} not found")
-            logger.error("SPI interface may not be enabled. Enable it with: sudo raspi-config")
+            logger.error(
+                "SPI interface may not be enabled. Enable it with: sudo raspi-config"
+            )
             logger.error("  Navigate to: Interface Options -> SPI -> Enable")
             return False
-        
+
         # Check permissions (even as root, this helps diagnose issues)
         try:
             if not os.access(spi_device_path, os.R_OK | os.W_OK):
@@ -63,25 +69,33 @@ class MCP3008ADC(ADCInterface):
                 return False
         except Exception as perm_err:
             logger.error(f"ADC permission check error: {perm_err}")
-        
+
         try:
             logger.info(f"Attempting to initialize MCP3008 ADC on {spi_device_path}")
-            self.mcp = Adafruit_MCP3008.MCP3008(
-                spi=SPI.SpiDev(self.spi_port, self.spi_device)
-            )
-            self._is_initialized = True
+            with self._mcp_lock:
+                self.mcp = Adafruit_MCP3008.MCP3008(
+                    spi=SPI.SpiDev(self.spi_port, self.spi_device)
+                )
+            with self._init_lock:
+                self._is_initialized = True
             logger.info("MCP3008 ADC initialized successfully")
             return True
         except PermissionError as e:
             logger.error(f"ADC permission error: {e}")
             logger.error(f"SPI device {spi_device_path} requires proper permissions")
             logger.error(f"Try: sudo chmod 666 {spi_device_path}")
-            logger.error("Or ensure SPI is enabled: sudo raspi-config -> Interface Options -> SPI")
+            logger.error(
+                "Or ensure SPI is enabled: sudo raspi-config -> Interface Options -> SPI"
+            )
             return False
         except OSError as e:
             logger.error(f"ADC OS error: {e}")
-            logger.error("This usually means SPI interface is not enabled or hardware is not connected")
-            logger.error("Enable SPI with: sudo raspi-config -> Interface Options -> SPI -> Enable")
+            logger.error(
+                "This usually means SPI interface is not enabled or hardware is not connected"
+            )
+            logger.error(
+                "Enable SPI with: sudo raspi-config -> Interface Options -> SPI -> Enable"
+            )
             return False
         except Exception as e:
             logger.error(f"Failed to initialize ADC: {e}")
@@ -92,25 +106,32 @@ class MCP3008ADC(ADCInterface):
             logger.error("  3. Adafruit_MCP3008 library is installed")
             return False
 
+    def is_initialized(self) -> bool:
+        with self._init_lock:
+            return self._is_initialized
+
     def read_channel(self, channel):
-        if not self._is_initialized:
-            print("ADC not initialized")
-            return 0
+        with self._init_lock:
+            if not self._is_initialized:
+                print("ADC not initialized")
+                return 0
 
         if not self.validate_channel(channel):
             print(f"Invalid channel: {channel}")
             return 0
 
         try:
-            return self.mcp.read_adc(channel)
+            with self._mcp_lock:
+                return self.mcp.read_adc(channel)
         except Exception as e:
             print(f"Error reading channel {channel}: {e}")
             return 0
 
     def read_multiple_channels(self, channels):
-        if not self._is_initialized:
-            print("ADC not initialized")
-            return [0] * len(channels)
+        with self._init_lock:
+            if not self._is_initialized:
+                print("ADC not initialized")
+                return [0] * len(channels)
 
         results = []
         for channel in channels:
@@ -124,26 +145,28 @@ class MCP3008ADC(ADCInterface):
         return (adc_value / 1023.0) * reference_voltage
 
     def cleanup(self):
-        self._is_initialized = False
-        self.mcp = None
+        with self._init_lock:
+            self._is_initialized = False
+        with self._mcp_lock:
+            self.mcp = None
 
 
-# Global instance for backward compatibility (lazy initialization)
 _mcp_instance = None
 _mcp = None
+_mcp_global_lock = threading.Lock()
 
 
 def get_mcp_instance():
-    """Get or create global MCP instance (lazy initialization)"""
     global _mcp_instance, _mcp
-    if _mcp_instance is None:
-        _mcp_instance = MCP3008ADC(HW_SPI_PORT, HW_SPI_DEV)
-        if _mcp_instance.initialize():
-            _mcp = _mcp_instance.mcp
-        else:
-            _mcp = None
-            print("Warning: ADC initialization failed")
-    return _mcp
+    with _mcp_global_lock:
+        if _mcp_instance is None:
+            _mcp_instance = MCP3008ADC(HW_SPI_PORT, HW_SPI_DEV)
+            if _mcp_instance.initialize():
+                _mcp = _mcp_instance.mcp
+            else:
+                _mcp = None
+                print("Warning: ADC initialization failed")
+        return _mcp
 
 
 # For backward compatibility, try to initialize if RPi is available
@@ -183,13 +206,15 @@ def read_adc(channel: int):
         print("GPIO not available - cannot control LEDs")
         return
 
-    # Set up GPIO chip and pins only when this function is called (not at import time)
     global _gpio_chip
+    _gpio_chip_lock = threading.Lock()
+
     try:
-        _gpio_chip = lgpio.gpiochip_open(0)
-        lgpio.gpio_claim_output(_gpio_chip, PIN, 0)
-        lgpio.gpio_claim_output(_gpio_chip, PIN2, 0)
-        lgpio.gpio_claim_output(_gpio_chip, PIN3, 0)
+        with _gpio_chip_lock:
+            _gpio_chip = lgpio.gpiochip_open(0)
+            lgpio.gpio_claim_output(_gpio_chip, PIN, 0)
+            lgpio.gpio_claim_output(_gpio_chip, PIN2, 0)
+            lgpio.gpio_claim_output(_gpio_chip, PIN3, 0)
     except Exception as e:
         print(f"Warning: Could not set up GPIO for LED control: {e}")
         print("Note: This function conflicts with GPIOHandler if both are active")
@@ -198,30 +223,33 @@ def read_adc(channel: int):
     try:
         while True:
             value = current_mcp.read_adc(channel)
-            if value > 0 and value < 341:
-                lgpio.gpio_write(_gpio_chip, PIN, 1)
-                lgpio.gpio_write(_gpio_chip, PIN2, 0)
-                lgpio.gpio_write(_gpio_chip, PIN3, 0)
-            elif value >= 341 and value < 682:
-                lgpio.gpio_write(_gpio_chip, PIN, 0)
-                lgpio.gpio_write(_gpio_chip, PIN2, 1)
-                lgpio.gpio_write(_gpio_chip, PIN3, 0)
-            elif value >= 682 and value <= 1023:
-                lgpio.gpio_write(_gpio_chip, PIN, 0)
-                lgpio.gpio_write(_gpio_chip, PIN2, 0)
-                lgpio.gpio_write(_gpio_chip, PIN3, 1)
+            with _gpio_chip_lock:
+                if _gpio_chip is not None:
+                    if value > 0 and value < 341:
+                        lgpio.gpio_write(_gpio_chip, PIN, 1)
+                        lgpio.gpio_write(_gpio_chip, PIN2, 0)
+                        lgpio.gpio_write(_gpio_chip, PIN3, 0)
+                    elif value >= 341 and value < 682:
+                        lgpio.gpio_write(_gpio_chip, PIN, 0)
+                        lgpio.gpio_write(_gpio_chip, PIN2, 1)
+                        lgpio.gpio_write(_gpio_chip, PIN3, 0)
+                    elif value >= 682 and value <= 1023:
+                        lgpio.gpio_write(_gpio_chip, PIN, 0)
+                        lgpio.gpio_write(_gpio_chip, PIN2, 0)
+                        lgpio.gpio_write(_gpio_chip, PIN3, 1)
             print(f"Value: {value}")
             time.sleep(0.5)
     except KeyboardInterrupt:
-        if lgpio is not None and _gpio_chip is not None:
-            try:
-                lgpio.gpio_free(_gpio_chip, PIN)
-                lgpio.gpio_free(_gpio_chip, PIN2)
-                lgpio.gpio_free(_gpio_chip, PIN3)
-                lgpio.gpiochip_close(_gpio_chip)
-                _gpio_chip = None
-            except Exception:
-                pass
+        with _gpio_chip_lock:
+            if lgpio is not None and _gpio_chip is not None:
+                try:
+                    lgpio.gpio_free(_gpio_chip, PIN)
+                    lgpio.gpio_free(_gpio_chip, PIN2)
+                    lgpio.gpio_free(_gpio_chip, PIN3)
+                    lgpio.gpiochip_close(_gpio_chip)
+                    _gpio_chip = None
+                except Exception:
+                    pass
         print("\nExiting")
 
 

@@ -9,7 +9,9 @@ import sys
 import os
 
 # Add Target_Codebase to path to import target codebase modules
-target_codebase_path = os.path.join(os.path.dirname(__file__), "..", "..", "Target_Codebase")
+target_codebase_path = os.path.join(
+    os.path.dirname(__file__), "..", "..", "Target_Codebase"
+)
 sys.path.insert(0, target_codebase_path)
 
 # Mock lgpio before importing gpio_handler (required for non-RPi environments)
@@ -24,14 +26,14 @@ mock_lgpio.gpio_free = MagicMock(return_value=0)
 mock_lgpio.gpiochip_close = MagicMock(return_value=0)
 mock_lgpio.tx_pwm = MagicMock(return_value=0)
 
-sys.modules['lgpio'] = mock_lgpio
+sys.modules["lgpio"] = mock_lgpio
 
 # Mock logging_setup
 mock_logging_setup = MagicMock()
 mock_logger = MagicMock()
 mock_logging_setup.get_logger = MagicMock(return_value=mock_logger)
 mock_logging_setup.setup_logging = MagicMock()
-sys.modules['logging_setup'] = mock_logging_setup
+sys.modules["logging_setup"] = mock_logging_setup
 
 from gpio_handler import GPIOHandler
 
@@ -44,7 +46,7 @@ class TestGPIOHandler(unittest.TestCase):
         mock_lgpio.reset_mock()
         mock_lgpio.gpio_read.return_value = 0
         mock_lgpio.gpiochip_open.return_value = 0
-        self.patcher = patch('gpio_handler.lgpio', mock_lgpio)
+        self.patcher = patch("gpio_handler.lgpio", mock_lgpio)
         self.patcher.start()
         self.gpio_handler = GPIOHandler(
             led_pin=26,
@@ -52,7 +54,7 @@ class TestGPIOHandler(unittest.TestCase):
             power_supply_pin=5,
             valve_pins=[17, 4, 22, 23, 24, 25],
             mechanical_pump_pin=27,
-            turbo_pump_pin=16
+            turbo_pump_pin=16,
         )
 
     def tearDown(self):

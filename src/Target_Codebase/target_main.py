@@ -43,7 +43,7 @@ class TargetSystem:
         self.use_arduino = use_arduino
 
         gpio_handler = GPIOHandler(led_pin=led_pin, input_pin=input_pin)
-        
+
         adc = None
         if use_adc:
             try:
@@ -57,7 +57,7 @@ class TargetSystem:
             except Exception as e:
                 logger.warning(f"ADC setup error: {e} - continuing without ADC")
                 adc = None
-        
+
         arduino_interface = None
         if use_arduino:
             try:
@@ -92,11 +92,15 @@ class TargetSystem:
         self.udp_status_receiver = UDPStatusReceiver(8889)
 
         self.running = False
-        
+
         self.adc_filter_size = 3
         self.adc_readings_buffer = []
         self.adc_last_reported_value = None
         self.adc_noise_threshold = 0
+
+        self._adc_lock = threading.Lock()
+        self._running_lock = threading.Lock()
+        self._shutdown_event = threading.Event()
 
         logger.info(
             f"Target system initialized (Host: {host_ip}, TCP Command Port: {tcp_command_port})"
@@ -104,7 +108,9 @@ class TargetSystem:
         logger.info("Raspberry Pi configured with Bundled Interface:")
         logger.info("  - GPIO: Available")
         logger.info(f"  - SPI (ADC): {'Available' if adc else 'Not available'}")
-        logger.info(f"  - USB (Arduino): {'Available' if arduino_interface else 'Not available'}")
+        logger.info(
+            f"  - USB (Arduino): {'Available' if arduino_interface else 'Not available'}"
+        )
         logger.info("Motor control: Motors 1-4 via Arduino Nano (USB)")
 
     def _host_callback(self, data: str):
@@ -123,82 +129,92 @@ class TargetSystem:
             logger.debug(f"Error processing Arduino data: {e}")
 
     def _get_periodic_data(self) -> str:
-        """Generate data packet to send to host - only when values change or errors occur."""
         try:
             import time
+
             timestamp = time.strftime("%H:%M:%S")
-            
-            # Track if we have anything to report
+
             has_changes = False
             has_errors = False
             data_parts = []
-            
+
             adc = self.bundled_interface.get_adc() if self.bundled_interface else None
             if adc:
                 if adc.is_initialized():
                     try:
                         raw_value = self.tcp_command_server.read_adc_channel(0)
-                        
-                        self.adc_readings_buffer.append(raw_value)
-                        if len(self.adc_readings_buffer) > self.adc_filter_size:
-                            self.adc_readings_buffer.pop(0)
-                        
-                        if len(self.adc_readings_buffer) >= 2:
-                            filtered_value = int(sum(self.adc_readings_buffer) / len(self.adc_readings_buffer))
-                        else:
-                            filtered_value = raw_value
-                        
-                        if (self.adc_last_reported_value is None or 
-                            filtered_value != self.adc_last_reported_value):
-                            data_parts.append(f"TIME:{timestamp}")
-                            data_parts.append(f"ADC_CH0:{filtered_value}")
-                            self.adc_last_reported_value = filtered_value
-                            has_changes = True
+
+                        with self._adc_lock:
+                            self.adc_readings_buffer.append(raw_value)
+                            if len(self.adc_readings_buffer) > self.adc_filter_size:
+                                self.adc_readings_buffer.pop(0)
+
+                            if len(self.adc_readings_buffer) >= 2:
+                                filtered_value = int(
+                                    sum(self.adc_readings_buffer)
+                                    / len(self.adc_readings_buffer)
+                                )
+                            else:
+                                filtered_value = raw_value
+
+                            if (
+                                self.adc_last_reported_value is None
+                                or filtered_value != self.adc_last_reported_value
+                            ):
+                                data_parts.append(f"TIME:{timestamp}")
+                                data_parts.append(f"ADC_CH0:{filtered_value}")
+                                self.adc_last_reported_value = filtered_value
+                                has_changes = True
                     except Exception as e:
                         logger.warning(f"Error reading ADC channel 0: {e}")
                         data_parts.append(f"TIME:{timestamp}")
                         data_parts.append("ADC_CH0:ERROR")
                         has_errors = True
                 else:
-                    # ADC not initialized - only report once or if status changes
-                    if not hasattr(self, '_adc_status_reported') or self._adc_status_reported != "NOT_INITIALIZED":
+                    if (
+                        not hasattr(self, "_adc_status_reported")
+                        or self._adc_status_reported != "NOT_INITIALIZED"
+                    ):
                         data_parts.append(f"TIME:{timestamp}")
                         data_parts.append("ADC:NOT_INITIALIZED")
                         self._adc_status_reported = "NOT_INITIALIZED"
                         has_errors = True
             else:
-                # ADC not available - only report once or if status changes
-                if not hasattr(self, '_adc_status_reported') or self._adc_status_reported != "NOT_AVAILABLE":
+                if (
+                    not hasattr(self, "_adc_status_reported")
+                    or self._adc_status_reported != "NOT_AVAILABLE"
+                ):
                     data_parts.append(f"TIME:{timestamp}")
                     data_parts.append("ADC:NOT_AVAILABLE")
                     self._adc_status_reported = "NOT_AVAILABLE"
                     has_errors = True
-            
-            # Only send if there are changes or errors
+
             if has_changes or has_errors:
                 return "|".join(data_parts)
             else:
-                # No changes, no errors - return empty string (don't send update)
                 return ""
         except Exception as e:
             logger.error(f"Error getting periodic data: {e}")
-            # Always send errors
             return f"TIME:{time.strftime('%H:%M:%S')}|ERROR:{str(e)}"
 
     def start(self):
-        if self.running:
-            logger.warning("Target system is already running")
-            return
-
-        self.running = True
+        with self._running_lock:
+            if self.running:
+                logger.warning("Target system is already running")
+                return
+            self.running = True
 
         try:
             arduino = self.bundled_interface.get_arduino()
             if arduino:
                 if arduino.connect():
-                    logger.info("Arduino Nano USB connection established - motor control available")
+                    logger.info(
+                        "Arduino Nano USB connection established - motor control available"
+                    )
                 else:
-                    logger.warning("Failed to connect to Arduino Nano, continuing without motor control")
+                    logger.warning(
+                        "Failed to connect to Arduino Nano, continuing without motor control"
+                    )
 
             self.tcp_command_server.set_host_callback(self._host_callback)
 
@@ -229,7 +245,9 @@ class TargetSystem:
             self.stop()
 
     def stop(self):
-        self.running = False
+        self._shutdown_event.set()
+        with self._running_lock:
+            self.running = False
 
         logger.info("Stopping target system...")
 
@@ -300,7 +318,9 @@ def signal_handler(signum, frame):
                     _target_system_instance.tcp_command_server
                     and _target_system_instance.tcp_command_server.gpio_handler
                 ):
-                    success, msg = _target_system_instance.tcp_command_server.gpio_handler.led_off()
+                    success, msg = (
+                        _target_system_instance.tcp_command_server.gpio_handler.led_off()
+                    )
                     if success:
                         logger.info("LED turned OFF via existing GPIO handler")
                     else:
@@ -361,7 +381,9 @@ def main():
         help="GPIO pin for input reading (default: 6)",
     )
     parser.add_argument(
-        "--no-adc", action="store_true", help="Disable ADC functionality (ADC enabled by default)"
+        "--no-adc",
+        action="store_true",
+        help="Disable ADC functionality (ADC enabled by default)",
     )
     parser.add_argument(
         "--arduino-port",
@@ -419,7 +441,9 @@ def main():
                     target_system.tcp_command_server
                     and target_system.tcp_command_server.gpio_handler
                 ):
-                    success, msg = target_system.tcp_command_server.gpio_handler.led_off()
+                    success, msg = (
+                        target_system.tcp_command_server.gpio_handler.led_off()
+                    )
                     if not success:
                         logger.debug(f"Final LED off attempt: {msg}")
             except:

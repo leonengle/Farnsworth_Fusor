@@ -76,43 +76,43 @@ def run_all_tests():
 def generate_report_file(result, passed, success_rate, test_output):
     """Generate a formatted test report file"""
     report_path = os.path.join(os.path.dirname(__file__), "TEST_REPORT.txt")
-    
+
     # Extract test names and status from test output
-    test_lines = test_output.split('\n')
+    test_lines = test_output.split("\n")
     test_results = []
-    
+
     for line in test_lines:
         line = line.strip()
         # Look for lines like "test_name (module.Class.test_name) ... ok"
-        if '...' in line and ('test_' in line or 'Test ' in line):
-            parts = line.split('...')
+        if "..." in line and ("test_" in line or "Test " in line):
+            parts = line.split("...")
             if len(parts) == 2:
                 # Extract just the test name (before the parentheses)
                 test_part = parts[0].strip()
                 status_part = parts[1].strip()
-                
+
                 # Get clean test name
-                if '(' in test_part:
-                    test_name = test_part.split('(')[0].strip()
+                if "(" in test_part:
+                    test_name = test_part.split("(")[0].strip()
                 else:
                     test_name = test_part
-                
+
                 # Determine status
-                if status_part == 'ok':
-                    status = 'ok'
-                elif 'FAIL' in status_part:
-                    status = 'FAIL'
-                elif 'ERROR' in status_part:
-                    status = 'ERROR'
+                if status_part == "ok":
+                    status = "ok"
+                elif "FAIL" in status_part:
+                    status = "FAIL"
+                elif "ERROR" in status_part:
+                    status = "ERROR"
                 else:
                     status = status_part
-                
+
                 test_results.append((test_name, status))
-    
+
     with open(report_path, "w", encoding="utf-8") as f:
         for test_name, status in test_results:
             f.write(f"{test_name} ... {status}\n")
-    
+
     print(f"\n✓ Clean report saved to: {report_path}")
 
 

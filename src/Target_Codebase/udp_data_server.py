@@ -17,38 +17,58 @@ class UDPDataServer:
         self.send_thread: Optional[threading.Thread] = None
         self.send_callback: Optional[Callable[[], str]] = None
         self.send_interval = 0.1
+        self._running_lock = threading.Lock()
+        self._callback_lock = threading.Lock()
 
         logger.info(f"UDP Data Server initialized for {host_ip}:{host_port}")
 
     def set_send_callback(self, callback: Callable[[], str]):
-        self.send_callback = callback
+        with self._callback_lock:
+            self.send_callback = callback
         logger.info("UDP data send callback set")
 
     def start(self):
-        if self.running:
-            logger.warning("UDP data server is already running")
-            return
+        with self._running_lock:
+            if self.running:
+                logger.warning("UDP data server is already running")
+                return
 
-        try:
-            self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            self.running = True
-            self.send_thread = threading.Thread(target=self._send_loop, daemon=True)
-            self.send_thread.start()
-            logger.info(f"UDP Data server started - sending to {self.host_ip}:{self.host_port}")
-        except Exception as e:
-            logger.error(f"UDP data server error: {e}")
-            self.running = False
+            try:
+                self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                self.running = True
+                self.send_thread = threading.Thread(target=self._send_loop, daemon=True)
+                self.send_thread.start()
+                logger.info(
+                    f"UDP Data server started - sending to {self.host_ip}:{self.host_port}"
+                )
+            except Exception as e:
+                logger.error(f"UDP data server error: {e}")
+                self.running = False
 
     def _send_loop(self):
-        logger.info("UDP data send loop started - sending updates only when values change or errors occur")
+        logger.info(
+            "UDP data send loop started - sending updates only when values change or errors occur"
+        )
 
-        while self.running:
+        while True:
+            with self._running_lock:
+                if not self.running:
+                    break
+
             try:
-                if self.send_callback:
-                    data = self.send_callback()
+                callback = None
+                with self._callback_lock:
+                    callback = self.send_callback
+
+                if callback:
+                    data = callback()
                     if data:
                         message = data.encode("utf-8")
-                        self.socket.sendto(message, (self.host_ip, self.host_port))
+                        with self._running_lock:
+                            if self.running and self.socket:
+                                self.socket.sendto(
+                                    message, (self.host_ip, self.host_port)
+                                )
                         logger.debug(f"Data sent to host via UDP: {data}")
 
                 time.sleep(self.send_interval)
@@ -60,7 +80,8 @@ class UDPDataServer:
         logger.info("UDP data send loop ended")
 
     def stop(self):
-        self.running = False
+        with self._running_lock:
+            self.running = False
 
         if self.send_thread:
             self.send_thread.join(timeout=2)
@@ -73,4 +94,3 @@ class UDPDataServer:
             self.socket = None
 
         logger.info("UDP Data server stopped")
-

@@ -57,53 +57,66 @@ class UDPStatusReceiver:
         self.socket: Optional[socket.socket] = None
         self.running = False
         self.receiver_thread: Optional[threading.Thread] = None
+        self._running_lock = threading.Lock()
+        self._callback_lock = threading.Lock()
 
         logger.info(f"UDP Status Receiver initialized for port {listen_port}")
 
     def start(self):
-        if self.running:
-            logger.warning("UDP receiver already running")
-            return
+        with self._running_lock:
+            if self.running:
+                logger.warning("UDP receiver already running")
+                return
 
-        try:
-            self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            self.socket.bind(("0.0.0.0", self.listen_port))
-            self.socket.settimeout(1.0)  # Allow periodic checking of self.running
+            try:
+                self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                self.socket.bind(("0.0.0.0", self.listen_port))
+                self.socket.settimeout(1.0)
 
-            self.running = True
-            self.receiver_thread = threading.Thread(
-                target=self._receive_loop, daemon=True
-            )
-            self.receiver_thread.start()
+                self.running = True
+                self.receiver_thread = threading.Thread(
+                    target=self._receive_loop, daemon=True
+                )
+                self.receiver_thread.start()
 
-            logger.info(f"UDP receiver started on port {self.listen_port}")
-        except Exception as e:
-            logger.error(f"Failed to start UDP receiver: {e}")
+                logger.info(f"UDP receiver started on port {self.listen_port}")
+            except Exception as e:
+                logger.error(f"Failed to start UDP receiver: {e}")
+                self.running = False
 
     def _receive_loop(self):
         logger.info("UDP receive loop started")
 
-        while self.running:
+        while True:
+            with self._running_lock:
+                if not self.running:
+                    break
+
             try:
                 data, address = self.socket.recvfrom(1024)
                 message = data.decode("utf-8").strip()
                 logger.debug(f"UDP message received from {address}: {message}")
 
-                if self.callback:
-                    self.callback(message, address)
+                callback = None
+                with self._callback_lock:
+                    callback = self.callback
+
+                if callback:
+                    callback(message, address)
 
             except socket.timeout:
-                # Timeout is expected, continue loop to check self.running
                 continue
             except Exception as e:
-                if self.running:
-                    logger.error(f"UDP receive error: {e}")
+                with self._running_lock:
+                    if self.running:
+                        logger.error(f"UDP receive error: {e}")
                 break
 
         logger.info("UDP receive loop ended")
 
     def stop(self):
-        self.running = False
+        with self._running_lock:
+            self.running = False
 
         if self.receiver_thread:
             self.receiver_thread.join(timeout=2)

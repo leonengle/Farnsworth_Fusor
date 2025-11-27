@@ -23,4 +23,3 @@ else:
 print("\n" + "-" * 80)
 print("To use a specific port, run target_main.py with:")
 print("  --arduino-port /dev/ttyUSB0  (or /dev/ttyACM0, etc.)")
-

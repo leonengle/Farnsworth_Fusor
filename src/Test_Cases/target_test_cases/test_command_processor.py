@@ -9,7 +9,9 @@ import sys
 import os
 
 # Add Target_Codebase to path to import target codebase modules
-target_codebase_path = os.path.join(os.path.dirname(__file__), "..", "..", "Target_Codebase")
+target_codebase_path = os.path.join(
+    os.path.dirname(__file__), "..", "..", "Target_Codebase"
+)
 sys.path.insert(0, target_codebase_path)
 
 # Mock lgpio and Adafruit libraries before importing (required for non-RPi environments)
@@ -32,17 +34,17 @@ mock_mcp3008 = MagicMock()
 mock_mcp_instance = MagicMock()
 mock_mcp3008.MCP3008 = MagicMock(return_value=mock_mcp_instance)
 
-sys.modules['lgpio'] = mock_lgpio
-sys.modules['Adafruit_GPIO'] = MagicMock()
-sys.modules['Adafruit_GPIO.SPI'] = mock_spi
-sys.modules['Adafruit_MCP3008'] = mock_mcp3008
+sys.modules["lgpio"] = mock_lgpio
+sys.modules["Adafruit_GPIO"] = MagicMock()
+sys.modules["Adafruit_GPIO.SPI"] = mock_spi
+sys.modules["Adafruit_MCP3008"] = mock_mcp3008
 
 # Mock logging_setup
 mock_logging_setup = MagicMock()
 mock_logger = MagicMock()
 mock_logging_setup.get_logger = MagicMock(return_value=mock_logger)
 mock_logging_setup.setup_logging = MagicMock()
-sys.modules['logging_setup'] = mock_logging_setup
+sys.modules["logging_setup"] = mock_logging_setup
 
 from gpio_handler import GPIOHandler
 from command_processor import CommandProcessor
@@ -54,13 +56,11 @@ class TestCommandProcessor(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures"""
         mock_gpio.reset_mock()
-        self.patcher = patch('gpio_handler.GPIO', mock_gpio)
+        self.patcher = patch("gpio_handler.GPIO", mock_gpio)
         self.patcher.start()
         self.gpio_handler = GPIOHandler()
         self.command_processor = CommandProcessor(
-            gpio_handler=self.gpio_handler,
-            adc=None,
-            arduino_interface=None
+            gpio_handler=self.gpio_handler, adc=None, arduino_interface=None
         )
 
     def tearDown(self):
@@ -157,4 +157,3 @@ class TestCommandProcessor(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

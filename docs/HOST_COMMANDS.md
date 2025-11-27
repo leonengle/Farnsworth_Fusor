@@ -319,9 +319,9 @@ Reads a pressure sensor value.
 
 **Parameters:**
 - `<sensor_id>`: Sensor ID (1-3)
-  - 1: Turbo Pressure Transducer (P01, ADC Channel 0)
-  - 2: Fusor Pressure Transducer (P02, ADC Channel 1)
-  - 3: Foreline Pressure Transducer (P03, ADC Channel 2)
+  - 1: Turbo Pressure Sensor (P01, ADC Channel 0)
+  - 2: Fusor Pressure Sensor (P02, ADC Channel 1)
+  - 3: Foreline Pressure Sensor (P03, ADC Channel 2)
 
 **Response:**
 - Success: `PRESSURE_SENSOR_<id>_VALUE:<pressure>|<label>|<name>`
@@ -330,7 +330,7 @@ Reads a pressure sensor value.
 **Example:**
 ```
 Command: READ_PRESSURE_SENSOR:1
-Response: PRESSURE_SENSOR_1_VALUE:50.25|P01|Turbo Pressure Transducer
+Response: PRESSURE_SENSOR_1_VALUE:50.25|P01|Turbo Pressure Sensor
 ```
 
 ### `READ_PRESSURE_BY_NAME:<name>`
@@ -351,10 +351,10 @@ Reads a pressure sensor by name or label.
 **Examples:**
 ```
 Command: READ_PRESSURE_BY_NAME:Turbo
-Response: PRESSURE_SENSOR_1_VALUE:50.25|P01|Turbo Pressure Transducer
+Response: PRESSURE_SENSOR_1_VALUE:50.25|P01|Turbo Pressure Sensor
 
 Command: READ_PRESSURE_BY_NAME:P02
-Response: PRESSURE_SENSOR_2_VALUE:25.50|P02|Fusor Pressure Transducer
+Response: PRESSURE_SENSOR_2_VALUE:25.50|P02|Fusor Pressure Sensor
 ```
 
 ### `READ_NODE_VOLTAGE:<node_id>`
