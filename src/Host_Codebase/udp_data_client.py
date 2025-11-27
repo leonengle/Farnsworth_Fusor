@@ -41,9 +41,13 @@ class UDPDataClient:
                 self.socket.settimeout(1.0)
 
                 self.running = True
-                self.receiver_thread = threading.Thread(target=self._receive_loop, daemon=True)
+                self.receiver_thread = threading.Thread(
+                    target=self._receive_loop, daemon=True
+                )
                 self.receiver_thread.start()
-                logger.info(f"UDP data client started - listening on port {self.target_port}")
+                logger.info(
+                    f"UDP data client started - listening on port {self.target_port}"
+                )
             except Exception as e:
                 logger.error(f"Failed to start UDP data client: {e}")
                 self.running = False
@@ -55,18 +59,18 @@ class UDPDataClient:
             with self._running_lock:
                 if not self.running:
                     break
-            
+
             try:
                 data, address = self.socket.recvfrom(1024)
                 message = data.decode("utf-8").strip()
-                
+
                 if message:
                     logger.debug(f"Received data from {address}: {message}")
-                    
+
                     callback = None
                     with self._callback_lock:
                         callback = self.data_callback
-                    
+
                     if callback:
                         callback(message)
 
@@ -99,4 +103,3 @@ class UDPDataClient:
     def is_connected(self) -> bool:
         with self._running_lock:
             return self.socket is not None and self.running
-

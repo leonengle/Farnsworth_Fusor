@@ -92,7 +92,7 @@ class UDPStatusReceiver:
             with self._running_lock:
                 if not self.running:
                     break
-            
+
             try:
                 data, address = self.socket.recvfrom(1024)
                 message = data.decode("utf-8").strip()
@@ -101,7 +101,7 @@ class UDPStatusReceiver:
                 callback = None
                 with self._callback_lock:
                     callback = self.callback
-                
+
                 if callback:
                     callback(message, address)
 

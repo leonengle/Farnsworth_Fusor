@@ -38,31 +38,37 @@ class UDPDataServer:
                 self.running = True
                 self.send_thread = threading.Thread(target=self._send_loop, daemon=True)
                 self.send_thread.start()
-                logger.info(f"UDP Data server started - sending to {self.host_ip}:{self.host_port}")
+                logger.info(
+                    f"UDP Data server started - sending to {self.host_ip}:{self.host_port}"
+                )
             except Exception as e:
                 logger.error(f"UDP data server error: {e}")
                 self.running = False
 
     def _send_loop(self):
-        logger.info("UDP data send loop started - sending updates only when values change or errors occur")
+        logger.info(
+            "UDP data send loop started - sending updates only when values change or errors occur"
+        )
 
         while True:
             with self._running_lock:
                 if not self.running:
                     break
-            
+
             try:
                 callback = None
                 with self._callback_lock:
                     callback = self.send_callback
-                
+
                 if callback:
                     data = callback()
                     if data:
                         message = data.encode("utf-8")
                         with self._running_lock:
                             if self.running and self.socket:
-                                self.socket.sendto(message, (self.host_ip, self.host_port))
+                                self.socket.sendto(
+                                    message, (self.host_ip, self.host_port)
+                                )
                         logger.debug(f"Data sent to host via UDP: {data}")
 
                 time.sleep(self.send_interval)
@@ -88,4 +94,3 @@ class UDPDataServer:
             self.socket = None
 
         logger.info("UDP Data server stopped")
-

@@ -32,7 +32,9 @@ class TCPCommandServer:
             host_callback=None,
         )
 
-        logger.info(f"TCP Command Server initialized (Bundled Interface: {'Available' if bundled_interface else 'Not available'})")
+        logger.info(
+            f"TCP Command Server initialized (Bundled Interface: {'Available' if bundled_interface else 'Not available'})"
+        )
 
     def set_host_callback(self, callback: Callable[[str], None]):
         self.command_processor.set_host_callback(callback)

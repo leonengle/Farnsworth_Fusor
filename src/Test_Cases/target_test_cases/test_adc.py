@@ -9,7 +9,9 @@ import sys
 import os
 
 # Add Target_Codebase to path to import target codebase modules
-target_codebase_path = os.path.join(os.path.dirname(__file__), "..", "..", "Target_Codebase")
+target_codebase_path = os.path.join(
+    os.path.dirname(__file__), "..", "..", "Target_Codebase"
+)
 sys.path.insert(0, target_codebase_path)
 
 # Mock Adafruit libraries and lgpio (required for non-RPi environments)
@@ -30,10 +32,10 @@ mock_lgpio.gpio_write = MagicMock(return_value=0)
 mock_lgpio.gpio_free = MagicMock(return_value=0)
 mock_lgpio.gpiochip_close = MagicMock(return_value=0)
 
-sys.modules['lgpio'] = mock_lgpio
-sys.modules['Adafruit_GPIO'] = MagicMock()
-sys.modules['Adafruit_GPIO.SPI'] = mock_spi
-sys.modules['Adafruit_MCP3008'] = mock_mcp3008
+sys.modules["lgpio"] = mock_lgpio
+sys.modules["Adafruit_GPIO"] = MagicMock()
+sys.modules["Adafruit_GPIO.SPI"] = mock_spi
+sys.modules["Adafruit_MCP3008"] = mock_mcp3008
 
 from adc import MCP3008ADC
 
@@ -43,7 +45,7 @@ class TestMCP3008ADC(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures"""
-        with patch('adc.RPI_AVAILABLE', False):
+        with patch("adc.RPI_AVAILABLE", False):
             self.adc = MCP3008ADC()
 
     def test_initialization(self):
@@ -96,4 +98,3 @@ class TestMCP3008ADC(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

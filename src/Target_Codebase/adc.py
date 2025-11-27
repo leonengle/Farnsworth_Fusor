@@ -47,17 +47,20 @@ class MCP3008ADC(ADCInterface):
         if not RPI_AVAILABLE or Adafruit_MCP3008 is None or SPI is None:
             logger.error("ADC libraries not available (likely in test environment)")
             return False
-        
+
         # Check SPI device permissions before attempting initialization
         import os
+
         spi_device_path = f"/dev/spidev{self.spi_port}.{self.spi_device}"
-        
+
         if not os.path.exists(spi_device_path):
             logger.error(f"ADC error: SPI device {spi_device_path} not found")
-            logger.error("SPI interface may not be enabled. Enable it with: sudo raspi-config")
+            logger.error(
+                "SPI interface may not be enabled. Enable it with: sudo raspi-config"
+            )
             logger.error("  Navigate to: Interface Options -> SPI -> Enable")
             return False
-        
+
         # Check permissions (even as root, this helps diagnose issues)
         try:
             if not os.access(spi_device_path, os.R_OK | os.W_OK):
@@ -66,7 +69,7 @@ class MCP3008ADC(ADCInterface):
                 return False
         except Exception as perm_err:
             logger.error(f"ADC permission check error: {perm_err}")
-        
+
         try:
             logger.info(f"Attempting to initialize MCP3008 ADC on {spi_device_path}")
             with self._mcp_lock:
@@ -81,12 +84,18 @@ class MCP3008ADC(ADCInterface):
             logger.error(f"ADC permission error: {e}")
             logger.error(f"SPI device {spi_device_path} requires proper permissions")
             logger.error(f"Try: sudo chmod 666 {spi_device_path}")
-            logger.error("Or ensure SPI is enabled: sudo raspi-config -> Interface Options -> SPI")
+            logger.error(
+                "Or ensure SPI is enabled: sudo raspi-config -> Interface Options -> SPI"
+            )
             return False
         except OSError as e:
             logger.error(f"ADC OS error: {e}")
-            logger.error("This usually means SPI interface is not enabled or hardware is not connected")
-            logger.error("Enable SPI with: sudo raspi-config -> Interface Options -> SPI -> Enable")
+            logger.error(
+                "This usually means SPI interface is not enabled or hardware is not connected"
+            )
+            logger.error(
+                "Enable SPI with: sudo raspi-config -> Interface Options -> SPI -> Enable"
+            )
             return False
         except Exception as e:
             logger.error(f"Failed to initialize ADC: {e}")
@@ -199,7 +208,7 @@ def read_adc(channel: int):
 
     global _gpio_chip
     _gpio_chip_lock = threading.Lock()
-    
+
     try:
         with _gpio_chip_lock:
             _gpio_chip = lgpio.gpiochip_open(0)

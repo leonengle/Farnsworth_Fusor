@@ -24,7 +24,7 @@ class ArduinoInterface:
         self.timeout = timeout
         self.auto_detect = auto_detect
         self.data_callback = data_callback
-        
+
         self.serial_connection: Optional[serial.Serial] = None
         self.connected = False
         self.read_thread: Optional[threading.Thread] = None
@@ -32,7 +32,7 @@ class ArduinoInterface:
         self._connection_lock = threading.Lock()
         self._running_lock = threading.Lock()
         self._callback_lock = threading.Lock()
-        
+
         logger.info(
             f"Arduino interface initialized (port={port}, baudrate={baudrate}, "
             f"auto_detect={auto_detect})"
@@ -41,50 +41,59 @@ class ArduinoInterface:
     def _detect_arduino_port(self) -> Optional[str]:
         try:
             ports = serial.tools.list_ports.comports()
-            
+
             if not ports:
                 logger.warning("No serial ports found on system")
                 return None
-            
+
             logger.info(f"Found {len(ports)} serial port(s):")
             for port_info in ports:
                 try:
-                    vid = getattr(port_info, 'vid', None)
+                    vid = getattr(port_info, "vid", None)
                     if vid is not None:
                         vid_str = f"{vid:04X}"
                     else:
                         vid_str = "N/A"
                 except (AttributeError, TypeError, ValueError):
                     vid_str = "N/A"
-                
+
                 try:
-                    pid = getattr(port_info, 'pid', None)
+                    pid = getattr(port_info, "pid", None)
                     if pid is not None:
                         pid_str = f"{pid:04X}"
                     else:
                         pid_str = "N/A"
                 except (AttributeError, TypeError, ValueError):
                     pid_str = "N/A"
-                
+
                 try:
-                    description = getattr(port_info, 'description', None) or "N/A"
-                    device = getattr(port_info, 'device', 'N/A')
+                    description = getattr(port_info, "description", None) or "N/A"
+                    device = getattr(port_info, "device", "N/A")
                 except (AttributeError, TypeError):
                     description = "N/A"
                     device = "N/A"
-                
+
                 logger.info(
-                    f"  - {device}: {description} "
-                    f"(VID={vid_str}, PID={pid_str})"
+                    f"  - {device}: {description} " f"(VID={vid_str}, PID={pid_str})"
                 )
-            
+
             for port_info in ports:
                 if not port_info.device:
                     continue
-                description_upper = port_info.description.upper() if port_info.description else ""
+                description_upper = (
+                    port_info.description.upper() if port_info.description else ""
+                )
                 if any(
                     identifier in description_upper
-                    for identifier in ["ARDUINO", "USB", "SERIAL", "CH340", "FTDI", "CP210", "PL2303"]
+                    for identifier in [
+                        "ARDUINO",
+                        "USB",
+                        "SERIAL",
+                        "CH340",
+                        "FTDI",
+                        "CP210",
+                        "PL2303",
+                    ]
                 ):
                     desc = port_info.description if port_info.description else "N/A"
                     logger.info(
@@ -92,28 +101,30 @@ class ArduinoInterface:
                         f"({desc})"
                     )
                     return port_info.device
-            
+
             for port_info in ports:
                 device = port_info.device
                 if not device:
                     continue
-                if device.startswith("/dev/ttyUSB") or device.startswith("/dev/ttyACM") or device.startswith("/dev/ttyAMA"):
+                if (
+                    device.startswith("/dev/ttyUSB")
+                    or device.startswith("/dev/ttyACM")
+                    or device.startswith("/dev/ttyAMA")
+                ):
                     desc = port_info.description if port_info.description else "N/A"
-                    logger.info(
-                        f"Auto-detected USB serial port: {device} "
-                        f"({desc})"
-                    )
+                    logger.info(f"Auto-detected USB serial port: {device} " f"({desc})")
                     return device
-            
+
             if len(ports) == 1 and ports[0].device:
                 desc = ports[0].description if ports[0].description else "N/A"
                 logger.info(
-                    f"Only one port found, using it: {ports[0].device} "
-                    f"({desc})"
+                    f"Only one port found, using it: {ports[0].device} " f"({desc})"
                 )
                 return ports[0].device
-                    
-            logger.warning("No Arduino port auto-detected - multiple ports found or no USB serial ports")
+
+            logger.warning(
+                "No Arduino port auto-detected - multiple ports found or no USB serial ports"
+            )
             logger.warning("Try specifying port manually with --arduino-port argument")
             return None
         except Exception as e:
@@ -122,7 +133,11 @@ class ArduinoInterface:
 
     def connect(self) -> bool:
         with self._connection_lock:
-            if self.connected and self.serial_connection and self.serial_connection.is_open:
+            if (
+                self.connected
+                and self.serial_connection
+                and self.serial_connection.is_open
+            ):
                 logger.debug("Already connected to Arduino")
                 return True
 
@@ -147,11 +162,15 @@ class ArduinoInterface:
                 time.sleep(2.0)
 
                 self.connected = True
-                logger.info(f"Connected to Arduino on port {self.port} at {self.baudrate} baud")
+                logger.info(
+                    f"Connected to Arduino on port {self.port} at {self.baudrate} baud"
+                )
 
                 with self._running_lock:
                     self.running = True
-                    self.read_thread = threading.Thread(target=self._read_loop, daemon=True)
+                    self.read_thread = threading.Thread(
+                        target=self._read_loop, daemon=True
+                    )
                     self.read_thread.start()
 
                 return True
@@ -168,7 +187,7 @@ class ArduinoInterface:
     def disconnect(self):
         with self._running_lock:
             self.running = False
-        
+
         with self._connection_lock:
             self.connected = False
 
@@ -190,24 +209,28 @@ class ArduinoInterface:
             with self._running_lock:
                 if not self.running:
                     break
-            
+
             with self._connection_lock:
                 if not self.connected:
                     break
-                
+
                 serial_conn = self.serial_connection
-            
+
             try:
                 if serial_conn and serial_conn.is_open:
                     if serial_conn.in_waiting > 0:
-                        line = serial_conn.readline().decode("utf-8", errors="ignore").strip()
+                        line = (
+                            serial_conn.readline()
+                            .decode("utf-8", errors="ignore")
+                            .strip()
+                        )
                         if line:
                             logger.debug(f"Received from Arduino: {line}")
-                            
+
                             callback = None
                             with self._callback_lock:
                                 callback = self.data_callback
-                            
+
                             if callback:
                                 try:
                                     callback(line)
@@ -227,14 +250,18 @@ class ArduinoInterface:
 
     def send_command(self, command: str) -> bool:
         with self._connection_lock:
-            if not self.connected or not self.serial_connection or not self.serial_connection.is_open:
+            if (
+                not self.connected
+                or not self.serial_connection
+                or not self.serial_connection.is_open
+            ):
                 logger.warning("Cannot send command: Not connected to Arduino")
                 return False
 
             try:
                 if not command.endswith("\n"):
                     command += "\n"
-                
+
                 self.serial_connection.write(command.encode("utf-8"))
                 logger.debug(f"Sent to Arduino: {command.strip()}")
                 return True
@@ -266,11 +293,11 @@ class ArduinoInterface:
         if not component_name:
             logger.warning("Motor command missing component name")
             return False
-        
+
         try:
             motor_object = {
                 "component_name": component_name,
-                "motor_degree": float(motor_degree)
+                "motor_degree": float(motor_degree),
             }
             command_json = json.dumps(motor_object)
             command = f"MOTOR:{command_json}"
@@ -283,7 +310,11 @@ class ArduinoInterface:
             return False
 
     def read_data(self, timeout: Optional[float] = None) -> Optional[str]:
-        if not self.connected or not self.serial_connection or not self.serial_connection.is_open:
+        if (
+            not self.connected
+            or not self.serial_connection
+            or not self.serial_connection.is_open
+        ):
             logger.warning("Cannot read data: Not connected to Arduino")
             return None
 
@@ -292,8 +323,12 @@ class ArduinoInterface:
             if timeout is not None:
                 self.serial_connection.timeout = timeout
 
-            line = self.serial_connection.readline().decode("utf-8", errors="ignore").strip()
-            
+            line = (
+                self.serial_connection.readline()
+                .decode("utf-8", errors="ignore")
+                .strip()
+            )
+
             if timeout is not None:
                 self.serial_connection.timeout = original_timeout
 
@@ -324,4 +359,3 @@ class ArduinoInterface:
     def cleanup(self):
         self.disconnect()
         logger.info("Arduino interface cleaned up")
-

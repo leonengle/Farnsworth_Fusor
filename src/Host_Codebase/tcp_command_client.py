@@ -72,12 +72,12 @@ class TCPCommandClient(CommunicationClientInterface):
                 logger.warning("TCP client not connected")
                 if not self.connect():
                     return None
-        
+
         with self._socket_lock:
             if not self.socket:
                 logger.warning("TCP socket not available")
                 return None
-            
+
             try:
                 message = command.strip() + "\n"
                 self.socket.send(message.encode("utf-8"))

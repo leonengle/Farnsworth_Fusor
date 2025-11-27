@@ -14,4 +14,3 @@ class SensorObject:
         with self._value_lock:
             self.value = value
         logger.debug(f"Sensor {self.name} value updated to: {value}")
-

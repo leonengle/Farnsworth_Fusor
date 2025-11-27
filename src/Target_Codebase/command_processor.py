@@ -38,7 +38,7 @@ class CommandProcessor:
         self.bundled_interface = bundled_interface
         self.host_callback = host_callback
         self._callback_lock = threading.Lock()
-        
+
         logger.info("Command processor initialized with Bundled Interface")
 
     @property
@@ -91,15 +91,23 @@ class CommandProcessor:
                 else:
                     return f"LED_OFF_FAILED: {message}"
 
-            elif command == "POWER_SUPPLY_ENABLE" or command == "POWER_SUPPLY_ENABLE:1" or command == "POWER_SUPPLY_ENABLE:ON":
+            elif (
+                command == "POWER_SUPPLY_ENABLE"
+                or command == "POWER_SUPPLY_ENABLE:1"
+                or command == "POWER_SUPPLY_ENABLE:ON"
+            ):
                 if not self.gpio_handler:
                     return "POWER_SUPPLY_ENABLE_FAILED: GPIO not available"
                 if self.gpio_handler.set_power_supply_enable(True):
                     return "POWER_SUPPLY_ENABLE_SUCCESS"
                 else:
                     return "POWER_SUPPLY_ENABLE_FAILED"
-            
-            elif command == "POWER_SUPPLY_DISABLE" or command == "POWER_SUPPLY_ENABLE:0" or command == "POWER_SUPPLY_ENABLE:OFF":
+
+            elif (
+                command == "POWER_SUPPLY_DISABLE"
+                or command == "POWER_SUPPLY_ENABLE:0"
+                or command == "POWER_SUPPLY_ENABLE:OFF"
+            ):
                 if not self.gpio_handler:
                     return "POWER_SUPPLY_DISABLE_FAILED: GPIO not available"
                 if self.gpio_handler.set_power_supply_enable(False):
@@ -126,15 +134,17 @@ class CommandProcessor:
                     parts = command.split(":")
                     if len(parts) != 2:
                         return "SET_VALVE_FAILED: Invalid format"
-                    
+
                     valve_part = parts[0].replace("SET_VALVE", "")
                     valve_id = int(valve_part)
                     position = int(parts[1])
-                    
+
                     if valve_id < 1 or valve_id > 6:
                         return f"SET_VALVE_FAILED: Valve ID must be 1-6"
-                    
-                    if self.gpio_handler and self.gpio_handler.set_valve_position(valve_id, position):
+
+                    if self.gpio_handler and self.gpio_handler.set_valve_position(
+                        valve_id, position
+                    ):
                         self._forward_analog_command(
                             self._resolve_valve_label(valve_id),
                             position,
@@ -154,7 +164,10 @@ class CommandProcessor:
                     power = int(command.split(":")[1])
                     if power < 0 or power > 100:
                         return "SET_MECHANICAL_PUMP_FAILED: Power must be 0-100"
-                    if self.gpio_handler and self.gpio_handler.set_mechanical_pump_power(power):
+                    if (
+                        self.gpio_handler
+                        and self.gpio_handler.set_mechanical_pump_power(power)
+                    ):
                         self._forward_analog_command(
                             ANALOG_COMPONENT_LABELS["MECHANICAL_PUMP"],
                             power,
@@ -174,7 +187,9 @@ class CommandProcessor:
                     power = int(command.split(":")[1])
                     if power < 0 or power > 100:
                         return "SET_TURBO_PUMP_FAILED: Power must be 0-100"
-                    if self.gpio_handler and self.gpio_handler.set_turbo_pump_power(power):
+                    if self.gpio_handler and self.gpio_handler.set_turbo_pump_power(
+                        power
+                    ):
                         self._forward_analog_command(
                             ANALOG_COMPONENT_LABELS["TURBO_PUMP"],
                             power,
@@ -192,7 +207,7 @@ class CommandProcessor:
             elif command == "STARTUP":
                 logger.info("Startup command received")
                 return "STARTUP_SUCCESS"
-            
+
             elif command == "SHUTDOWN":
                 if self.gpio_handler:
                     self.gpio_handler.set_power_supply_enable(False)
@@ -200,27 +215,37 @@ class CommandProcessor:
                         self.gpio_handler.set_valve_position(i, 0)
                     self.gpio_handler.set_mechanical_pump_power(0)
                     self.gpio_handler.set_turbo_pump_power(0)
-                
+
                 for i in range(1, 5):
                     self._forward_analog_command(self._resolve_valve_label(i), 0)
-                self._forward_analog_command(ANALOG_COMPONENT_LABELS["MECHANICAL_PUMP"], 0)
+                self._forward_analog_command(
+                    ANALOG_COMPONENT_LABELS["MECHANICAL_PUMP"], 0
+                )
                 self._forward_analog_command(ANALOG_COMPONENT_LABELS["TURBO_PUMP"], 0)
-                
+
                 logger.info("Shutdown sequence completed")
                 return "SHUTDOWN_SUCCESS"
-            
+
             elif command == "EMERGENCY_SHUTOFF":
                 if self.gpio_handler and self.gpio_handler.emergency_shutdown():
                     for i in range(1, 5):
                         self._forward_analog_command(self._resolve_valve_label(i), 0)
-                    self._forward_analog_command(ANALOG_COMPONENT_LABELS["MECHANICAL_PUMP"], 0)
-                    self._forward_analog_command(ANALOG_COMPONENT_LABELS["TURBO_PUMP"], 0)
+                    self._forward_analog_command(
+                        ANALOG_COMPONENT_LABELS["MECHANICAL_PUMP"], 0
+                    )
+                    self._forward_analog_command(
+                        ANALOG_COMPONENT_LABELS["TURBO_PUMP"], 0
+                    )
                     return "EMERGENCY_SHUTOFF_SUCCESS"
                 else:
                     for i in range(1, 5):
                         self._forward_analog_command(self._resolve_valve_label(i), 0)
-                    self._forward_analog_command(ANALOG_COMPONENT_LABELS["MECHANICAL_PUMP"], 0)
-                    self._forward_analog_command(ANALOG_COMPONENT_LABELS["TURBO_PUMP"], 0)
+                    self._forward_analog_command(
+                        ANALOG_COMPONENT_LABELS["MECHANICAL_PUMP"], 0
+                    )
+                    self._forward_analog_command(
+                        ANALOG_COMPONENT_LABELS["TURBO_PUMP"], 0
+                    )
                     return "EMERGENCY_SHUTOFF_SUCCESS (via Arduino)"
 
             elif command == "READ_POWER_SUPPLY_VOLTAGE":
@@ -262,15 +287,15 @@ class CommandProcessor:
                         return "READ_PRESSURE_SENSOR_FAILED: Sensor ID must be 1-3"
                     if not self.adc or not self.adc.is_initialized():
                         return "READ_PRESSURE_SENSOR_FAILED: ADC not initialized"
-                    
+
                     sensor_info = PRESSURE_SENSOR_CHANNELS.get(sensor_id)
                     if not sensor_info:
                         return f"READ_PRESSURE_SENSOR_FAILED: Invalid sensor ID {sensor_id}"
-                    
+
                     channel = sensor_info["channel"]
                     sensor_name = sensor_info["name"]
                     sensor_label = sensor_info["label"]
-                    
+
                     adc_value = self.adc.read_channel(channel)
                     pressure = (adc_value / 1023.0) * 100.0
                     response = f"PRESSURE_SENSOR_{sensor_id}_VALUE:{pressure:.2f}|{sensor_label}|{sensor_name}"
@@ -367,15 +392,18 @@ class CommandProcessor:
                 try:
                     sensor_name = command.split(":", 1)[1].strip().upper()
                     sensor_id = None
-                    
+
                     for sid, info in PRESSURE_SENSOR_CHANNELS.items():
-                        if sensor_name in info["name"].upper() or sensor_name == info["label"]:
+                        if (
+                            sensor_name in info["name"].upper()
+                            or sensor_name == info["label"]
+                        ):
                             sensor_id = sid
                             break
-                    
+
                     if sensor_id is None:
                         return f"READ_PRESSURE_BY_NAME_FAILED: Unknown sensor name '{sensor_name}'. Use: Turbo, Fusor, Foreline, P01, P02, or P03"
-                    
+
                     return self.process_command(f"READ_PRESSURE_SENSOR:{sensor_id}")
                 except (ValueError, IndexError):
                     return "READ_PRESSURE_BY_NAME_FAILED: Invalid format (expected: READ_PRESSURE_BY_NAME:Turbo|Fusor|Foreline|P01|P02|P03)"
@@ -388,7 +416,10 @@ class CommandProcessor:
                     power = int(command.split(":")[1])
                     if power < 0 or power > 100:
                         return "SET_PUMP_POWER_FAILED: Power must be 0-100"
-                    if self.gpio_handler and self.gpio_handler.set_mechanical_pump_power(power):
+                    if (
+                        self.gpio_handler
+                        and self.gpio_handler.set_mechanical_pump_power(power)
+                    ):
                         self._forward_analog_command(
                             ANALOG_COMPONENT_LABELS["LEGACY_PUMP"],
                             power,
@@ -408,20 +439,22 @@ class CommandProcessor:
                     parts = command.split(":")
                     if len(parts) < 3:
                         return "MOVE_MOTOR_FAILED: Invalid format (expected: MOVE_MOTOR:ID:STEPS[:DIRECTION])"
-                    
+
                     motor_id = int(parts[1])
                     steps = int(parts[2])
                     direction = parts[3].upper() if len(parts) > 3 else "FORWARD"
-                    
+
                     if motor_id < 1 or motor_id > 4:
                         return f"MOVE_MOTOR_FAILED: Motor ID must be 1-4"
-                    
-                    response = self.bundled_interface.send_motor_command(motor_id, "MOVE_MOTOR", steps, direction)
+
+                    response = self.bundled_interface.send_motor_command(
+                        motor_id, "MOVE_MOTOR", steps, direction
+                    )
                     if response:
                         return f"MOVE_MOTOR{motor_id}_SUCCESS:{response}"
                     else:
                         return f"MOVE_MOTOR{motor_id}_FAILED"
-                    
+
                 except (ValueError, IndexError) as e:
                     return f"MOVE_MOTOR_FAILED: Invalid format - {e}"
 
@@ -430,13 +463,19 @@ class CommandProcessor:
                     motor_id = int(command.split(":")[1])
                     if motor_id < 1 or motor_id > 4:
                         return f"ENABLE_MOTOR_FAILED: Motor ID must be 1-4"
-                    
-                    response = self.bundled_interface.send_motor_command(motor_id, "ENABLE_MOTOR")
+
+                    response = self.bundled_interface.send_motor_command(
+                        motor_id, "ENABLE_MOTOR"
+                    )
                     if response:
-                        return f"ENABLE_MOTOR{motor_id}_SUCCESS:{response}" if response else f"ENABLE_MOTOR{motor_id}_SUCCESS"
+                        return (
+                            f"ENABLE_MOTOR{motor_id}_SUCCESS:{response}"
+                            if response
+                            else f"ENABLE_MOTOR{motor_id}_SUCCESS"
+                        )
                     else:
                         return f"ENABLE_MOTOR{motor_id}_FAILED"
-                    
+
                 except (ValueError, IndexError):
                     return "ENABLE_MOTOR_FAILED: Invalid format"
 
@@ -445,13 +484,19 @@ class CommandProcessor:
                     motor_id = int(command.split(":")[1])
                     if motor_id < 1 or motor_id > 4:
                         return f"DISABLE_MOTOR_FAILED: Motor ID must be 1-4"
-                    
-                    response = self.bundled_interface.send_motor_command(motor_id, "DISABLE_MOTOR")
+
+                    response = self.bundled_interface.send_motor_command(
+                        motor_id, "DISABLE_MOTOR"
+                    )
                     if response:
-                        return f"DISABLE_MOTOR{motor_id}_SUCCESS:{response}" if response else f"DISABLE_MOTOR{motor_id}_SUCCESS"
+                        return (
+                            f"DISABLE_MOTOR{motor_id}_SUCCESS:{response}"
+                            if response
+                            else f"DISABLE_MOTOR{motor_id}_SUCCESS"
+                        )
                     else:
                         return f"DISABLE_MOTOR{motor_id}_FAILED"
-                    
+
                 except (ValueError, IndexError):
                     return "DISABLE_MOTOR_FAILED: Invalid format"
 
@@ -462,16 +507,18 @@ class CommandProcessor:
                         return "SET_MOTOR_SPEED_FAILED: Invalid format (expected: SET_MOTOR_SPEED:ID:SPEED)"
                     motor_id = int(parts[1])
                     speed = float(parts[2])
-                    
+
                     if motor_id < 1 or motor_id > 4:
                         return f"SET_MOTOR_SPEED_FAILED: Motor ID must be 1-4"
-                    
-                    response = self.bundled_interface.send_motor_command(motor_id, "SET_MOTOR_SPEED", speed)
+
+                    response = self.bundled_interface.send_motor_command(
+                        motor_id, "SET_MOTOR_SPEED", speed
+                    )
                     if response:
                         return f"SET_MOTOR_SPEED{motor_id}_SUCCESS:{speed}"
                     else:
                         return f"SET_MOTOR_SPEED{motor_id}_FAILED"
-                    
+
                 except (ValueError, IndexError):
                     return "SET_MOTOR_SPEED_FAILED: Invalid format"
 
@@ -480,22 +527,26 @@ class CommandProcessor:
                     parts = command.split(":")
                     if len(parts) < 3:
                         return "SET_MOTOR_POSITION_FAILED: Invalid format (expected: SET_MOTOR_POSITION:ID:PERCENTAGE)"
-                    
+
                     motor_id = int(parts[1])
                     percentage = float(parts[2])
-                    
+
                     if motor_id < 1 or motor_id > 4:
                         return f"SET_MOTOR_POSITION_FAILED: Motor ID must be 1-4"
-                    
+
                     if percentage < 0 or percentage > 100:
                         return f"SET_MOTOR_POSITION_FAILED: Percentage must be 0-100"
-                    
+
                     if self.bundled_interface.send_motor_object(motor_id, percentage):
-                        motor_degree = self.bundled_interface.validator.map_percentage_to_degree(percentage)
+                        motor_degree = (
+                            self.bundled_interface.validator.map_percentage_to_degree(
+                                percentage
+                            )
+                        )
                         return f"SET_MOTOR_POSITION{motor_id}_SUCCESS:{percentage}% ({motor_degree}°)"
                     else:
                         return f"SET_MOTOR_POSITION{motor_id}_FAILED"
-                    
+
                 except (ValueError, IndexError) as e:
                     return f"SET_MOTOR_POSITION_FAILED: Invalid format - {e}"
 
@@ -506,7 +557,11 @@ class CommandProcessor:
                         arduino_cmd = f"MOVE_MOTOR:1:{steps}:FORWARD"
                         if self.arduino_interface.send_command(arduino_cmd):
                             response = self.arduino_interface.read_data(timeout=2.0)
-                            return f"MOVE_VAR_SUCCESS:{steps}" if not response else f"MOVE_VAR_SUCCESS:{response}"
+                            return (
+                                f"MOVE_VAR_SUCCESS:{steps}"
+                                if not response
+                                else f"MOVE_VAR_SUCCESS:{response}"
+                            )
                         return f"MOVE_VAR_FAILED: Arduino send error"
                     else:
                         logger.warning("MOVE_VAR command requires Arduino interface")

@@ -81,7 +81,13 @@ class Event(Enum):
 
 
 class AutoController:
-    def __init__(self, actuators: dict, sensors: dict = None, state_callback=None, log_callback=None):
+    def __init__(
+        self,
+        actuators: dict,
+        sensors: dict = None,
+        state_callback=None,
+        log_callback=None,
+    ):
         self.actuators = actuators
         self.sensors = sensors or {}
         self.currentState = State.ALL_OFF
@@ -96,7 +102,10 @@ class AutoController:
             (State.TURBO_PUMP_DOWN, Event.APS_TURBO_LT_0_1MT): State.TP_DOWN_MAIN,
             (State.TP_DOWN_MAIN, Event.APS_MAIN_LT_0_1MT): State.SETTLE_STEADY_PRESSURE,
             (State.TP_DOWN_MAIN, Event.FAULT_MAIN_TURBO): State.ALL_OFF,
-            (State.SETTLE_STEADY_PRESSURE, Event.APS_MAIN_EQ_0_1_STEADY): State.SETTLING_10KV,
+            (
+                State.SETTLE_STEADY_PRESSURE,
+                Event.APS_MAIN_EQ_0_1_STEADY,
+            ): State.SETTLING_10KV,
             (State.SETTLING_10KV, Event.STEADY_STATE_VOLTAGE): State.ADMIT_FUEL_TO_5MA,
             (State.ADMIT_FUEL_TO_5MA, Event.STEADY_STATE_CURRENT): State.NOMINAL_27KV,
             (State.NOMINAL_27KV, Event.STOP_CMD): State.DEENERGIZING,
@@ -371,7 +380,11 @@ class TelemetryToEventMapper:
             if aps_p < 0.1:
                 self.controller.dispatch_event(Event.APS_MAIN_LT_0_1MT)
 
-        if s == State.SETTLE_STEADY_PRESSURE and aps_loc == "Main" and aps_p is not None:
+        if (
+            s == State.SETTLE_STEADY_PRESSURE
+            and aps_loc == "Main"
+            and aps_p is not None
+        ):
             if 0.095 <= aps_p <= 0.105:
                 self.controller.dispatch_event(Event.APS_MAIN_EQ_0_1_STEADY)
 
@@ -443,9 +456,9 @@ class FusorHostApp:
         self.auto_log_display = None
         self.terminal_updates_enabled = terminal_updates
         self._initial_log_message = None
-        
+
         self.previous_values = {}
-        
+
         self._previous_values_lock = threading.Lock()
         self._actuators_lock = threading.Lock()
         self._sensors_lock = threading.Lock()
@@ -453,26 +466,74 @@ class FusorHostApp:
         self._shutdown_event = threading.Event()
 
         self.tcp_client_object = TCPClientObject(self.tcp_command_client)
-        
+
         self.actuators = {
-            "power_supply": ActuatorObject("power supply", "power supply", self.tcp_command_client, _build_actuator_command, self.tcp_client_object),
-            "atm_valve": ActuatorObject("valve1", "valve1", self.tcp_command_client, _build_actuator_command, self.tcp_client_object),
-            "foreline_valve": ActuatorObject("valve 2", "valve 2", self.tcp_command_client, _build_actuator_command, self.tcp_client_object),
-            "turbo_valve": ActuatorObject("turbo valve", "turbo valve", self.tcp_command_client, _build_actuator_command, self.tcp_client_object),
-            "fusor_valve": ActuatorObject("valve 3", "valve 3", self.tcp_command_client, _build_actuator_command, self.tcp_client_object),
-            "mech_pump": ActuatorObject("roughing pump", "roughing pump", self.tcp_command_client, _build_actuator_command, self.tcp_client_object),
-            "turbo_pump": ActuatorObject("turbo pump", "turbo pump", self.tcp_command_client, _build_actuator_command, self.tcp_client_object),
-            "deuterium_valve": ActuatorObject("valve 4", "valve 4", self.tcp_command_client, _build_actuator_command, self.tcp_client_object),
+            "power_supply": ActuatorObject(
+                "power supply",
+                "power supply",
+                self.tcp_command_client,
+                _build_actuator_command,
+                self.tcp_client_object,
+            ),
+            "atm_valve": ActuatorObject(
+                "valve1",
+                "valve1",
+                self.tcp_command_client,
+                _build_actuator_command,
+                self.tcp_client_object,
+            ),
+            "foreline_valve": ActuatorObject(
+                "valve 2",
+                "valve 2",
+                self.tcp_command_client,
+                _build_actuator_command,
+                self.tcp_client_object,
+            ),
+            "turbo_valve": ActuatorObject(
+                "turbo valve",
+                "turbo valve",
+                self.tcp_command_client,
+                _build_actuator_command,
+                self.tcp_client_object,
+            ),
+            "fusor_valve": ActuatorObject(
+                "valve 3",
+                "valve 3",
+                self.tcp_command_client,
+                _build_actuator_command,
+                self.tcp_client_object,
+            ),
+            "mech_pump": ActuatorObject(
+                "roughing pump",
+                "roughing pump",
+                self.tcp_command_client,
+                _build_actuator_command,
+                self.tcp_client_object,
+            ),
+            "turbo_pump": ActuatorObject(
+                "turbo pump",
+                "turbo pump",
+                self.tcp_command_client,
+                _build_actuator_command,
+                self.tcp_client_object,
+            ),
+            "deuterium_valve": ActuatorObject(
+                "valve 4",
+                "valve 4",
+                self.tcp_command_client,
+                _build_actuator_command,
+                self.tcp_client_object,
+            ),
         }
-        
+
         for actuator_name, actuator in self.actuators.items():
             self.tcp_client_object.register_actuator(actuator.name, actuator.label)
-        
+
         self.sensors = {
             "pressure_sensor_1": SensorObject("pressure sensor 1"),
             "pressure_sensor_2": SensorObject("pressure sensor 2"),
         }
-        
+
         self.udp_client_object = UDPClientObject(self.sensors)
 
         self.auto_controller = AutoController(
@@ -487,7 +548,9 @@ class FusorHostApp:
 
         if not self.tcp_command_client.connect():
             self._update_status("Failed to connect to target on startup", "red")
-            initial_msg = "[ERROR] Failed to connect to target - check network connection"
+            initial_msg = (
+                "[ERROR] Failed to connect to target - check network connection"
+            )
             self._initial_log_message = initial_msg
             if self.data_display:
                 self._update_data_display(initial_msg)
@@ -504,7 +567,9 @@ class FusorHostApp:
 
         self.udp_status_client.start()
         self.udp_status_receiver.start()
-        logger.info("UDP status receiver started - waiting for status updates from target...")
+        logger.info(
+            "UDP status receiver started - waiting for status updates from target..."
+        )
         print("UDP status receiver started - waiting for status updates from target...")
 
     def _setup_ui(self):
@@ -549,7 +614,9 @@ class FusorHostApp:
         voltage_slider_frame.pack(fill="x", padx=5, pady=5)
 
         voltage_slider_label = ctk.CTkLabel(
-            voltage_slider_frame, text="Voltage Output Slider", font=ctk.CTkFont(size=12)
+            voltage_slider_frame,
+            text="Voltage Output Slider",
+            font=ctk.CTkFont(size=12),
         )
         voltage_slider_label.pack(pady=2)
 
@@ -644,7 +711,9 @@ class FusorHostApp:
         valve_section.pack(fill="x", padx=5, pady=5)
 
         valve_label = ctk.CTkLabel(
-            valve_section, text="Valve Controls", font=ctk.CTkFont(size=12, weight="bold")
+            valve_section,
+            text="Valve Controls",
+            font=ctk.CTkFont(size=12, weight="bold"),
         )
         valve_label.pack(pady=5)
 
@@ -652,11 +721,19 @@ class FusorHostApp:
         valve_row.pack(fill="x", padx=5, pady=5)
 
         valve_names = ["ATM/Depressure", "Foreline", "Vacsys", "Deuterium", "Turbo"]
-        valve_actuator_keys = ["atm_valve", "foreline_valve", "fusor_valve", "deuterium_valve", "turbo_valve"]
+        valve_actuator_keys = [
+            "atm_valve",
+            "foreline_valve",
+            "fusor_valve",
+            "deuterium_valve",
+            "turbo_valve",
+        ]
         self.valve_sliders = {}
         self.valve_value_labels = {}
 
-        for i, (valve_name, actuator_key) in enumerate(zip(valve_names, valve_actuator_keys)):
+        for i, (valve_name, actuator_key) in enumerate(
+            zip(valve_names, valve_actuator_keys)
+        ):
             valve_frame = ctk.CTkFrame(valve_row)
             valve_frame.pack(side="left", fill="both", expand=True, padx=2)
 
@@ -667,16 +744,16 @@ class FusorHostApp:
 
             slider = ctk.CTkSlider(
                 valve_frame,
-            from_=0,
-            to=100,
-                command=lambda v, k=actuator_key, idx=i: self._update_valve_label(k, idx, v)
+                from_=0,
+                to=100,
+                command=lambda v, k=actuator_key, idx=i: self._update_valve_label(
+                    k, idx, v
+                ),
             )
             slider.set(0)
             slider.pack(fill="x", padx=3, pady=3)
 
-            value_label = ctk.CTkLabel(
-                valve_frame, text="0%", font=ctk.CTkFont(size=9)
-            )
+            value_label = ctk.CTkLabel(valve_frame, text="0%", font=ctk.CTkFont(size=9))
             value_label.pack()
 
             set_button = ctk.CTkButton(
@@ -715,7 +792,9 @@ class FusorHostApp:
         pressure_readout_frame.pack(fill="x", padx=5, pady=8)
 
         pressure_readout_label = ctk.CTkLabel(
-            pressure_readout_frame, text="Pressure Sensor Readouts", font=ctk.CTkFont(size=14, weight="bold")
+            pressure_readout_frame,
+            text="Pressure Sensor Readouts",
+            font=ctk.CTkFont(size=14, weight="bold"),
         )
         pressure_readout_label.pack(pady=8)
 
@@ -764,7 +843,9 @@ class FusorHostApp:
         adc_readout_frame.pack(fill="x", padx=5, pady=8)
 
         adc_readout_label = ctk.CTkLabel(
-            adc_readout_frame, text="ADC Channel Readouts", font=ctk.CTkFont(size=14, weight="bold")
+            adc_readout_frame,
+            text="ADC Channel Readouts",
+            font=ctk.CTkFont(size=14, weight="bold"),
         )
         adc_readout_label.pack(pady=8)
 
@@ -888,7 +969,9 @@ class FusorHostApp:
         target_logs_frame.pack(fill="both", expand=True, padx=5, pady=8)
 
         target_logs_label = ctk.CTkLabel(
-            target_logs_frame, text="Live Target Logs", font=ctk.CTkFont(size=14, weight="bold")
+            target_logs_frame,
+            text="Live Target Logs",
+            font=ctk.CTkFont(size=14, weight="bold"),
         )
         target_logs_label.pack(pady=8)
 
@@ -898,7 +981,9 @@ class FusorHostApp:
             wrap="word",
         )
         self.target_logs_display.pack(fill="both", expand=True, padx=10, pady=10)
-        self.target_logs_display.insert("end", "[Target Logs] Waiting for logs from Raspberry Pi...\n")
+        self.target_logs_display.insert(
+            "end", "[Target Logs] Waiting for logs from Raspberry Pi...\n"
+        )
         self.target_logs_display.configure(state="disabled")
 
         clear_target_logs_button = ctk.CTkButton(
@@ -925,12 +1010,19 @@ class FusorHostApp:
         auto_button_frame.pack(pady=5)
 
         auto_start = ctk.CTkButton(
-            auto_button_frame, text="Start Auto Sequence", command=self._auto_start, width=180
+            auto_button_frame,
+            text="Start Auto Sequence",
+            command=self._auto_start,
+            width=180,
         )
         auto_start.pack(side="left", padx=5, pady=5)
 
         auto_stop = ctk.CTkButton(
-            auto_button_frame, text="Stop / Emergency", command=self._auto_stop, width=180, fg_color="red"
+            auto_button_frame,
+            text="Stop / Emergency",
+            command=self._auto_stop,
+            width=180,
+            fg_color="red",
         )
         auto_stop.pack(side="left", padx=5, pady=5)
 
@@ -960,7 +1052,7 @@ class FusorHostApp:
         self.status_label.pack(pady=5)
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
-        
+
         self._process_gui_updates()
 
     def _send_command(self, command: str):
@@ -1012,71 +1104,125 @@ class FusorHostApp:
                 if "SUCCESS" in response.upper():
                     self._update_status(
                         f"Command sent: {command} - Response: {response}", "green"
-                )
+                    )
                 elif "FAILED" in response.upper() or "ERROR" in response.upper():
                     self._update_status(
                         f"Command sent: {command} - Response: {response}", "red"
                     )
-                    
+
                     # Extract and display detailed error message
                     if ":" in response:
                         error_detail = response.split(":", 1)[1].strip()
-                        
+
                         # Comprehensive terminal logging for LED errors
                         if command in ["LED_ON", "LED_OFF"]:
-                            print("\n" + "="*70, flush=True)
+                            print("\n" + "=" * 70, flush=True)
                             print(f"LED COMMAND FAILED: {command}", flush=True)
-                            print("="*70, flush=True)
+                            print("=" * 70, flush=True)
                             print(f"Error from target: {error_detail}", flush=True)
-                            print("-"*70, flush=True)
-                            
+                            print("-" * 70, flush=True)
+
                             # Provide specific troubleshooting based on error type
                             if "GPIO not initialized" in error_detail:
-                                print("ROOT CAUSE: GPIO hardware not initialized on target", flush=True)
-                                print("SOLUTION: Target must be running with 'sudo' privileges", flush=True)
-                                print("ACTION: Run target with: sudo python3 target_main.py", flush=True)
+                                print(
+                                    "ROOT CAUSE: GPIO hardware not initialized on target",
+                                    flush=True,
+                                )
+                                print(
+                                    "SOLUTION: Target must be running with 'sudo' privileges",
+                                    flush=True,
+                                )
+                                print(
+                                    "ACTION: Run target with: sudo python3 target_main.py",
+                                    flush=True,
+                                )
                                 self._update_data_display(
                                     "[TROUBLESHOOTING] GPIO not initialized - ensure target is running with 'sudo'"
                                 )
                             elif "Permission denied" in error_detail:
-                                print("ROOT CAUSE: Insufficient permissions to access GPIO pins", flush=True)
-                                print("SOLUTION: Target process needs root/sudo access", flush=True)
-                                print("ACTION: Restart target with: sudo python3 target_main.py", flush=True)
+                                print(
+                                    "ROOT CAUSE: Insufficient permissions to access GPIO pins",
+                                    flush=True,
+                                )
+                                print(
+                                    "SOLUTION: Target process needs root/sudo access",
+                                    flush=True,
+                                )
+                                print(
+                                    "ACTION: Restart target with: sudo python3 target_main.py",
+                                    flush=True,
+                                )
                                 self._update_data_display(
                                     "[TROUBLESHOOTING] Permission denied - target must run with 'sudo' to access GPIO"
                                 )
-                            elif "RuntimeError" in error_detail or "GPIO channels already in use" in error_detail:
-                                print("ROOT CAUSE: GPIO pins are locked/in use by another process", flush=True)
-                                print("SOLUTION: Clean up GPIO state and restart target", flush=True)
-                                print("ACTION: Restart target with: sudo python3 target_main.py", flush=True)
-                                print("        Or stop any other processes using GPIO pins", flush=True)
+                            elif (
+                                "RuntimeError" in error_detail
+                                or "GPIO channels already in use" in error_detail
+                            ):
+                                print(
+                                    "ROOT CAUSE: GPIO pins are locked/in use by another process",
+                                    flush=True,
+                                )
+                                print(
+                                    "SOLUTION: Clean up GPIO state and restart target",
+                                    flush=True,
+                                )
+                                print(
+                                    "ACTION: Restart target with: sudo python3 target_main.py",
+                                    flush=True,
+                                )
+                                print(
+                                    "        Or stop any other processes using GPIO pins",
+                                    flush=True,
+                                )
                                 self._update_data_display(
                                     "[TROUBLESHOOTING] GPIO RuntimeError - pins may be in use, restart target"
                                 )
                             elif "OS Error" in error_detail:
-                                print("ROOT CAUSE: GPIO hardware access error", flush=True)
-                                print("SOLUTION: Check hardware connections and GPIO wiring", flush=True)
-                                print("ACTION: Verify LED is connected to correct GPIO pin (default: pin 26)", flush=True)
+                                print(
+                                    "ROOT CAUSE: GPIO hardware access error", flush=True
+                                )
+                                print(
+                                    "SOLUTION: Check hardware connections and GPIO wiring",
+                                    flush=True,
+                                )
+                                print(
+                                    "ACTION: Verify LED is connected to correct GPIO pin (default: pin 26)",
+                                    flush=True,
+                                )
                                 self._update_data_display(
                                     "[TROUBLESHOOTING] GPIO hardware error - check wiring and GPIO connections"
                                 )
                             else:
                                 print(f"ROOT CAUSE: {error_detail}", flush=True)
-                                print("SOLUTION: Check target logs for more details", flush=True)
-                            
-                            print("="*70 + "\n", flush=True)
-                            
+                                print(
+                                    "SOLUTION: Check target logs for more details",
+                                    flush=True,
+                                )
+
+                            print("=" * 70 + "\n", flush=True)
+
                             # Also log via standard method
-                            self._log_terminal_update("LED_ERROR", f"{command} failed: {error_detail}")
+                            self._log_terminal_update(
+                                "LED_ERROR", f"{command} failed: {error_detail}"
+                            )
                         else:
                             # Non-LED errors - standard logging
-                            self._log_terminal_update("COMMAND_ERROR", f"{command} -> {response}")
-                        
-                        self._update_data_display(f"[ERROR] {command} failed: {error_detail}")
+                            self._log_terminal_update(
+                                "COMMAND_ERROR", f"{command} -> {response}"
+                            )
+
+                        self._update_data_display(
+                            f"[ERROR] {command} failed: {error_detail}"
+                        )
                     else:
                         # No detailed error message
-                        self._log_terminal_update("COMMAND_ERROR", f"{command} -> {response}")
-                        self._update_data_display(f"[ERROR] {command} failed: {response}")
+                        self._log_terminal_update(
+                            "COMMAND_ERROR", f"{command} -> {response}"
+                        )
+                        self._update_data_display(
+                            f"[ERROR] {command} failed: {response}"
+                        )
                 else:
                     self._update_status(
                         f"Command sent: {command} - Response: {response}", "blue"
@@ -1096,15 +1242,15 @@ class FusorHostApp:
             self._update_data_display(f"[ERROR] Command {command} failed: {e}")
 
     def _update_voltage_label(self, value):
-        if hasattr(self, 'voltage_value_label'):
+        if hasattr(self, "voltage_value_label"):
             self.voltage_value_label.configure(text=f"{int(value)} V")
 
     def _update_pump_label(self, value):
-        if hasattr(self, 'pump_value_label'):
+        if hasattr(self, "pump_value_label"):
             self.pump_value_label.configure(text=f"{int(value)}%")
 
     def _manual_slider_change(self, value):
-        if hasattr(self, 'manual_mech_label'):
+        if hasattr(self, "manual_mech_label"):
             self.manual_mech_label.configure(text=f"{int(value)}%")
         with self._actuators_lock:
             try:
@@ -1115,7 +1261,7 @@ class FusorHostApp:
                 pass
 
     def _update_turbo_pump_label(self, value):
-        if hasattr(self, 'turbo_pump_value_label'):
+        if hasattr(self, "turbo_pump_value_label"):
             self.turbo_pump_value_label.configure(text=f"{int(value)}%")
         with self._actuators_lock:
             actuator = self.actuators.get("turbo_pump")
@@ -1135,50 +1281,58 @@ class FusorHostApp:
     def _update_pressure_display(self, value):
         if not self.root:
             return
-        
+
         def _do_update():
             try:
-                if hasattr(self, 'pressure_display1') and self.pressure_display1:
-                    self.pressure_display1.configure(text=f"Turbo Pressure Sensor [ADC CH1]: {value} mT")
-                if hasattr(self, 'pressure_label') and self.pressure_label:
-                    self.pressure_label.configure(text=f"Turbo Pressure Sensor [ADC CH1]: {value} mT")
+                if hasattr(self, "pressure_display1") and self.pressure_display1:
+                    self.pressure_display1.configure(
+                        text=f"Turbo Pressure Sensor [ADC CH1]: {value} mT"
+                    )
+                if hasattr(self, "pressure_label") and self.pressure_label:
+                    self.pressure_label.configure(
+                        text=f"Turbo Pressure Sensor [ADC CH1]: {value} mT"
+                    )
             except Exception:
                 pass
-        
+
         self._schedule_gui_update(_do_update)
 
     def _update_adc_display(self, value):
         if not self.root:
             return
-        
+
         def _do_update():
             try:
-                if hasattr(self, 'adc_ch0_label') and self.adc_ch0_label:
-                    self.adc_ch0_label.configure(text=f"ADC CH0 [Potentiometer - Testing]: {value}")
-                if hasattr(self, 'adc_label') and self.adc_label:
-                    self.adc_label.configure(text=f"ADC CH0 [Potentiometer - Testing]: {value}")
+                if hasattr(self, "adc_ch0_label") and self.adc_ch0_label:
+                    self.adc_ch0_label.configure(
+                        text=f"ADC CH0 [Potentiometer - Testing]: {value}"
+                    )
+                if hasattr(self, "adc_label") and self.adc_label:
+                    self.adc_label.configure(
+                        text=f"ADC CH0 [Potentiometer - Testing]: {value}"
+                    )
             except Exception:
                 pass
-        
+
         self._schedule_gui_update(_do_update)
 
     def _update_all_adc_channels(self, adc_data):
         if not self.root:
             return
-        
+
         def _do_update():
             try:
                 adc_channels = {
-                    'adc_ch0_label': 0,
-                    'adc_ch1_label': 1,
-                    'adc_ch2_label': 2,
-                    'adc_ch3_label': 3,
-                    'adc_ch4_label': 4,
-                    'adc_ch5_label': 5,
-                    'adc_ch6_label': 6,
-                    'adc_ch7_label': 7,
+                    "adc_ch0_label": 0,
+                    "adc_ch1_label": 1,
+                    "adc_ch2_label": 2,
+                    "adc_ch3_label": 3,
+                    "adc_ch4_label": 4,
+                    "adc_ch5_label": 5,
+                    "adc_ch6_label": 6,
+                    "adc_ch7_label": 7,
                 }
-                
+
                 if isinstance(adc_data, (list, tuple)) and len(adc_data) >= 8:
                     channel_labels = {
                         0: "ADC CH0 [Potentiometer - Testing]",
@@ -1194,11 +1348,15 @@ class FusorHostApp:
                         if hasattr(self, label_attr):
                             label = getattr(self, label_attr)
                             if label:
-                                label_text = channel_labels.get(channel, f"ADC CH{channel}")
-                                label.configure(text=f"{label_text}: {adc_data[channel]}")
+                                label_text = channel_labels.get(
+                                    channel, f"ADC CH{channel}"
+                                )
+                                label.configure(
+                                    text=f"{label_text}: {adc_data[channel]}"
+                                )
             except Exception:
                 pass
-        
+
         self._schedule_gui_update(_do_update)
 
     def _auto_start(self):
@@ -1218,19 +1376,23 @@ class FusorHostApp:
     def _auto_update_state_label(self, state: State):
         if not self.auto_state_label or not self.root:
             return
-        
+
         def _do_update():
             try:
                 self.auto_state_label.configure(text=f"Current State: {state.name}")
             except Exception:
                 pass
-        
+
         self._schedule_gui_update(_do_update)
 
     def _auto_log_event(self, message: str):
-        if not hasattr(self, "auto_log_display") or self.auto_log_display is None or not self.root:
+        if (
+            not hasattr(self, "auto_log_display")
+            or self.auto_log_display is None
+            or not self.root
+        ):
             return
-        
+
         def _do_update():
             try:
                 timestamp = time.strftime("%H:%M:%S")
@@ -1240,7 +1402,7 @@ class FusorHostApp:
                 self.auto_log_display.configure(state="disabled")
             except Exception:
                 pass
-        
+
         self._schedule_gui_update(_do_update)
 
     def _set_voltage(self):
@@ -1252,7 +1414,7 @@ class FusorHostApp:
             self._send_command(command)
         else:
             self._update_status("Invalid voltage value", "red")
-            if hasattr(self, 'data_display') and self.data_display:
+            if hasattr(self, "data_display") and self.data_display:
                 self._update_data_display(f"[ERROR] Invalid voltage: {voltage}")
 
     def _set_pump_power(self):
@@ -1262,7 +1424,7 @@ class FusorHostApp:
             self._send_command(command)
         else:
             self._update_status("Invalid power value", "red")
-            if hasattr(self, 'data_display') and self.data_display:
+            if hasattr(self, "data_display") and self.data_display:
                 self._update_data_display(f"[ERROR] Invalid power: {power}")
 
     def _set_mech_pump_power(self, power):
@@ -1291,35 +1453,38 @@ class FusorHostApp:
     def _handle_udp_data(self, data: str):
         self._update_data_display(f"[UDP Data] {data}")
         parsed = self._parse_periodic_packet(data)
-        
+
         # Check for errors first (always log errors)
         has_error = any(
-            "ERROR" in str(v).upper() or 
-            "NOT_AVAILABLE" in str(v).upper() or 
-            "NOT_INITIALIZED" in str(v).upper() or
-            "DISCONNECTED" in str(v).upper()
+            "ERROR" in str(v).upper()
+            or "NOT_AVAILABLE" in str(v).upper()
+            or "NOT_INITIALIZED" in str(v).upper()
+            or "DISCONNECTED" in str(v).upper()
             for v in (parsed.values() if parsed else [data])
         )
-        
+
         if parsed:
             # Check if any values changed
             values_changed = False
             changed_items = []
-            
+
             with self._previous_values_lock:
                 for key, value in parsed.items():
                     # Skip TIME field for change detection (always changes)
                     if key == "TIME":
                         continue
-                    
+
                     prev_value = self.previous_values.get(key)
-                    
+
                     # For numeric values (like ADC_CH0), compare as numbers to handle string/int differences
                     try:
                         if key.startswith("ADC_CH") or key == "Pressure_Sensor_1":
                             value_num = float(value) if value else None
                             prev_value_num = float(prev_value) if prev_value else None
-                            if prev_value_num is None or abs(value_num - prev_value_num) >= 1.0:  # At least 1 unit change
+                            if (
+                                prev_value_num is None
+                                or abs(value_num - prev_value_num) >= 1.0
+                            ):  # At least 1 unit change
                                 values_changed = True
                                 changed_items.append(f"{key}={value}")
                                 self.previous_values[key] = value
@@ -1344,7 +1509,7 @@ class FusorHostApp:
                             values_changed = True
                             changed_items.append(f"{key}={value}")
                             self.previous_values[key] = value
-            
+
             # Update ADC displays
             adc_values = []
             for ch in range(8):
@@ -1354,22 +1519,22 @@ class FusorHostApp:
                     adc_values.append(adc_value)
                     if ch == 0:
                         self._update_adc_display(adc_value)
-            
+
             if len(adc_values) >= 8:
                 self._update_all_adc_channels(adc_values)
-            
+
             adc_data = parsed.get("ADC_DATA")
             if adc_data:
                 try:
                     if isinstance(adc_data, str):
-                        adc_list = [int(x.strip()) for x in adc_data.split(',')]
+                        adc_list = [int(x.strip()) for x in adc_data.split(",")]
                     else:
                         adc_list = list(adc_data)
                     if len(adc_list) >= 8:
                         self._update_all_adc_channels(adc_list)
                 except (ValueError, TypeError):
                     pass
-            
+
             # Only log to terminal if values changed or there's an error
             if values_changed or has_error:
                 if changed_items:
@@ -1380,10 +1545,13 @@ class FusorHostApp:
                     self._log_terminal_update("TARGET_DATA", summary)
                 elif has_error:
                     # Error but no value changes
-                    summary = ", ".join(f"{k}={v}" for k, v in parsed.items() if 
-                                       "ERROR" in str(v).upper() or 
-                                       "NOT_AVAILABLE" in str(v).upper() or 
-                                       "NOT_INITIALIZED" in str(v).upper())
+                    summary = ", ".join(
+                        f"{k}={v}"
+                        for k, v in parsed.items()
+                        if "ERROR" in str(v).upper()
+                        or "NOT_AVAILABLE" in str(v).upper()
+                        or "NOT_INITIALIZED" in str(v).upper()
+                    )
                     self._update_target_logs(f"[UDP Data] {summary}")
                     self._log_terminal_update("TARGET_ERROR", summary)
         else:
@@ -1395,11 +1563,15 @@ class FusorHostApp:
     def _handle_udp_status(self, message: str, address: tuple):
         self._update_data_display(f"[UDP Status] From {address[0]}: {message}")
         self._update_target_logs(f"[UDP Status] {message}")
-        
-        has_error = "ERROR" in message.upper() or "FAILED" in message.upper() or "WARNING" in message.upper()
-        
+
+        has_error = (
+            "ERROR" in message.upper()
+            or "FAILED" in message.upper()
+            or "WARNING" in message.upper()
+        )
+
         matched_sensor = self.udp_client_object.process_received_data(message)
-        
+
         if matched_sensor:
             with self._sensors_lock:
                 sensor = self.sensors.get(matched_sensor)
@@ -1410,14 +1582,19 @@ class FusorHostApp:
                         except Exception:
                             pass
                         with self._previous_values_lock:
-                            prev_pressure = self.previous_values.get("Pressure_Sensor_1")
+                            prev_pressure = self.previous_values.get(
+                                "Pressure_Sensor_1"
+                            )
                             if prev_pressure != sensor.value:
                                 try:
-                                    self._log_terminal_update("TARGET_STATUS", f"Pressure Sensor 1: {sensor.value} mT")
+                                    self._log_terminal_update(
+                                        "TARGET_STATUS",
+                                        f"Pressure Sensor 1: {sensor.value} mT",
+                                    )
                                 except Exception:
                                     pass
                                 self.previous_values["Pressure_Sensor_1"] = sensor.value
-        
+
         try:
             try:
                 payload = json.loads(message)
@@ -1448,14 +1625,14 @@ class FusorHostApp:
                     logger.error(f"Error processing GUI update: {e}")
         except Exception:
             pass
-        
+
         if self.root and not self._shutdown_event.is_set():
             self.root.after(50, self._process_gui_updates)
-    
+
     def _schedule_gui_update(self, func, *args, **kwargs):
         if self.root and not self._shutdown_event.is_set():
             self._gui_update_queue.put((func, args, kwargs))
-    
+
     def _open_data_log_window(self):
         if self.data_log_window is not None:
             try:
@@ -1469,24 +1646,24 @@ class FusorHostApp:
         self.data_log_window = ctk.CTkToplevel(self.root)
         self.data_log_window.title("Data Logs - Read-Only from Target")
         self.data_log_window.geometry("900x600")
-        
+
         log_window_frame = ctk.CTkFrame(self.data_log_window)
         log_window_frame.pack(fill="both", expand=True, padx=10, pady=10)
-        
+
         log_title = ctk.CTkLabel(
             log_window_frame,
             text="Data Logs (Read-Only from Target)",
             font=ctk.CTkFont(size=16, weight="bold"),
         )
         log_title.pack(pady=10)
-        
+
         self.data_display = ctk.CTkTextbox(
             log_window_frame,
             font=ctk.CTkFont(size=11, family="Courier"),
             wrap="word",
         )
         self.data_display.pack(fill="both", expand=True, padx=10, pady=10)
-        
+
         clear_button = ctk.CTkButton(
             log_window_frame,
             text="Clear Logs",
@@ -1496,14 +1673,14 @@ class FusorHostApp:
             height=35,
         )
         clear_button.pack(pady=5)
-        
+
         self.data_log_window.protocol("WM_DELETE_WINDOW", self._close_data_log_window)
-        
-        if hasattr(self, '_initial_log_message'):
+
+        if hasattr(self, "_initial_log_message"):
             self._update_data_display(self._initial_log_message)
 
     def _close_data_log_window(self):
-        if hasattr(self, 'data_log_window') and self.data_log_window:
+        if hasattr(self, "data_log_window") and self.data_log_window:
             try:
                 self.data_log_window.destroy()
             except:
@@ -1525,13 +1702,15 @@ class FusorHostApp:
     def _update_target_logs(self, log_message: str):
         if not self.target_logs_display or not self.root:
             return
-        
+
         def _do_update():
             try:
                 if self.target_logs_display:
                     timestamp = time.strftime("%H:%M:%S")
                     self.target_logs_display.configure(state="normal")
-                    self.target_logs_display.insert("end", f"[{timestamp}] {log_message}\n")
+                    self.target_logs_display.insert(
+                        "end", f"[{timestamp}] {log_message}\n"
+                    )
                     self.target_logs_display.see("end")
                     # Limit log size to prevent memory issues (keep last 1000 lines)
                     lines = self.target_logs_display.get("1.0", "end").split("\n")
@@ -1540,7 +1719,7 @@ class FusorHostApp:
                     self.target_logs_display.configure(state="disabled")
             except Exception:
                 pass
-        
+
         self._schedule_gui_update(_do_update)
 
     def _update_data_display(self, data: str):
@@ -1548,7 +1727,7 @@ class FusorHostApp:
             if "ERROR" in data.upper() or "FAILED" in data.upper():
                 self._log_terminal_update("ERROR", data)
             return
-        
+
         def _do_update():
             try:
                 if self.data_display:
@@ -1557,7 +1736,7 @@ class FusorHostApp:
                     self.data_display.see("end")
             except Exception:
                 pass
-        
+
         self._schedule_gui_update(_do_update)
 
     def _log_terminal_update(self, tag: str, message: str):
@@ -1573,14 +1752,14 @@ class FusorHostApp:
     def _update_status(self, message: str, color: str = "white"):
         if not self.status_label or not self.root:
             return
-        
+
         def _do_update():
             try:
                 if self.status_label:
                     self.status_label.configure(text=message, text_color=color)
             except Exception:
                 pass
-        
+
         self._schedule_gui_update(_do_update)
 
     def _parse_periodic_packet(self, payload: str) -> dict:
@@ -1599,7 +1778,7 @@ class FusorHostApp:
         return result
 
     def _on_closing(self):
-        if hasattr(self, 'data_log_window') and self.data_log_window:
+        if hasattr(self, "data_log_window") and self.data_log_window:
             try:
                 self.data_log_window.destroy()
             except:
@@ -1669,7 +1848,7 @@ class FusorHostApp:
 
     def stop(self):
         self._shutdown_event.set()
-        
+
         try:
             self._turn_off_led()
         except Exception as e:
@@ -1690,7 +1869,7 @@ class FusorHostApp:
             self.udp_status_receiver.stop()
         except Exception as e:
             logger.error(f"Error stopping UDP communication: {e}")
-        
+
         try:
             while not self._gui_update_queue.empty():
                 try:
