@@ -1,5 +1,6 @@
 import threading
 import logging
+import time
 from typing import Optional, Callable, Dict, Union
 from bundled_interface import BundledInterface
 
@@ -582,6 +583,22 @@ class CommandProcessor:
                 try:
                     self._send_status_update("Testing Arduino communication...")
                     
+                    arduino = self.arduino_interface
+                    if hasattr(arduino, 'port'):
+                        self._send_status_update(f"Arduino port: {arduino.port}")
+                    
+                    serial_conn = arduino.serial_connection
+                    if serial_conn:
+                        if serial_conn.is_open:
+                            bytes_waiting = serial_conn.in_waiting
+                            self._send_status_update(f"Serial port status: OPEN, {bytes_waiting} bytes waiting in buffer")
+                            self._send_status_update(f"Serial port name: {serial_conn.name}")
+                            self._send_status_update(f"Serial baudrate: {serial_conn.baudrate}")
+                        else:
+                            self._send_status_update("WARNING: Serial connection exists but is not open")
+                    else:
+                        self._send_status_update("WARNING: Serial connection object is None")
+                    
                     test_command = "MOTOR_1:0"
                     self._send_status_update(f"Sending test command to Arduino: {test_command}")
                     
@@ -589,6 +606,12 @@ class CommandProcessor:
                         error_msg = "TEST_ARDUINO_FAILED: Could not send test command"
                         self._send_status_update(error_msg)
                         return error_msg
+                    
+                    time.sleep(0.5)
+                    
+                    if serial_conn and serial_conn.is_open:
+                        bytes_waiting = serial_conn.in_waiting
+                        self._send_status_update(f"After send: {bytes_waiting} bytes waiting in buffer")
                     
                     self._send_status_update("Waiting for Arduino response (timeout: 3 seconds)...")
                     response = self.arduino_interface.read_data(timeout=3.0)
@@ -600,6 +623,9 @@ class CommandProcessor:
                     else:
                         error_msg = "TEST_ARDUINO_FAILED: No response from Arduino (timeout)"
                         self._send_status_update(error_msg)
+                        if serial_conn and serial_conn.is_open:
+                            bytes_waiting = serial_conn.in_waiting
+                            self._send_status_update(f"Final check: {bytes_waiting} bytes still in buffer")
                         return error_msg
                         
                 except Exception as e:

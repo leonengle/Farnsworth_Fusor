@@ -106,7 +106,12 @@ void serialEvent() {
 void processCommand(String command) {
   command.trim();
   
+  Serial.print("RECEIVED_COMMAND:");
+  Serial.println(command);
+  Serial.flush();
+  
   if (command.length() == 0) {
+    Serial.println("ERROR: Empty command after trim");
     return;
   }
   
