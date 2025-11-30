@@ -198,6 +198,20 @@ class ArduinoInterface:
                     logger.warning("  2. Arduino firmware is not running")
                     logger.warning("  3. Wrong baud rate (expected 9600)")
                     logger.warning("  4. USB cable issue")
+                    
+                    logger.info("Attempting to test Arduino responsiveness...")
+                    try:
+                        test_cmd = "TEST_PING\n"
+                        self._serial_connection.write(test_cmd.encode("utf-8"))
+                        self._serial_connection.flush()
+                        time.sleep(0.5)
+                        if self._serial_connection.in_waiting > 0:
+                            response = self._serial_connection.readline().decode("utf-8", errors="ignore").strip()
+                            logger.info(f"Arduino responded to test: {response}")
+                        else:
+                            logger.warning("Arduino did not respond to test command - firmware may not be running")
+                    except Exception as e:
+                        logger.error(f"Error testing Arduino: {e}")
                 else:
                     logger.info(f"Received {len(startup_messages)} startup message(s) from Arduino")
 

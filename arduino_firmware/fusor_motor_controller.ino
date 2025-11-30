@@ -106,6 +106,12 @@ void serialEvent() {
 void processCommand(String command) {
   command.trim();
   
+  if (command == "TEST_PING") {
+    Serial.println("PONG");
+    Serial.flush();
+    return;
+  }
+  
   Serial.print("RECEIVED_COMMAND:");
   Serial.println(command);
   Serial.flush();
