@@ -124,7 +124,7 @@ Command: SET_VALVE2:0
 Response: SET_VALVE2_SUCCESS:0
 ```
 
-**Note:** This command controls GPIO PWM and forwards `ANALOG:<VALVE_LABEL>:<position>` to the Arduino.
+**Note:** This command forwards `ANALOG:<VALVE_LABEL>:<position>` to the Arduino.
 
 ---
 

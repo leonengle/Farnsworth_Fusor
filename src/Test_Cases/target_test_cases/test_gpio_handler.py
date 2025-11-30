@@ -24,7 +24,6 @@ mock_lgpio.gpio_write = MagicMock(return_value=0)
 mock_lgpio.gpio_read = MagicMock(return_value=0)
 mock_lgpio.gpio_free = MagicMock(return_value=0)
 mock_lgpio.gpiochip_close = MagicMock(return_value=0)
-mock_lgpio.tx_pwm = MagicMock(return_value=0)
 
 sys.modules["lgpio"] = mock_lgpio
 
@@ -52,9 +51,6 @@ class TestGPIOHandler(unittest.TestCase):
             led_pin=26,
             input_pin=6,
             power_supply_pin=5,
-            valve_pins=[17, 4, 22, 23, 24, 25],
-            mechanical_pump_pin=27,
-            turbo_pump_pin=16,
         )
 
     def tearDown(self):
@@ -67,9 +63,6 @@ class TestGPIOHandler(unittest.TestCase):
         self.assertEqual(self.gpio_handler.led_pin, 26)
         self.assertEqual(self.gpio_handler.input_pin, 6)
         self.assertEqual(self.gpio_handler.power_supply_pin, 5)
-        self.assertEqual(len(self.gpio_handler.valve_pins), 6)
-        self.assertEqual(self.gpio_handler.mechanical_pump_pin, 27)
-        self.assertEqual(self.gpio_handler.turbo_pump_pin, 16)
 
     def test_led_on(self):
         """Test LED ON functionality"""
@@ -102,37 +95,6 @@ class TestGPIOHandler(unittest.TestCase):
         self.assertTrue(result)
         self.assertFalse(self.gpio_handler.power_supply_enabled)
 
-    def test_set_valve_position(self):
-        """Test setting valve position"""
-        result = self.gpio_handler.set_valve_position(1, 50)
-        self.assertTrue(result)
-        self.assertEqual(self.gpio_handler.valve_states[0], 50)
-
-    def test_set_valve_position_invalid_id(self):
-        """Test setting valve position with invalid ID"""
-        result = self.gpio_handler.set_valve_position(0, 50)
-        self.assertFalse(result)
-        result = self.gpio_handler.set_valve_position(7, 50)
-        self.assertFalse(result)
-
-    def test_set_valve_position_invalid_position(self):
-        """Test setting valve position with invalid position"""
-        result = self.gpio_handler.set_valve_position(1, -1)
-        self.assertFalse(result)
-        result = self.gpio_handler.set_valve_position(1, 101)
-        self.assertFalse(result)
-
-    def test_set_mechanical_pump_power(self):
-        """Test setting mechanical pump power"""
-        result = self.gpio_handler.set_mechanical_pump_power(75)
-        self.assertTrue(result)
-        self.assertEqual(self.gpio_handler.mechanical_pump_power, 75)
-
-    def test_set_turbo_pump_power(self):
-        """Test setting turbo pump power"""
-        result = self.gpio_handler.set_turbo_pump_power(80)
-        self.assertTrue(result)
-        self.assertEqual(self.gpio_handler.turbo_pump_power, 80)
 
     def test_emergency_shutdown(self):
         """Test emergency shutdown"""

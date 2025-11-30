@@ -226,8 +226,8 @@ Farnsworth_Fusor/
 
 ### **Hardware Control**
 - **Power Supply Control**: Enable/disable and voltage setting (0-27kV)
-- **Valve Control**: 6 valves with PWM-based proportional control (0-100%)
-- **Pump Control**: Mechanical pump and turbo pump with PWM-based power control (0-100%)
+- **Valve Control**: 6 valves with proportional control (0-100%)
+- **Pump Control**: Mechanical pump and turbo pump with power control (0-100%)
 - **Sensor Reading**: Pressure sensors, voltage/current monitoring, neutron counting
 - **Distributed Motor/Actuator Control**: Arduino Nano (Stepper Controllers 1-4) receives labeled analog commands and motor control commands over USB via the BundledInterface
 - **Labeled Analog Datalink**: Every analog command is forwarded to the Arduino as `ANALOG:<FUSOR_COMPONENT>:<value>` so each actuator (valves, pumps, power supply, etc.) carries its destination label across the Pi↔Arduino link
@@ -261,9 +261,9 @@ Farnsworth_Fusor/
 - **LED Pin**: GPIO 26
 - **Input Pin**: GPIO 6
 - **Power Supply**: GPIO 5
-- **Valves**: GPIO 17, 4, 22, 23, 24, 25 (PWM capable)
-- **Mechanical Pump**: GPIO 27 (PWM)
-- **Turbo Pump**: GPIO 16 (PWM)
+- **Valves**: Controlled via Arduino
+- **Mechanical Pump**: Controlled via Arduino
+- **Turbo Pump**: Controlled via Arduino
 
 ### **Logging & Monitoring**
 - Multi-level logging (console, file, error-specific)
@@ -285,7 +285,7 @@ The system is organized in four layers so the host laptop treats the Raspberry P
 1. **Communication Layer** – Three dedicated channels keep traffic separated: the TCP Command Server listens on `192.168.0.2:2222` for reliable command/response, the UDP Data Server pushes structured telemetry on `:12345` (only when values change), and bidirectional UDP status links operate on host `8888` / target `8889` for lightweight heartbeats.  
 2. **Processing Layer** – `CommandProcessor` parses every host command, validates arguments, and routes work to the correct subsystem. It tags analog actuators (valves 1‑6, power supply, pumps) with semantic labels before forwarding them to the Arduino, and routes motor commands (Motors 1-4) directly to the Arduino.  
 3. **Hardware Abstraction Layer** – The `BundledInterface` unifies GPIO, ADC (MCP3008 over SPI), and Arduino USB interface, each exposing clean Python APIs. The Arduino Nano handles Stepper Controllers 1‑4 via USB serial communication (9600 baud).  
-4. **Hardware Layer** – SPI wiring to the MCP3008, PWM GPIO for valves/pumps, USB serial connection to Arduino Nano, and the actual motors, valves, and sensors.
+4. **Hardware Layer** – SPI wiring to the MCP3008, USB serial connection to Arduino Nano, and the actual motors, valves, and sensors.
 
 **Arduino Datalink:** Every analog command that originates on the Pi is mirrored to the Arduino as `ANALOG:<FUSOR_COMPONENT>:<value>`. Example labels include `POWER_SUPPLY_VOLTAGE_SETPOINT`, `ATM_DEPRESSURE_VALVE`, `VACUUM_SYSTEM_VALVE`, `ROUGHING_PUMP_POWER`, and `TURBO_PUMP_POWER`. This guarantees the distributed controllers receive unambiguous instructions even when multiple actuators share the same electrical characteristics.
 
@@ -294,9 +294,9 @@ The system is organized in four layers so the host laptop treats the Raspberry P
 | Trigger on Host | Pi CommandProcessor Action | USB Payload → Arduino | Target Hardware |
 |-----------------|---------------------------|------------------------|-----------------|
 | `SET_VOLTAGE:X` | Update GPIO + label (`POWER_SUPPLY_VOLTAGE_SETPOINT`) | `ANALOG:POWER_SUPPLY_VOLTAGE_SETPOINT:X` | High-voltage supply control |
-| `SET_VALVE<i>:Y` | Drive PWM on GPIO + forward to Arduino | `ANALOG:<VALVE_LABEL_i>:Y` | Valve actuators (1-6) |
-| `SET_MECHANICAL_PUMP:Y` | Set PWM + label | `ANALOG:ROUGHING_PUMP_POWER:Y` | Roughing pump driver |
-| `SET_TURBO_PUMP:Y` | Set PWM + label | `ANALOG:TURBO_PUMP_POWER:Y` | Turbo pump driver |
+| `SET_VALVE<i>:Y` | Forward to Arduino | `ANALOG:<VALVE_LABEL_i>:Y` | Valve actuators (1-6) |
+| `SET_MECHANICAL_PUMP:Y` | Forward to Arduino | `ANALOG:ROUGHING_PUMP_POWER:Y` | Roughing pump driver |
+| `SET_TURBO_PUMP:Y` | Forward to Arduino | `ANALOG:TURBO_PUMP_POWER:Y` | Turbo pump driver |
 | `MOVE_MOTOR:ID:STEPS:DIR` | Route to Arduino | `MOVE_MOTOR:ID:STEPS:DIR` | Stepper motors 1-4 |
 | `ENABLE_MOTOR:ID` | Route to Arduino | `ENABLE_MOTOR:ID` | Enable motor 1-4 |
 | `SET_MOTOR_SPEED:ID:SPEED` | Route to Arduino | `SET_MOTOR_SPEED:ID:SPEED` | Set motor speed |
@@ -596,7 +596,7 @@ python src/Test_Cases/target_test_cases/test_adc.py
 - **Logging**: Comprehensive logging for debugging and monitoring
 - **Communication**: TCP/UDP protocol - no SSH dependencies required
 - **FSM Control**: The host application uses a Finite State Machine for automated control sequences
-- **PWM Control**: Valves and pumps use PWM for proportional control (0-100%)
+- **Proportional Control**: Valves and pumps use proportional control (0-100%)
 
 ---
 
