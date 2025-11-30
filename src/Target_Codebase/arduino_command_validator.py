@@ -6,7 +6,7 @@ logger = get_logger("ArduinoCommandValidator")
 
 
 class ArduinoCommandValidator:
-    VALID_MOTOR_IDS = [1, 2, 3, 4]
+    VALID_MOTOR_IDS = [1, 2, 3, 4, 5, 6]
     MIN_MOTOR_STEPS = -10000
     MAX_MOTOR_STEPS = 10000
     MIN_MOTOR_DEGREE = 0.0
@@ -17,6 +17,7 @@ class ArduinoCommandValidator:
 
     VALID_ANALOG_LABELS = {
         "POWER_SUPPLY_VOLTAGE_SETPOINT",
+        "POWER_SUPPLY_ENABLE",
         "ATM_DEPRESSURE_VALVE",
         "FORELINE_VALVE",
         "VACUUM_SYSTEM_VALVE",
@@ -30,6 +31,7 @@ class ArduinoCommandValidator:
 
     ANALOG_VALUE_RANGES: Dict[str, Tuple[float, float]] = {
         "POWER_SUPPLY_VOLTAGE_SETPOINT": (0.0, 28000.0),
+        "POWER_SUPPLY_ENABLE": (0.0, 1.0),
         "ATM_DEPRESSURE_VALVE": (0.0, 100.0),
         "FORELINE_VALVE": (0.0, 100.0),
         "VACUUM_SYSTEM_VALVE": (0.0, 100.0),
@@ -86,7 +88,7 @@ class ArduinoCommandValidator:
             if motor_id is None or motor_id not in self.VALID_MOTOR_IDS:
                 return (
                     False,
-                    f"Invalid component name: {component_name} (must be MOTOR_1, MOTOR_2, MOTOR_3, or MOTOR_4)",
+                    f"Invalid component name: {component_name} (must be MOTOR_1, MOTOR_2, MOTOR_3, MOTOR_4, MOTOR_5, or MOTOR_6)",
                 )
 
             try:

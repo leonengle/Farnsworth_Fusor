@@ -24,7 +24,6 @@ mock_lgpio.gpio_write = MagicMock(return_value=0)
 mock_lgpio.gpio_read = MagicMock(return_value=0)
 mock_lgpio.gpio_free = MagicMock(return_value=0)
 mock_lgpio.gpiochip_close = MagicMock(return_value=0)
-mock_lgpio.tx_pwm = MagicMock(return_value=0)
 
 mock_spi = MagicMock()
 mock_spi_dev = MagicMock()

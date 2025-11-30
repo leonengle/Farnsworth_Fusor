@@ -108,10 +108,21 @@ class AutoController:
             ): State.SETTLING_10KV,
             (State.SETTLING_10KV, Event.STEADY_STATE_VOLTAGE): State.ADMIT_FUEL_TO_5MA,
             (State.ADMIT_FUEL_TO_5MA, Event.STEADY_STATE_CURRENT): State.NOMINAL_27KV,
-            (State.NOMINAL_27KV, Event.STOP_CMD): State.DEENERGIZING,
             (State.DEENERGIZING, Event.ZERO_KV_STEADY): State.CLOSING_MAIN,
             (State.CLOSING_MAIN, Event.TIMEOUT_5S): State.VENTING_FORELINE,
             (State.VENTING_FORELINE, Event.APS_EQ_1_ATM): State.ALL_OFF,
+            # Emergency stop from any state - immediately go to ALL_OFF
+            (State.ROUGH_PUMP_DOWN, Event.STOP_CMD): State.ALL_OFF,
+            (State.RP_DOWN_TURBO, Event.STOP_CMD): State.ALL_OFF,
+            (State.TURBO_PUMP_DOWN, Event.STOP_CMD): State.ALL_OFF,
+            (State.TP_DOWN_MAIN, Event.STOP_CMD): State.ALL_OFF,
+            (State.SETTLE_STEADY_PRESSURE, Event.STOP_CMD): State.ALL_OFF,
+            (State.SETTLING_10KV, Event.STOP_CMD): State.ALL_OFF,
+            (State.ADMIT_FUEL_TO_5MA, Event.STOP_CMD): State.ALL_OFF,
+            (State.NOMINAL_27KV, Event.STOP_CMD): State.ALL_OFF,
+            (State.DEENERGIZING, Event.STOP_CMD): State.ALL_OFF,
+            (State.CLOSING_MAIN, Event.STOP_CMD): State.ALL_OFF,
+            (State.VENTING_FORELINE, Event.STOP_CMD): State.ALL_OFF,
         }
 
         self._state_entry_actions = {
@@ -143,6 +154,11 @@ class AutoController:
             self.actuators["power_supply"].setAnalogValue(kv * 1000.0)
 
     def dispatch_event(self, event: Event):
+        # Emergency stop always goes to ALL_OFF from any state
+        if event == Event.STOP_CMD:
+            self._enter_state(State.ALL_OFF)
+            return
+        
         key = (self.currentState, event)
         next_state = self.FSM.get(key)
         if next_state is None:
@@ -1101,10 +1117,21 @@ class FusorHostApp:
         if self._is_auto_mode_active():
             self._update_status("Cannot control manually while auto mode is active", "red")
             return
+        
+        if value < 0 or value > 100:
+            self._update_status(f"Invalid valve value: {value} (must be 0-100)", "red")
+            return
+        
         with self._actuators_lock:
             actuator = self.actuators.get(valve_name)
+        
         if actuator:
+            self._update_status(f"Setting {valve_name} to {int(value)}%...", "blue")
             actuator.setAnalogValue(value)
+            self._update_data_display(f"[VALVE] Setting {valve_name} to {int(value)}%")
+        else:
+            self._update_status(f"Valve {valve_name} not found", "red")
+            self._update_data_display(f"[ERROR] Valve {valve_name} not found")
 
     def _update_pressure_display(self, value):
         if not self.root:
@@ -1253,10 +1280,13 @@ class FusorHostApp:
     def _auto_stop(self):
         if self.auto_log_display:
             self.auto_log_display.configure(state="normal")
-            self.auto_log_display.insert("end", "[FSM] Stop requested\n")
+            self.auto_log_display.insert("end", "[FSM] Emergency stop requested - returning to ALL_OFF\n")
             self.auto_log_display.configure(state="disabled")
+        # Dispatch stop event to transition to ALL_OFF immediately
         self.auto_controller.dispatch_event(Event.STOP_CMD)
-        # Re-enable manual controls when auto mode stops (will be called when state returns to ALL_OFF)
+        # Immediately re-enable manual controls for emergency stop
+        # (State will be ALL_OFF after dispatch_event completes)
+        self._enable_manual_controls()
 
     def _auto_update_state_label(self, state: State):
         if not self.auto_state_label or not self.root:
@@ -1297,16 +1327,34 @@ class FusorHostApp:
         if self._is_auto_mode_active():
             self._update_status("Cannot control manually while auto mode is active", "red")
             return
-        voltage = int(self.voltage_scale.get())
+        
+        try:
+            voltage = int(self.voltage_scale.get())
+        except (ValueError, AttributeError):
+            self._update_status("Invalid voltage value", "red")
+            self._update_data_display("[ERROR] Could not read voltage from slider")
+            return
+        
+        if voltage < 0 or voltage > 28000:
+            self._update_status(f"Voltage out of range: {voltage}V (must be 0-28000V)", "red")
+            self._update_data_display(f"[ERROR] Voltage out of range: {voltage}V")
+            return
+        
+        # Enable power supply if voltage > 0
         if voltage > 0:
+            self._update_status("Enabling power supply...", "blue")
             self._send_command("POWER_SUPPLY_ENABLE")
+            self._update_data_display(f"[POWER] Enabling power supply for {voltage}V")
+        
+        # Set voltage
         command = self.command_handler.build_set_voltage_command(voltage)
         if command:
+            self._update_status(f"Setting voltage to {voltage}V...", "blue")
             self._send_command(command)
+            self._update_data_display(f"[POWER] Setting voltage to {voltage}V")
         else:
-            self._update_status("Invalid voltage value", "red")
-            if hasattr(self, "data_display") and self.data_display:
-                self._update_data_display(f"[ERROR] Invalid voltage: {voltage}")
+            self._update_status("Failed to build voltage command", "red")
+            self._update_data_display(f"[ERROR] Failed to build voltage command for {voltage}V")
 
     def _set_pump_power(self):
         power = int(self.pump_power_scale.get())
@@ -1390,8 +1438,8 @@ class FusorHostApp:
                             prev_value_num = float(prev_value) if prev_value else None
                             if (
                                 prev_value_num is None
-                                or abs(value_num - prev_value_num) >= 1.0
-                            ):  # At least 1 unit change
+                                or abs(value_num - prev_value_num) >= 5.0
+                            ):  # At least 5 unit change (noise filtering)
                                 values_changed = True
                                 changed_items.append(f"{key}={value}")
                                 self.previous_values[key] = value
@@ -1442,40 +1490,51 @@ class FusorHostApp:
                 except (ValueError, TypeError):
                     pass
             
-            # Only log to terminal if values changed or there's an error
             if values_changed or has_error:
                 if changed_items:
                     summary = ", ".join(changed_items)
                     if has_error:
                         summary += " [ERROR DETECTED]"
-                        self._update_target_logs(f"[UDP Data] {summary}")
+                    self._update_target_logs(f"[UDP Data] {summary}")
                     self._log_terminal_update("TARGET_DATA", summary)
                 elif has_error:
-                    # Error but no value changes
                     summary = ", ".join(
                         f"{k}={v}"
                         for k, v in parsed.items()
                         if "ERROR" in str(v).upper()
                         or "NOT_AVAILABLE" in str(v).upper()
                         or "NOT_INITIALIZED" in str(v).upper()
+                        or "DISCONNECTED" in str(v).upper()
                     )
                     self._update_target_logs(f"[UDP Data] {summary}")
                     self._log_terminal_update("TARGET_ERROR", summary)
         else:
-            # Unparsed data - check for error keywords
             if has_error or "ERROR" in data.upper():
                 self._update_target_logs(f"[UDP Data] {data}")
                 self._log_terminal_update("TARGET_ERROR", data)
+            else:
+                self._update_target_logs(f"[UDP Data] {data}")
 
     def _handle_udp_status(self, message: str, address: tuple):
         self._update_data_display(f"[UDP Status] From {address[0]}: {message}")
-        self._update_target_logs(f"[UDP Status] {message}")
-
+        
         has_error = (
             "ERROR" in message.upper()
             or "FAILED" in message.upper()
             or "WARNING" in message.upper()
         )
+        
+        if message.startswith("STATUS:"):
+            status_msg = message[7:].strip()
+            self._update_target_logs(f"[Status] {status_msg}")
+        elif message.startswith("ARDUINO_DATA:"):
+            arduino_msg = message[13:].strip()
+            self._update_target_logs(f"[Arduino] {arduino_msg}")
+        else:
+            self._update_target_logs(f"[UDP Status] {message}")
+        
+        if has_error:
+            self._update_target_logs(f"[ERROR] {message}")
         
         matched_sensor = self.udp_client_object.process_received_data(message)
         

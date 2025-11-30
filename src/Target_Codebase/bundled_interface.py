@@ -63,8 +63,8 @@ class BundledInterface:
             logger.error("Motor control requires Arduino interface (not connected)")
             return False
         
-        if motor_id < 1 or motor_id > 4:
-            logger.error(f"Invalid motor ID: {motor_id} (must be 1-4)")
+        if motor_id < 1 or motor_id > 6:
+            logger.error(f"Invalid motor ID: {motor_id} (must be 1-6)")
             return False
         
         component_name = f"MOTOR_{motor_id}"
