@@ -543,7 +543,9 @@ class CommandProcessor:
                 if not self.arduino_interface.is_connected():
                     return "ARDUINO_COMMAND_FAILED: Arduino not connected"
                 try:
-                    arduino_cmd = command[8:]
+                    arduino_cmd = command[8:].strip()
+                    if not arduino_cmd:
+                        return "ARDUINO_COMMAND_FAILED: Empty command after ARDUINO:"
                     if self.arduino_interface.send_command(arduino_cmd):
                         response = self.arduino_interface.read_data(timeout=1.0)
                         if response:

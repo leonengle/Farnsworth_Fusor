@@ -67,9 +67,10 @@ void setup() {
 
 void loop() {
   if (stringComplete) {
-    processCommand(inputString);
+    String cmd = inputString;
     inputString = "";
     stringComplete = false;
+    processCommand(cmd);
   }
   
   for (int i = 0; i < NUM_MOTORS; i++) {
@@ -85,8 +86,11 @@ void serialEvent() {
     
     if (inChar == '\n') {
       stringComplete = true;
+      break;
     } else if (inChar != '\r') {
-      inputString += inChar;
+      if (inputString.length() < SERIAL_BUFFER_SIZE - 1) {
+        inputString += inChar;
+      }
     }
   }
 }
@@ -102,12 +106,20 @@ void processCommand(String command) {
     String jsonStr = command.substring(6);
     jsonStr.trim();
     
+    if (jsonStr.length() == 0) {
+      Serial.print("ERROR: Empty JSON string after MOTOR: | Full command: ");
+      Serial.println(command);
+      return;
+    }
+    
     StaticJsonDocument<256> doc;
     DeserializationError error = deserializeJson(doc, jsonStr);
     
     if (error) {
       Serial.print("ERROR: Invalid JSON format: ");
-      Serial.println(error.c_str());
+      Serial.print(error.c_str());
+      Serial.print(" | JSON received: ");
+      Serial.println(jsonStr);
       return;
     }
     
