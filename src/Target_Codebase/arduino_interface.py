@@ -177,7 +177,6 @@ class ArduinoInterface:
                 )
                 
                 logger.info("Waiting for Arduino startup message...")
-                time.sleep(2.0)
                 
                 startup_messages = []
                 for i in range(20):
