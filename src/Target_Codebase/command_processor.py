@@ -599,7 +599,7 @@ class CommandProcessor:
                     else:
                         self._send_status_update("WARNING: Serial connection object is None")
                     
-                    test_command = "MOTOR_1:0"
+                    test_command = "TEST_PING"
                     self._send_status_update(f"Sending test command to Arduino: {test_command}")
                     
                     if not self.arduino_interface.send_command(test_command):
@@ -607,11 +607,15 @@ class CommandProcessor:
                         self._send_status_update(error_msg)
                         return error_msg
                     
+                    self._send_status_update("Command sent, waiting 0.5 seconds...")
                     time.sleep(0.5)
                     
                     if serial_conn and serial_conn.is_open:
                         bytes_waiting = serial_conn.in_waiting
                         self._send_status_update(f"After send: {bytes_waiting} bytes waiting in buffer")
+                        if bytes_waiting > 0:
+                            raw_data = serial_conn.read(bytes_waiting).decode("utf-8", errors="ignore")
+                            self._send_status_update(f"Raw data in buffer: {repr(raw_data)}")
                     
                     self._send_status_update("Waiting for Arduino response (timeout: 3 seconds)...")
                     response = self.arduino_interface.read_data(timeout=3.0)
