@@ -568,6 +568,46 @@ class CommandProcessor:
                 except (ValueError, IndexError):
                     return "MOVE_VAR_FAILED: Invalid format"
 
+            elif command == "TEST_ARDUINO" or command.startswith("TEST_ARDUINO:"):
+                if not self.arduino_interface:
+                    error_msg = "TEST_ARDUINO_FAILED: Arduino interface not available"
+                    self._send_status_update(error_msg)
+                    return error_msg
+                
+                if not self.arduino_interface.is_connected():
+                    error_msg = "TEST_ARDUINO_FAILED: Arduino not connected"
+                    self._send_status_update(error_msg)
+                    return error_msg
+                
+                try:
+                    self._send_status_update("Testing Arduino communication...")
+                    
+                    test_command = "MOTOR_1:0"
+                    self._send_status_update(f"Sending test command to Arduino: {test_command}")
+                    
+                    if not self.arduino_interface.send_command(test_command):
+                        error_msg = "TEST_ARDUINO_FAILED: Could not send test command"
+                        self._send_status_update(error_msg)
+                        return error_msg
+                    
+                    self._send_status_update("Waiting for Arduino response (timeout: 3 seconds)...")
+                    response = self.arduino_interface.read_data(timeout=3.0)
+                    
+                    if response:
+                        result = f"TEST_ARDUINO_SUCCESS: Arduino responded with '{response}'"
+                        self._send_status_update(result)
+                        return result
+                    else:
+                        error_msg = "TEST_ARDUINO_FAILED: No response from Arduino (timeout)"
+                        self._send_status_update(error_msg)
+                        return error_msg
+                        
+                except Exception as e:
+                    error_msg = f"TEST_ARDUINO_FAILED: {e}"
+                    logger.error(f"Error testing Arduino: {e}")
+                    self._send_status_update(error_msg)
+                    return error_msg
+
             elif command.startswith("ARDUINO:"):
                 if not self.arduino_interface:
                     return "ARDUINO_COMMAND_FAILED: Arduino interface not available"
