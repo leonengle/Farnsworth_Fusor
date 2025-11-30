@@ -161,7 +161,15 @@ class ArduinoInterface:
                     write_timeout=self.timeout,
                 )
 
-                time.sleep(2.0)
+                try:
+                    self._serial_connection.dtr = False
+                    self._serial_connection.rts = False
+                    time.sleep(0.1)
+                    self._serial_connection.dtr = True
+                    self._serial_connection.rts = True
+                    time.sleep(2.0)
+                except Exception as e:
+                    logger.warning(f"Could not toggle DTR/RTS for reset: {e}")
 
                 self.connected = True
                 logger.info(
@@ -169,7 +177,6 @@ class ArduinoInterface:
                 )
                 
                 logger.info("Waiting for Arduino startup message...")
-                time.sleep(2.0)
                 
                 startup_messages = []
                 for i in range(20):
@@ -276,7 +283,11 @@ class ArduinoInterface:
                         if line:
                             logger.info(f"Received from Arduino: {line}")
                             
-                            self._response_queue.put(line)
+                            try:
+                                self._response_queue.put_nowait(line)
+                                logger.debug(f"Added to response queue (size: {self._response_queue.qsize()})")
+                            except:
+                                logger.warning("Response queue full, dropping message")
 
                             callback = None
                             with self._callback_lock:
@@ -391,13 +402,18 @@ class ArduinoInterface:
             if timeout is None:
                 timeout = 1.0
             
-            logger.debug(f"Waiting for Arduino response (timeout: {timeout}s)...")
+            logger.info(f"Waiting for Arduino response (timeout: {timeout}s)...")
+            logger.info(f"Response queue size before wait: {self._response_queue.qsize()}")
+            
             try:
                 response = self._response_queue.get(timeout=timeout)
                 logger.info(f"Received response from Arduino: {response}")
                 return response
             except:
-                logger.warning(f"No response from Arduino within {timeout} seconds")
+                queue_size = self._response_queue.qsize()
+                logger.warning(f"No response from Arduino within {timeout} seconds (queue size: {queue_size})")
+                if queue_size > 0:
+                    logger.warning(f"Note: {queue_size} message(s) in queue but timeout occurred")
                 return None
 
         except Exception as e:
