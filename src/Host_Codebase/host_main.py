@@ -1529,7 +1529,10 @@ class FusorHostApp:
             self._update_target_logs(f"[Status] {status_msg}")
         elif message.startswith("ARDUINO_DATA:"):
             arduino_msg = message[13:].strip()
-            self._update_target_logs(f"[Arduino] {arduino_msg}")
+            if has_error:
+                self._update_target_logs(f"[Arduino] [ERROR] {arduino_msg}")
+            else:
+                self._update_target_logs(f"[Arduino] {arduino_msg}")
         else:
             self._update_target_logs(f"[UDP Status] {message}")
         

@@ -122,11 +122,11 @@ class TargetSystem:
     def _arduino_data_callback(self, data: str):
         """Callback for data received from Arduino."""
         try:
-            logger.debug(f"Arduino data received: {data}")
+            logger.info(f"Arduino data received: {data}")
             # Forward Arduino data to host via UDP status
             self.udp_status_sender.send_status(f"ARDUINO_DATA:{data}")
         except Exception as e:
-            logger.debug(f"Error processing Arduino data: {e}")
+            logger.error(f"Error processing Arduino data: {e}")
 
     def _get_periodic_data(self) -> str:
         try:

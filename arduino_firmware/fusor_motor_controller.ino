@@ -43,16 +43,21 @@ void setup() {
   for (int i = 0; i < NUM_MOTORS; i++) {
     const MotorConfig& config = MOTOR_CONFIGS[i];
     
-    motors[i] = new AccelStepper(AccelStepper::DRIVER, config.stepPin, config.dirPin);
-    
-    motors[i]->setMaxSpeed(MAX_SPEED);
-    motors[i]->setAcceleration(ACCELERATION);
-    motors[i]->setCurrentPosition(0);
+    pinMode(config.stepPin, OUTPUT);
+    pinMode(config.dirPin, OUTPUT);
+    digitalWrite(config.stepPin, LOW);
+    digitalWrite(config.dirPin, LOW);
     
     if (config.enablePin >= 0) {
       pinMode(config.enablePin, OUTPUT);
       digitalWrite(config.enablePin, LOW);
     }
+    
+    motors[i] = new AccelStepper(AccelStepper::DRIVER, config.stepPin, config.dirPin);
+    
+    motors[i]->setMaxSpeed(MAX_SPEED);
+    motors[i]->setAcceleration(ACCELERATION);
+    motors[i]->setCurrentPosition(0);
     
     currentAngles[i] = 0;
   }
@@ -67,9 +72,10 @@ void setup() {
 
 void loop() {
   if (stringComplete) {
-    processCommand(inputString);
+    String cmd = inputString;
     inputString = "";
     stringComplete = false;
+    processCommand(cmd);
   }
   
   for (int i = 0; i < NUM_MOTORS; i++) {
@@ -85,8 +91,11 @@ void serialEvent() {
     
     if (inChar == '\n') {
       stringComplete = true;
+      break;
     } else if (inChar != '\r') {
-      inputString += inChar;
+      if (inputString.length() < SERIAL_BUFFER_SIZE - 1) {
+        inputString += inChar;
+      }
     }
   }
 }
@@ -102,12 +111,20 @@ void processCommand(String command) {
     String jsonStr = command.substring(6);
     jsonStr.trim();
     
+    if (jsonStr.length() == 0) {
+      Serial.print("ERROR: Empty JSON string after MOTOR: | Full command: ");
+      Serial.println(command);
+      return;
+    }
+    
     StaticJsonDocument<256> doc;
     DeserializationError error = deserializeJson(doc, jsonStr);
     
     if (error) {
       Serial.print("ERROR: Invalid JSON format: ");
-      Serial.println(error.c_str());
+      Serial.print(error.c_str());
+      Serial.print(" | JSON received: ");
+      Serial.println(jsonStr);
       return;
     }
     
@@ -216,22 +233,50 @@ void moveMotorToAngle(int motorIndex, int targetAngle) {
     angleDifference += 360;
   }
   
+  if (angleDifference == 0) {
+    Serial.print(config.label);
+    Serial.println(":ALREADY_AT_TARGET");
+    return;
+  }
+  
   int totalStepsPerRevolution = config.stepsPerRevolution * config.microsteps;
   long currentSteps = motor->currentPosition();
   long stepsToMove = (long)((angleDifference / 360.0) * totalStepsPerRevolution);
   long targetSteps = currentSteps + stepsToMove;
   
   if (config.enablePin >= 0) {
+    pinMode(config.enablePin, OUTPUT);
     digitalWrite(config.enablePin, LOW);
   }
+  
+  pinMode(config.stepPin, OUTPUT);
+  pinMode(config.dirPin, OUTPUT);
+  
+  Serial.print(config.label);
+  Serial.print(":MOVING:from_");
+  Serial.print(currentAngle);
+  Serial.print("_to_");
+  Serial.print(targetAngle);
+  Serial.print("_(");
+  Serial.print(stepsToMove);
+  Serial.println("_steps)");
+  Serial.flush();
   
   motor->moveTo(targetSteps);
   
   unsigned long startTime = millis();
   const unsigned long TIMEOUT_MS = 30000;
+  long lastDistance = motor->distanceToGo();
+  unsigned long lastMoveTime = startTime;
   
   while (motor->distanceToGo() != 0) {
     motor->run();
+    
+    long currentDistance = motor->distanceToGo();
+    if (currentDistance != lastDistance) {
+      lastDistance = currentDistance;
+      lastMoveTime = millis();
+    }
     
     if (millis() - startTime > TIMEOUT_MS) {
       Serial.print("WARNING: Motor ");
@@ -240,10 +285,24 @@ void moveMotorToAngle(int motorIndex, int targetAngle) {
       break;
     }
     
+    if (millis() - lastMoveTime > 5000 && currentDistance == lastDistance) {
+      Serial.print("WARNING: Motor ");
+      Serial.print(config.label);
+      Serial.print(" not moving (stuck at ");
+      Serial.print(currentDistance);
+      Serial.println(" steps remaining)");
+      break;
+    }
+    
     delay(1);
   }
   
   currentAngles[motorIndex] = targetAngle;
+  
+  Serial.print(config.label);
+  Serial.print(":MOVEMENT_COMPLETE:now_at_");
+  Serial.println(targetAngle);
+  Serial.flush();
 }
 
 int findMotorByLabel(const String& label) {

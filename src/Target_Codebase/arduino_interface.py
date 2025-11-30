@@ -225,7 +225,7 @@ class ArduinoInterface:
                             .strip()
                         )
                         if line:
-                            logger.debug(f"Received from Arduino: {line}")
+                            logger.info(f"Received from Arduino: {line}")
 
                             callback = None
                             with self._callback_lock:
@@ -249,6 +249,10 @@ class ArduinoInterface:
                 time.sleep(0.1)
 
     def send_command(self, command: str) -> bool:
+        if not command or not command.strip():
+            logger.warning("Cannot send empty command to Arduino")
+            return False
+            
         with self._connection_lock:
             if (
                 not self.connected
@@ -262,8 +266,12 @@ class ArduinoInterface:
                 if not command.endswith("\n"):
                     command += "\n"
 
-                self.serial_connection.write(command.encode("utf-8"))
-                logger.debug(f"Sent to Arduino: {command.strip()}")
+                encoded = command.encode("utf-8")
+                bytes_written = self.serial_connection.write(encoded)
+                self.serial_connection.flush()
+                logger.debug(f"Sent to Arduino ({bytes_written} bytes): {command.strip()}")
+                if bytes_written != len(encoded):
+                    logger.warning(f"Only wrote {bytes_written} of {len(encoded)} bytes to Arduino")
                 return True
             except serial.SerialException as e:
                 logger.error(f"Serial write error: {e}")
@@ -274,6 +282,9 @@ class ArduinoInterface:
                 return False
 
     def send_data(self, data: str) -> bool:
+        if not data or not data.strip():
+            logger.warning("Cannot send empty data to Arduino")
+            return False
         return self.send_command(data)
 
     def send_analog_command(self, component_label: str, value) -> bool:
@@ -301,7 +312,13 @@ class ArduinoInterface:
             }
             command_json = json.dumps(motor_object)
             command = f"MOTOR:{command_json}"
-            return self.send_command(command)
+            logger.info(f"Sending motor object to Arduino: {command}")
+            result = self.send_command(command)
+            if result:
+                logger.info(f"Motor command sent successfully: {component_name} -> {motor_degree}°")
+            else:
+                logger.error(f"Failed to send motor command: {component_name} -> {motor_degree}°")
+            return result
         except (ValueError, TypeError) as e:
             logger.error(f"Invalid motor degree value: {motor_degree} - {e}")
             return False
