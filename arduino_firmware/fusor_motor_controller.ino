@@ -68,6 +68,9 @@ void setup() {
   Serial.flush();
   
   delay(100);
+  
+  Serial.println("ARDUINO_TEST:READY");
+  Serial.flush();
 }
 
 void loop() {
