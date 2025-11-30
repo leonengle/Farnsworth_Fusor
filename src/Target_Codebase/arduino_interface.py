@@ -26,7 +26,7 @@ class ArduinoInterface:
         self.auto_detect = auto_detect
         self.data_callback = data_callback
 
-        self.serial_connection: Optional[serial.Serial] = None
+        self._serial_connection: Optional[serial.Serial] = None
         self.connected = False
         self.read_thread: Optional[threading.Thread] = None
         self.running = False
@@ -137,8 +137,8 @@ class ArduinoInterface:
         with self._connection_lock:
             if (
                 self.connected
-                and self.serial_connection
-                and self.serial_connection.is_open
+                and self._serial_connection
+                and self._serial_connection.is_open
             ):
                 logger.debug("Already connected to Arduino")
                 return True
@@ -154,7 +154,7 @@ class ArduinoInterface:
                     logger.error("Cannot connect: No port specified")
                     return False
 
-                self.serial_connection = serial.Serial(
+                self._serial_connection = serial.Serial(
                     port=self.port,
                     baudrate=self.baudrate,
                     timeout=self.timeout,
@@ -167,6 +167,39 @@ class ArduinoInterface:
                 logger.info(
                     f"Connected to Arduino on port {self.port} at {self.baudrate} baud"
                 )
+                
+                logger.info("Waiting for Arduino startup message...")
+                time.sleep(2.0)
+                
+                startup_messages = []
+                for i in range(20):
+                    if self._serial_connection.in_waiting > 0:
+                        line = (
+                            self._serial_connection.readline()
+                            .decode("utf-8", errors="ignore")
+                            .strip()
+                        )
+                        if line:
+                            startup_messages.append(line)
+                            logger.info(f"Arduino startup message: {line}")
+                            if self.data_callback:
+                                try:
+                                    self.data_callback(line)
+                                except Exception as e:
+                                    logger.error(f"Error in startup callback: {e}")
+                    elif i == 0:
+                        logger.info(f"Checking for startup messages (attempt {i+1}/20)...")
+                    time.sleep(0.2)
+                
+                if not startup_messages:
+                    logger.warning("No startup messages received from Arduino - may not be responding")
+                    logger.warning("This could mean:")
+                    logger.warning("  1. Arduino is not powered on")
+                    logger.warning("  2. Arduino firmware is not running")
+                    logger.warning("  3. Wrong baud rate (expected 9600)")
+                    logger.warning("  4. USB cable issue")
+                else:
+                    logger.info(f"Received {len(startup_messages)} startup message(s) from Arduino")
 
                 with self._running_lock:
                     self.running = True
@@ -197,14 +230,14 @@ class ArduinoInterface:
             self.read_thread.join(timeout=2.0)
 
         with self._connection_lock:
-            if self.serial_connection and self.serial_connection.is_open:
+            if self._serial_connection and self._serial_connection.is_open:
                 try:
-                    self.serial_connection.close()
+                    self._serial_connection.close()
                     logger.info("Disconnected from Arduino")
                 except Exception as e:
                     logger.error(f"Error closing serial connection: {e}")
 
-            self.serial_connection = None
+            self._serial_connection = None
 
     def _read_loop(self):
         while True:
@@ -216,7 +249,7 @@ class ArduinoInterface:
                 if not self.connected:
                     break
 
-                serial_conn = self.serial_connection
+                serial_conn = self._serial_connection
 
             try:
                 if serial_conn and serial_conn.is_open:
@@ -260,8 +293,8 @@ class ArduinoInterface:
         with self._connection_lock:
             if (
                 not self.connected
-                or not self.serial_connection
-                or not self.serial_connection.is_open
+                or not self._serial_connection
+                or not self._serial_connection.is_open
             ):
                 logger.warning("Cannot send command: Not connected to Arduino")
                 return False
@@ -271,8 +304,8 @@ class ArduinoInterface:
                     command += "\n"
 
                 encoded = command.encode("utf-8")
-                bytes_written = self.serial_connection.write(encoded)
-                self.serial_connection.flush()
+                bytes_written = self._serial_connection.write(encoded)
+                self._serial_connection.flush()
                 logger.info(f"Sent to Arduino ({bytes_written} bytes): {command.strip()}")
                 if bytes_written != len(encoded):
                     logger.warning(f"Only wrote {bytes_written} of {len(encoded)} bytes to Arduino")
@@ -334,8 +367,8 @@ class ArduinoInterface:
     def read_data(self, timeout: Optional[float] = None) -> Optional[str]:
         if (
             not self.connected
-            or not self.serial_connection
-            or not self.serial_connection.is_open
+            or not self._serial_connection
+            or not self._serial_connection.is_open
         ):
             logger.warning("Cannot read data: Not connected to Arduino")
             return None
@@ -359,9 +392,13 @@ class ArduinoInterface:
 
     def is_connected(self) -> bool:
         with self._connection_lock:
-            if self.serial_connection and self.serial_connection.is_open:
+            if self._serial_connection and self._serial_connection.is_open:
                 return self.connected
             return False
+    
+    @property
+    def serial_connection(self):
+        return self._serial_connection
 
     def set_data_callback(self, callback: Callable[[str], None]):
         with self._callback_lock:
