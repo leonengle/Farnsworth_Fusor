@@ -67,15 +67,18 @@ class CommandProcessor:
 
     def _validate_and_create_motor_object(self, motor_id: int, percentage: float) -> tuple[bool, Optional[dict], Optional[str]]:
         logger.info(f"Validating motor command: motor_id={motor_id}, percentage={percentage}")
+        self._send_status_update(f"Validating motor command: motor_id={motor_id}, percentage={percentage}%")
         
         if motor_id < 1 or motor_id > 6:
             error_msg = f"Invalid motor ID: {motor_id} (must be 1-6)"
             logger.warning(f"Validation failed: {error_msg}")
+            self._send_status_update(f"[ERROR] {error_msg}")
             return False, None, error_msg
         
         if percentage < 0 or percentage > 100:
             error_msg = f"Invalid percentage: {percentage} (must be 0-100)"
             logger.warning(f"Validation failed: {error_msg}")
+            self._send_status_update(f"[ERROR] {error_msg}")
             return False, None, error_msg
         
         motor_degree = self.bundled_interface.validator.map_percentage_to_degree(percentage)
@@ -84,6 +87,7 @@ class CommandProcessor:
         is_valid, error = self.bundled_interface.validator.validate_motor_degree_object(component_name, motor_degree)
         if not is_valid:
             logger.warning(f"Validation failed: {error}")
+            self._send_status_update(f"[ERROR] Validation failed: {error}")
             return False, None, f"Validation failed: {error}"
         
         motor_object = {
@@ -94,6 +98,7 @@ class CommandProcessor:
         }
         
         logger.info(f"Motor object created: motor_id={motor_id}, degree={motor_degree}, component={component_name}")
+        self._send_status_update(f"Motor object created: {component_name} -> {motor_degree}° (from {percentage}%)")
         return True, motor_object, None
 
     def process_command(self, command: str) -> str:
@@ -104,6 +109,7 @@ class CommandProcessor:
 
         command = command.strip().upper()
         logger.info(f"Processing command from host: {command}")
+        self._send_status_update(f"Processing command: {command}")
 
         try:
             if command == "LED_ON":
@@ -157,9 +163,13 @@ class CommandProcessor:
                     
                     if self.bundled_interface.send_motor_object(motor_id, voltage_percentage):
                         logger.info(f"Motor object sent to Arduino: motor_id={motor_obj['motor_id']}, degree={motor_obj['motor_degree']}")
-                        return f"SET_VOLTAGE_SUCCESS:{voltage}V ({voltage_percentage:.1f}% = {motor_obj['motor_degree']}°)"
+                        result = f"SET_VOLTAGE_SUCCESS:{voltage}V ({voltage_percentage:.1f}% = {motor_obj['motor_degree']}°)"
+                        self._send_status_update(result)
+                        return result
                     else:
-                        return f"SET_VOLTAGE_FAILED: Could not send to Arduino"
+                        error_msg = f"SET_VOLTAGE_FAILED: Could not send to Arduino"
+                        self._send_status_update(error_msg)
+                        return error_msg
                 except (ValueError, IndexError) as e:
                     return f"SET_VOLTAGE_FAILED: Invalid format - {e}"
 
@@ -191,13 +201,19 @@ class CommandProcessor:
                     
                     is_valid, motor_obj, error = self._validate_and_create_motor_object(motor_id, position)
                     if not is_valid:
-                        return f"SET_VALVE{valve_id}_FAILED: {error}"
+                        error_msg = f"SET_VALVE{valve_id}_FAILED: {error}"
+                        self._send_status_update(error_msg)
+                        return error_msg
                     
                     if self.bundled_interface.send_motor_object(motor_id, position):
                         logger.info(f"Motor object sent to Arduino: motor_id={motor_obj['motor_id']}, degree={motor_obj['motor_degree']}")
-                        return f"SET_VALVE{valve_id}_SUCCESS:{int(position)}% ({motor_obj['motor_degree']}°)"
+                        result = f"SET_VALVE{valve_id}_SUCCESS:{int(position)}% ({motor_obj['motor_degree']}°)"
+                        self._send_status_update(result)
+                        return result
                     else:
-                        return f"SET_VALVE{valve_id}_FAILED: Could not send to Arduino"
+                        error_msg = f"SET_VALVE{valve_id}_FAILED: Could not send to Arduino"
+                        self._send_status_update(error_msg)
+                        return error_msg
                 except (ValueError, IndexError) as e:
                     return f"SET_VALVE_FAILED: Invalid format - {e}"
 
@@ -511,7 +527,9 @@ class CommandProcessor:
 
                     if self.bundled_interface.send_motor_object(motor_id, percentage):
                         logger.info(f"Motor object sent to Arduino: motor_id={motor_obj['motor_id']}, degree={motor_obj['motor_degree']}")
-                        return f"SET_MOTOR_POSITION{motor_id}_SUCCESS:{percentage}% ({motor_obj['motor_degree']}°)"
+                        result = f"SET_MOTOR_POSITION{motor_id}_SUCCESS:{percentage}% ({motor_obj['motor_degree']}°)"
+                        self._send_status_update(result)
+                        return result
                     else:
                         return f"SET_MOTOR_POSITION{motor_id}_FAILED: Could not send to Arduino"
 
@@ -559,9 +577,13 @@ class CommandProcessor:
                     return f"ARDUINO_COMMAND_FAILED: {e}"
 
             else:
-                logger.warning(f"Unknown command: {command}")
-                return f"ERROR: Unknown command '{command}'"
+                error_msg = f"ERROR: Unknown command '{command}'"
+                logger.warning(error_msg)
+                self._send_status_update(error_msg)
+                return error_msg
 
         except Exception as e:
+            error_msg = f"ERROR: {e}"
             logger.error(f"Error processing command '{command}': {e}")
-            return f"ERROR: {e}"
+            self._send_status_update(error_msg)
+            return error_msg

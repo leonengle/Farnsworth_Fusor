@@ -225,7 +225,7 @@ class ArduinoInterface:
                             .strip()
                         )
                         if line:
-                            logger.debug(f"Received from Arduino: {line}")
+                            logger.info(f"Received from Arduino: {line}")
 
                             callback = None
                             with self._callback_lock:
@@ -313,7 +313,12 @@ class ArduinoInterface:
             command_json = json.dumps(motor_object)
             command = f"MOTOR:{command_json}"
             logger.info(f"Sending motor object to Arduino: {command}")
-            return self.send_command(command)
+            result = self.send_command(command)
+            if result:
+                logger.info(f"Motor command sent successfully: {component_name} -> {motor_degree}°")
+            else:
+                logger.error(f"Failed to send motor command: {component_name} -> {motor_degree}°")
+            return result
         except (ValueError, TypeError) as e:
             logger.error(f"Invalid motor degree value: {motor_degree} - {e}")
             return False
