@@ -269,9 +269,10 @@ class ArduinoInterface:
                 encoded = command.encode("utf-8")
                 bytes_written = self.serial_connection.write(encoded)
                 self.serial_connection.flush()
-                logger.debug(f"Sent to Arduino ({bytes_written} bytes): {command.strip()}")
+                logger.info(f"Sent to Arduino ({bytes_written} bytes): {command.strip()}")
                 if bytes_written != len(encoded):
                     logger.warning(f"Only wrote {bytes_written} of {len(encoded)} bytes to Arduino")
+                    return False
                 return True
             except serial.SerialException as e:
                 logger.error(f"Serial write error: {e}")

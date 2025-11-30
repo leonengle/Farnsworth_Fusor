@@ -75,11 +75,13 @@ class BundledInterface:
             logger.error(f"Motor degree object validation failed: {error}")
             return False
         
-        if self.arduino_interface.send_motor_object(component_name, motor_degree):
-            logger.debug(f"Sent motor object: {component_name}, degree: {motor_degree} (from {percentage_or_power}%)")
-            return True
-        
-        return False
+        logger.info(f"Sending motor object to Arduino: {component_name} -> {motor_degree}° (from {percentage_or_power}%)")
+        result = self.arduino_interface.send_motor_object(component_name, motor_degree)
+        if result:
+            logger.info(f"Motor object sent successfully: {component_name} -> {motor_degree}°")
+        else:
+            logger.error(f"Failed to send motor object: {component_name} -> {motor_degree}°")
+        return result
 
     def send_analog_to_arduino(self, label: str, value) -> bool:
         if not self.arduino_interface:

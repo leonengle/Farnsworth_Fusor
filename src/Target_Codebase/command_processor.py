@@ -205,10 +205,23 @@ class CommandProcessor:
                         self._send_status_update(error_msg)
                         return error_msg
                     
+                    arduino = self.bundled_interface.get_arduino()
+                    if not arduino:
+                        error_msg = f"SET_VALVE{valve_id}_FAILED: Arduino interface not available"
+                        self._send_status_update(error_msg)
+                        return error_msg
+                    
+                    if not arduino.is_connected():
+                        error_msg = f"SET_VALVE{valve_id}_FAILED: Arduino not connected"
+                        self._send_status_update(error_msg)
+                        return error_msg
+                    
+                    self._send_status_update(f"Sending motor command to Arduino: {motor_obj['component_name']} -> {motor_obj['motor_degree']}°")
                     if self.bundled_interface.send_motor_object(motor_id, position):
                         logger.info(f"Motor object sent to Arduino: motor_id={motor_obj['motor_id']}, degree={motor_obj['motor_degree']}")
                         result = f"SET_VALVE{valve_id}_SUCCESS:{int(position)}% ({motor_obj['motor_degree']}°)"
                         self._send_status_update(result)
+                        self._send_status_update("Waiting for Arduino response...")
                         return result
                     else:
                         error_msg = f"SET_VALVE{valve_id}_FAILED: Could not send to Arduino"

@@ -207,14 +207,17 @@ class TargetSystem:
         try:
             arduino = self.bundled_interface.get_arduino()
             if arduino:
+                self.udp_status_sender.send_status("STATUS:Attempting to connect to Arduino...")
                 if arduino.connect():
-                    logger.info(
-                        "Arduino Nano USB connection established - motor control available"
-                    )
+                    status_msg = "Arduino Nano USB connection established - motor control available"
+                    logger.info(status_msg)
+                    self.udp_status_sender.send_status(f"STATUS:{status_msg}")
                 else:
-                    logger.warning(
-                        "Failed to connect to Arduino Nano, continuing without motor control"
-                    )
+                    status_msg = "Failed to connect to Arduino Nano, continuing without motor control"
+                    logger.warning(status_msg)
+                    self.udp_status_sender.send_status(f"STATUS:[WARNING] {status_msg}")
+            else:
+                self.udp_status_sender.send_status("STATUS:[WARNING] Arduino interface not initialized")
 
             self.tcp_command_server.set_host_callback(self._host_callback)
 
@@ -232,7 +235,13 @@ class TargetSystem:
             logger.info(f"  UDP: Status (ports 8888/8889) - Bidirectional")
             arduino = self.bundled_interface.get_arduino()
             if arduino and arduino.is_connected():
-                logger.info("Arduino Nano USB interface active - motor control ready")
+                status_msg = "Arduino Nano USB interface active - motor control ready"
+                logger.info(status_msg)
+                self.udp_status_sender.send_status(f"STATUS:{status_msg}")
+            elif arduino:
+                status_msg = "[WARNING] Arduino interface exists but not connected"
+                logger.warning(status_msg)
+                self.udp_status_sender.send_status(f"STATUS:{status_msg}")
             logger.info(
                 f"Send 'LED_ON' or 'LED_OFF' commands via TCP to control the LED"
             )
