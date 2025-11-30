@@ -3,6 +3,7 @@ import serial.tools.list_ports
 import time
 import threading
 import json
+from queue import Queue
 from typing import Optional, Callable, Dict
 from logging_setup import setup_logging, get_logger
 
@@ -32,6 +33,7 @@ class ArduinoInterface:
         self._connection_lock = threading.Lock()
         self._running_lock = threading.Lock()
         self._callback_lock = threading.Lock()
+        self._response_queue = Queue()
 
         logger.info(
             f"Arduino interface initialized (port={port}, baudrate={baudrate}, "
@@ -226,6 +228,8 @@ class ArduinoInterface:
                         )
                         if line:
                             logger.info(f"Received from Arduino: {line}")
+                            
+                            self._response_queue.put(line)
 
                             callback = None
                             with self._callback_lock:
@@ -337,28 +341,18 @@ class ArduinoInterface:
             return None
 
         try:
-            original_timeout = self.serial_connection.timeout
-            if timeout is not None:
-                self.serial_connection.timeout = timeout
+            if timeout is None:
+                timeout = 1.0
+            
+            logger.debug(f"Waiting for Arduino response (timeout: {timeout}s)...")
+            try:
+                response = self._response_queue.get(timeout=timeout)
+                logger.info(f"Received response from Arduino: {response}")
+                return response
+            except:
+                logger.warning(f"No response from Arduino within {timeout} seconds")
+                return None
 
-            line = (
-                self.serial_connection.readline()
-                .decode("utf-8", errors="ignore")
-                .strip()
-            )
-
-            if timeout is not None:
-                self.serial_connection.timeout = original_timeout
-
-            if line:
-                logger.debug(f"Read from Arduino: {line}")
-                return line
-            return None
-
-        except serial.SerialException as e:
-            logger.error(f"Serial read error: {e}")
-            self.connected = False
-            return None
         except Exception as e:
             logger.error(f"Unexpected error reading data: {e}")
             return None
