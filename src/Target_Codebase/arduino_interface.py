@@ -2,9 +2,8 @@ import serial
 import serial.tools.list_ports
 import time
 import threading
-import json
 from queue import Queue
-from typing import Optional, Callable, Dict
+from typing import Optional, Callable
 from logging_setup import setup_logging, get_logger
 
 setup_logging()
@@ -363,30 +362,32 @@ class ArduinoInterface:
         command = f"ANALOG:{component_label}:{value_str}"
         return self.send_command(command)
 
-    def send_motor_object(self, component_name: str, motor_degree: float) -> bool:
+    def send_motor_object(self, component_name: str, motor_degree: float, percentage: Optional[float] = None, direction: Optional[str] = None) -> bool:
         if not component_name:
             logger.warning("Motor command missing component name")
             return False
 
         try:
-            motor_object = {
-                "component_name": component_name,
-                "motor_degree": float(motor_degree),
-            }
-            command_json = json.dumps(motor_object)
-            command = f"MOTOR:{command_json}"
-            logger.info(f"Sending motor object to Arduino: {command}")
+            angle = int(round(float(motor_degree)))
+            if angle < 0 or angle > 359:
+                logger.error(f"Motor degree out of range: {angle} (must be 0-359)")
+                return False
+            
+            command = f"{component_name}:{angle}"
+            direction_info = f" ({direction})" if direction else ""
+            percentage_info = f" [{percentage}%]" if percentage is not None else ""
+            logger.info(f"Sending motor command to Arduino: {command}{direction_info}{percentage_info}")
             result = self.send_command(command)
             if result:
-                logger.info(f"Motor command sent successfully: {component_name} -> {motor_degree}°")
+                logger.info(f"Motor command sent successfully: {component_name} -> {angle}°{direction_info}{percentage_info}")
             else:
-                logger.error(f"Failed to send motor command: {component_name} -> {motor_degree}°")
+                logger.error(f"Failed to send motor command: {component_name} -> {angle}°{direction_info}{percentage_info}")
             return result
         except (ValueError, TypeError) as e:
             logger.error(f"Invalid motor degree value: {motor_degree} - {e}")
             return False
         except Exception as e:
-            logger.error(f"Error creating motor command object: {e}")
+            logger.error(f"Error creating motor command: {e}")
             return False
 
     def read_data(self, timeout: Optional[float] = None) -> Optional[str]:

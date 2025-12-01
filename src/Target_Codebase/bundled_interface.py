@@ -20,6 +20,7 @@ class BundledInterface:
         self.adc = adc
         self.arduino_interface = arduino_interface
         self.validator = ArduinoCommandValidator()
+        self._motor_percentages = {}  # Track current percentage for each motor
         
         logger.info("Bundled Interface initialized")
         logger.info(f"  GPIO: {'Available' if gpio_handler else 'Not available'}")
@@ -75,10 +76,25 @@ class BundledInterface:
             logger.error(f"Motor degree object validation failed: {error}")
             return False
         
+        previous_percentage = self._motor_percentages.get(motor_id, None)
+        direction = None
+        if previous_percentage is not None:
+            if percentage_or_power > previous_percentage:
+                direction = "FORWARD"
+            elif percentage_or_power < previous_percentage:
+                direction = "BACKWARD"
+            else:
+                direction = "NO_CHANGE"
+            logger.info(f"Motor {motor_id} direction: {direction} (previous: {previous_percentage}%, new: {percentage_or_power}%)")
+        else:
+            logger.info(f"Motor {motor_id} initial position: {percentage_or_power}%")
+        
+        self._motor_percentages[motor_id] = percentage_or_power
+        
         logger.info(f"Sending motor object to Arduino: {component_name} -> {motor_degree}° (from {percentage_or_power}%)")
-        result = self.arduino_interface.send_motor_object(component_name, motor_degree)
+        result = self.arduino_interface.send_motor_object(component_name, motor_degree, percentage_or_power, direction)
         if result:
-            logger.info(f"Motor object sent successfully: {component_name} -> {motor_degree}°")
+            logger.info(f"Motor object sent successfully: {component_name} -> {motor_degree}° ({direction if direction else 'INITIAL'})")
         else:
             logger.error(f"Failed to send motor object: {component_name} -> {motor_degree}°")
         return result
