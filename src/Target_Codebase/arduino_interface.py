@@ -9,6 +9,37 @@ from logging_setup import setup_logging, get_logger
 setup_logging()
 logger = get_logger("ArduinoInterface")
 
+ARDUINO_VID_PID_PAIRS = {
+    # Genuine Arduino AVR Boards
+    (0x2341, 0x0043),  # Arduino Uno (genuine, ATmega16U2)
+    (0x2341, 0x0001),  # Arduino Uno (genuine, older ATmega8U2)
+    (0x2341, 0x0010),  # Arduino Nano (genuine, ATmega16U2)
+    (0x2341, 0x0036),  # Arduino Leonardo (genuine)
+    (0x2341, 0x8036),  # Arduino Leonardo (genuine, bootloader)
+    (0x2341, 0x0243),  # Arduino Mega 2560 (genuine)
+    
+    # Arduino Clones (same VID as genuine)
+    (0x2A03, 0x0043),  # Arduino Uno (clone)
+    (0x2A03, 0x0001),  # Arduino Uno (clone, older)
+    (0x2A03, 0x0010),  # Arduino Nano (clone)
+    
+    # CH340/CH341 USB-to-Serial (very common in Arduino Nano clones)
+    (0x1A86, 0x7523),  # CH340 (most common Arduino Nano clone)
+    (0x1A86, 0x5523),  # CH341 (Arduino Nano clone variant)
+    (0x1A86, 0x5512),  # CH340G (Arduino Nano clone variant)
+    
+    # FTDI USB-to-Serial (common in Arduino Nano)
+    (0x0403, 0x6001),  # FTDI FT232 (Arduino Nano with FTDI chip)
+    (0x0403, 0x6015),  # FTDI FT232H (Arduino Nano variant)
+    
+    # Silicon Labs CP210x USB-to-Serial (Arduino Nano clones)
+    (0x10C4, 0xEA60),  # CP2102 (Arduino Nano clone)
+    (0x10C4, 0xEA61),  # CP2103 (Arduino Nano clone variant)
+    
+    # Prolific PL2303 (less common Arduino Nano variant)
+    (0x067B, 0x2303),  # PL2303 (Arduino Nano variant)
+}
+
 
 class ArduinoInterface:
     def __init__(
@@ -39,6 +70,38 @@ class ArduinoInterface:
             f"auto_detect={auto_detect})"
         )
 
+    @staticmethod
+    def list_available_ports() -> list:
+        ports_info = []
+        try:
+            ports = serial.tools.list_ports.comports()
+            for port_info in ports:
+                try:
+                    vid = getattr(port_info, "vid", None)
+                    pid = getattr(port_info, "pid", None)
+                    is_arduino = False
+                    if vid is not None and pid is not None:
+                        is_arduino = (vid, pid) in ARDUINO_VID_PID_PAIRS
+                    
+                    port_data = {
+                        "device": port_info.device or "N/A",
+                        "description": port_info.description or "N/A",
+                        "vid": f"{vid:04X}" if vid is not None else "N/A",
+                        "pid": f"{pid:04X}" if pid is not None else "N/A",
+                        "hwid": port_info.hwid or "N/A",
+                        "manufacturer": port_info.manufacturer or "N/A",
+                        "product": port_info.product or "N/A",
+                        "serial_number": port_info.serial_number or "N/A",
+                        "is_arduino": is_arduino,
+                    }
+                    ports_info.append(port_data)
+                except Exception as e:
+                    logger.warning(f"Error reading port info: {e}")
+                    continue
+        except Exception as e:
+            logger.error(f"Error listing serial ports: {e}")
+        return ports_info
+
     def _detect_arduino_port(self) -> Optional[str]:
         try:
             ports = serial.tools.list_ports.comports()
@@ -47,90 +110,182 @@ class ArduinoInterface:
                 logger.warning("No serial ports found on system")
                 return None
 
-            logger.info(f"Found {len(ports)} serial port(s):")
-            for port_info in ports:
-                try:
-                    vid = getattr(port_info, "vid", None)
-                    if vid is not None:
-                        vid_str = f"{vid:04X}"
-                    else:
-                        vid_str = "N/A"
-                except (AttributeError, TypeError, ValueError):
-                    vid_str = "N/A"
-
-                try:
-                    pid = getattr(port_info, "pid", None)
-                    if pid is not None:
-                        pid_str = f"{pid:04X}"
-                    else:
-                        pid_str = "N/A"
-                except (AttributeError, TypeError, ValueError):
-                    pid_str = "N/A"
-
-                try:
-                    description = getattr(port_info, "description", None) or "N/A"
-                    device = getattr(port_info, "device", "N/A")
-                except (AttributeError, TypeError):
-                    description = "N/A"
-                    device = "N/A"
-
-                logger.info(
-                    f"  - {device}: {description} " f"(VID={vid_str}, PID={pid_str})"
-                )
-
+            logger.info(f"Scanning {len(ports)} serial port(s) for Arduino...")
+            
+            arduino_ports = []
+            other_ports = []
+            
             for port_info in ports:
                 if not port_info.device:
                     continue
-                description_upper = (
-                    port_info.description.upper() if port_info.description else ""
-                )
-                if any(
-                    identifier in description_upper
-                    for identifier in [
-                        "ARDUINO",
-                        "USB",
-                        "SERIAL",
-                        "CH340",
-                        "FTDI",
-                        "CP210",
-                        "PL2303",
-                    ]
-                ):
-                    desc = port_info.description if port_info.description else "N/A"
-                    logger.info(
-                        f"Auto-detected Arduino on port: {port_info.device} "
-                        f"({desc})"
+                    
+                try:
+                    vid = getattr(port_info, "vid", None)
+                    pid = getattr(port_info, "pid", None)
+                    description = getattr(port_info, "description", None) or "N/A"
+                    device = port_info.device
+                    
+                    vid_str = f"{vid:04X}" if vid is not None else "N/A"
+                    pid_str = f"{pid:04X}" if pid is not None else "N/A"
+                    
+                    is_arduino_by_vid_pid = False
+                    if vid is not None and pid is not None:
+                        is_arduino_by_vid_pid = (vid, pid) in ARDUINO_VID_PID_PAIRS
+                    
+                    is_arduino_by_desc = False
+                    if description and description.upper():
+                        desc_upper = description.upper()
+                        is_arduino_by_desc = any(
+                            identifier in desc_upper
+                            for identifier in [
+                                "ARDUINO",
+                                "ARDUINO NANO",
+                                "NANO",
+                                "CH340",
+                                "CH341",
+                                "FTDI",
+                                "CP210",
+                                "PL2303",
+                            ]
+                        )
+                    
+                    is_usb_serial = (
+                        device.startswith("/dev/ttyUSB")
+                        or device.startswith("/dev/ttyACM")
                     )
-                    return port_info.device
-
-            for port_info in ports:
-                device = port_info.device
-                if not device:
+                    
+                    port_data = {
+                        "device": device,
+                        "description": description,
+                        "vid": vid_str,
+                        "pid": pid_str,
+                        "is_arduino_vid_pid": is_arduino_by_vid_pid,
+                        "is_arduino_desc": is_arduino_by_desc,
+                        "is_usb_serial": is_usb_serial,
+                    }
+                    
+                    if is_arduino_by_vid_pid:
+                        arduino_ports.insert(0, port_data)
+                        desc_upper_check = description.upper() if description else ""
+                        is_nano = (
+                            "NANO" in desc_upper_check or 
+                            (vid is not None and pid is not None and (vid, pid) in [
+                                (0x2341, 0x0010),  # Genuine Arduino Nano
+                                (0x2A03, 0x0010),  # Arduino Nano clone
+                                (0x1A86, 0x7523),  # CH340 (common Nano clone)
+                            ])
+                        )
+                        board_type = "Arduino Nano" if is_nano else "Arduino"
+                        logger.info(
+                            f"  ✓ {board_type} detected (VID/PID): {device} - {description} "
+                            f"(VID={vid_str}, PID={pid_str})"
+                        )
+                    elif is_arduino_by_desc:
+                        arduino_ports.append(port_data)
+                        logger.info(
+                            f"  → Possible Arduino (description): {device} - {description} "
+                            f"(VID={vid_str}, PID={pid_str})"
+                        )
+                    elif is_usb_serial:
+                        other_ports.append(port_data)
+                        logger.info(
+                            f"  - USB Serial: {device} - {description} "
+                            f"(VID={vid_str}, PID={pid_str})"
+                        )
+                    else:
+                        logger.debug(
+                            f"  - Other: {device} - {description} "
+                            f"(VID={vid_str}, PID={pid_str})"
+                        )
+                except Exception as e:
+                    logger.warning(f"Error processing port {port_info.device}: {e}")
                     continue
-                if (
-                    device.startswith("/dev/ttyUSB")
-                    or device.startswith("/dev/ttyACM")
-                    or device.startswith("/dev/ttyAMA")
-                ):
-                    desc = port_info.description if port_info.description else "N/A"
-                    logger.info(f"Auto-detected USB serial port: {device} " f"({desc})")
-                    return device
+
+            if arduino_ports:
+                selected = arduino_ports[0]
+                logger.info(
+                    f"Auto-selected Arduino port: {selected['device']} "
+                    f"({selected['description']})"
+                )
+                return selected["device"]
+
+            if other_ports:
+                selected = other_ports[0]
+                logger.info(
+                    f"Auto-selected USB serial port: {selected['device']} "
+                    f"({selected['description']})"
+                )
+                return selected["device"]
 
             if len(ports) == 1 and ports[0].device:
                 desc = ports[0].description if ports[0].description else "N/A"
                 logger.info(
-                    f"Only one port found, using it: {ports[0].device} " f"({desc})"
+                    f"Only one port found, using it: {ports[0].device} ({desc})"
                 )
                 return ports[0].device
 
             logger.warning(
                 "No Arduino port auto-detected - multiple ports found or no USB serial ports"
             )
+            logger.warning("Available ports:")
+            for port_info in ports:
+                if port_info.device:
+                    desc = port_info.description or "N/A"
+                    vid = f"{port_info.vid:04X}" if port_info.vid else "N/A"
+                    pid = f"{port_info.pid:04X}" if port_info.pid else "N/A"
+                    logger.warning(f"  - {port_info.device}: {desc} (VID={vid}, PID={pid})")
             logger.warning("Try specifying port manually with --arduino-port argument")
             return None
         except Exception as e:
             logger.error(f"Error during Arduino port detection: {e}")
             return None
+
+    def test_port(self, port: Optional[str] = None, timeout: float = 2.0) -> bool:
+        test_port = port or self.port
+        if not test_port:
+            return False
+        
+        test_connection = None
+        try:
+            logger.info(f"Testing port {test_port} for Arduino...")
+            test_connection = serial.Serial(
+                port=test_port,
+                baudrate=self.baudrate,
+                timeout=timeout,
+                write_timeout=timeout,
+            )
+            
+            time.sleep(0.5)
+            
+            startup_detected = False
+            for _ in range(10):
+                if test_connection.in_waiting > 0:
+                    line = test_connection.readline().decode("utf-8", errors="ignore").strip()
+                    if line:
+                        logger.info(f"Port {test_port} responded: {line}")
+                        if "READY" in line.upper() or "ARDUINO" in line.upper():
+                            startup_detected = True
+                            break
+                time.sleep(0.2)
+            
+            test_connection.close()
+            return startup_detected
+        except serial.SerialException as e:
+            logger.warning(f"Port {test_port} test failed: {e}")
+            if test_connection and test_connection.is_open:
+                try:
+                    test_connection.close()
+                except:
+                    pass
+            return False
+        except Exception as e:
+            logger.warning(f"Error testing port {test_port}: {e}")
+            if test_connection and test_connection.is_open:
+                try:
+                    test_connection.close()
+                except:
+                    pass
+            return False
 
     def connect(self) -> bool:
         with self._connection_lock:
@@ -144,15 +299,18 @@ class ArduinoInterface:
 
             try:
                 if self.port is None and self.auto_detect:
+                    logger.info("Auto-detecting Arduino port (like Arduino IDE)...")
                     self.port = self._detect_arduino_port()
                     if self.port is None:
                         logger.error("Cannot connect: Arduino port not found")
+                        logger.info("Use list_available_ports() to see all available ports")
                         return False
 
                 if self.port is None:
                     logger.error("Cannot connect: No port specified")
                     return False
 
+                logger.info(f"Connecting to Arduino on {self.port} at {self.baudrate} baud...")
                 self._serial_connection = serial.Serial(
                     port=self.port,
                     baudrate=self.baudrate,

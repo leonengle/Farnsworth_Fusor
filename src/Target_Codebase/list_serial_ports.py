@@ -1,25 +1,53 @@
 #!/usr/bin/env python3
-import serial.tools.list_ports
+from arduino_interface import ArduinoInterface
 
-print("Available Serial Ports:")
-print("-" * 80)
+print("Available Serial Ports (Arduino IDE style):")
+print("=" * 80)
 
-ports = serial.tools.list_ports.comports()
+ports_info = ArduinoInterface.list_available_ports()
 
-if not ports:
+if not ports_info:
     print("No serial ports found!")
 else:
-    for i, port_info in enumerate(ports, 1):
-        print(f"\nPort {i}:")
-        print(f"  Device: {port_info.device}")
-        print(f"  Description: {port_info.description}")
-        print(f"  Hardware ID: {port_info.hwid}")
-        if port_info.vid and port_info.pid:
-            print(f"  VID:PID = {port_info.vid:04X}:{port_info.pid:04X}")
-        print(f"  Manufacturer: {port_info.manufacturer}")
-        print(f"  Product: {port_info.product}")
-        print(f"  Serial Number: {port_info.serial_number}")
+    arduino_ports = [p for p in ports_info if p["is_arduino"]]
+    other_ports = [p for p in ports_info if not p["is_arduino"]]
+    
+    if arduino_ports:
+        print(f"\n✓ Arduino Boards Detected ({len(arduino_ports)}):")
+        print("-" * 80)
+        for i, port in enumerate(arduino_ports, 1):
+            print(f"\n  [{i}] {port['device']}")
+            print(f"      Description: {port['description']}")
+            print(f"      VID:PID = {port['vid']}:{port['pid']}")
+            if port['manufacturer'] != "N/A":
+                print(f"      Manufacturer: {port['manufacturer']}")
+            if port['product'] != "N/A":
+                print(f"      Product: {port['product']}")
+            if port['serial_number'] != "N/A":
+                print(f"      Serial: {port['serial_number']}")
+            print(f"      Hardware ID: {port['hwid']}")
+    
+    if other_ports:
+        print(f"\nOther Serial Ports ({len(other_ports)}):")
+        print("-" * 80)
+        for i, port in enumerate(other_ports, 1):
+            print(f"\n  [{i}] {port['device']}")
+            print(f"      Description: {port['description']}")
+            print(f"      VID:PID = {port['vid']}:{port['pid']}")
+            if port['manufacturer'] != "N/A":
+                print(f"      Manufacturer: {port['manufacturer']}")
+            if port['product'] != "N/A":
+                print(f"      Product: {port['product']}")
+            if port['serial_number'] != "N/A":
+                print(f"      Serial: {port['serial_number']}")
+            print(f"      Hardware ID: {port['hwid']}")
 
-print("\n" + "-" * 80)
-print("To use a specific port, run target_main.py with:")
-print("  --arduino-port /dev/ttyUSB0  (or /dev/ttyACM0, etc.)")
+print("\n" + "=" * 80)
+if arduino_ports:
+    print(f"Auto-detection will use: {arduino_ports[0]['device']}")
+    print("\nTo use a specific port, run target_main.py with:")
+    print(f"  --arduino-port {arduino_ports[0]['device']}")
+else:
+    print("No Arduino boards detected automatically.")
+    print("To use a specific port, run target_main.py with:")
+    print("  --arduino-port /dev/ttyUSB0  (or /dev/ttyACM0, etc.)")
