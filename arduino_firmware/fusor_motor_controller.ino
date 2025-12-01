@@ -28,6 +28,8 @@ AccelStepper steppers[NUM_MOTORS] = {
 };
 
 int currentAngle[NUM_MOTORS] = {0};
+bool motorMoving[NUM_MOTORS] = {false};
+int targetAngle[NUM_MOTORS] = {0};
 String inputLine = "";
 
 void setup() {
@@ -52,7 +54,18 @@ void loop() {
   }
 
   for (int i = 0; i < NUM_MOTORS; i++) {
-    steppers[i].run();
+    bool isRunning = steppers[i].run();
+    
+    if (motorMoving[i] && !isRunning && steppers[i].distanceToGo() == 0) {
+      motorMoving[i] = false;
+      currentAngle[i] = targetAngle[i];
+      
+      Serial.print(MOTOR_CONFIGS[i].label);
+      Serial.print(":STOPPED:");
+      Serial.print(currentAngle[i]);
+      Serial.print(":");
+      Serial.println(steppers[i].currentPosition());
+    }
   }
 }
 
@@ -87,16 +100,29 @@ void moveMotorToAngle(int idx, int angle, String direction) {
   }
   
   long steps = (long)((angle_diff / 360.0) * MOTOR_CONFIGS[idx].stepsPerRev);
-  long target = steppers[idx].currentPosition() + steps;
+  long currentPos = steppers[idx].currentPosition();
+  long target = currentPos + steps;
+  
+  bool movingForward = (steps > 0);
+  bool movingBackward = (steps < 0);
 
   steppers[idx].moveTo(target);
-  currentAngle[idx] = angle;
-
+  motorMoving[idx] = true;
+  targetAngle[idx] = angle;
+  
   Serial.print(MOTOR_CONFIGS[idx].label);
-  Serial.print(":OK:");
+  Serial.print(":MOVING:");
   Serial.print(angle);
   Serial.print(":");
-  Serial.println(direction);
+  Serial.print(steps);
+  Serial.print(":");
+  Serial.print(direction);
+  Serial.print(":POS:");
+  Serial.print(currentPos);
+  Serial.print("->");
+  Serial.print(target);
+  Serial.print(":");
+  Serial.println(movingForward ? "FORWARD" : (movingBackward ? "BACKWARD" : "NONE"));
 }
 
 void processCommand(String cmd) {
