@@ -11,34 +11,60 @@ logger = get_logger("ArduinoInterface")
 
 ARDUINO_VID_PID_PAIRS = {
     # Genuine Arduino AVR Boards
-    (0x2341, 0x0043),  # Arduino Uno (genuine, ATmega16U2)
-    (0x2341, 0x0001),  # Arduino Uno (genuine, older ATmega8U2)
-    (0x2341, 0x0010),  # Arduino Nano (genuine, ATmega16U2)
-    (0x2341, 0x0036),  # Arduino Leonardo (genuine)
-    (0x2341, 0x8036),  # Arduino Leonardo (genuine, bootloader)
-    (0x2341, 0x0243),  # Arduino Mega 2560 (genuine)
+    (0x2341, 0x0043): "Arduino Uno",
+    (0x2341, 0x0001): "Arduino Uno (older)",
+    (0x2341, 0x0010): "Arduino Nano",
+    (0x2341, 0x0036): "Arduino Leonardo",
+    (0x2341, 0x8036): "Arduino Leonardo (bootloader)",
+    (0x2341, 0x0243): "Arduino Mega 2560",
     
     # Arduino Clones (same VID as genuine)
-    (0x2A03, 0x0043),  # Arduino Uno (clone)
-    (0x2A03, 0x0001),  # Arduino Uno (clone, older)
-    (0x2A03, 0x0010),  # Arduino Nano (clone)
+    (0x2A03, 0x0043): "Arduino Uno (clone)",
+    (0x2A03, 0x0001): "Arduino Uno (clone, older)",
+    (0x2A03, 0x0010): "Arduino Nano (clone)",
     
     # CH340/CH341 USB-to-Serial (very common in Arduino Nano clones)
-    (0x1A86, 0x7523),  # CH340 (most common Arduino Nano clone)
-    (0x1A86, 0x5523),  # CH341 (Arduino Nano clone variant)
-    (0x1A86, 0x5512),  # CH340G (Arduino Nano clone variant)
+    (0x1A86, 0x7523): "Arduino Nano (CH340)",
+    (0x1A86, 0x5523): "Arduino Nano (CH341)",
+    (0x1A86, 0x5512): "Arduino Nano (CH340G)",
     
     # FTDI USB-to-Serial (common in Arduino Nano)
-    (0x0403, 0x6001),  # FTDI FT232 (Arduino Nano with FTDI chip)
-    (0x0403, 0x6015),  # FTDI FT232H (Arduino Nano variant)
+    (0x0403, 0x6001): "Arduino Nano (FTDI FT232)",
+    (0x0403, 0x6015): "Arduino Nano (FTDI FT232H)",
     
     # Silicon Labs CP210x USB-to-Serial (Arduino Nano clones)
-    (0x10C4, 0xEA60),  # CP2102 (Arduino Nano clone)
-    (0x10C4, 0xEA61),  # CP2103 (Arduino Nano clone variant)
+    (0x10C4, 0xEA60): "Arduino Nano (CP2102)",
+    (0x10C4, 0xEA61): "Arduino Nano (CP2103)",
     
     # Prolific PL2303 (less common Arduino Nano variant)
-    (0x067B, 0x2303),  # PL2303 (Arduino Nano variant)
+    (0x067B, 0x2303): "Arduino Nano (PL2303)",
 }
+
+def identify_board_type(vid: Optional[int], pid: Optional[int], description: Optional[str]):
+    """Identify Arduino board type from VID/PID and description.
+    
+    Returns:
+        tuple: (is_arduino: bool, board_type: str)
+    """
+    if vid is not None and pid is not None:
+        board_name = ARDUINO_VID_PID_PAIRS.get((vid, pid))
+        if board_name:
+            return True, board_name
+    
+    if description:
+        desc_upper = description.upper()
+        if "NANO" in desc_upper:
+            return True, "Arduino Nano (detected by description)"
+        elif "UNO" in desc_upper:
+            return True, "Arduino Uno (detected by description)"
+        elif "LEONARDO" in desc_upper:
+            return True, "Arduino Leonardo (detected by description)"
+        elif "MEGA" in desc_upper:
+            return True, "Arduino Mega (detected by description)"
+        elif any(chip in desc_upper for chip in ["CH340", "CH341", "FTDI", "CP210", "PL2303"]):
+            return True, f"Arduino-compatible USB Serial ({description})"
+    
+    return False, "Unknown"
 
 
 class ArduinoInterface:
@@ -83,6 +109,8 @@ class ArduinoInterface:
                     if vid is not None and pid is not None:
                         is_arduino = (vid, pid) in ARDUINO_VID_PID_PAIRS
                     
+                    is_arduino, board_type = identify_board_type(vid, pid, port_info.description)
+                    
                     port_data = {
                         "device": port_info.device or "N/A",
                         "description": port_info.description or "N/A",
@@ -92,6 +120,7 @@ class ArduinoInterface:
                         "manufacturer": port_info.manufacturer or "N/A",
                         "product": port_info.product or "N/A",
                         "serial_number": port_info.serial_number or "N/A",
+                        "board_type": board_type,
                         "is_arduino": is_arduino,
                     }
                     ports_info.append(port_data)
@@ -128,30 +157,12 @@ class ArduinoInterface:
                     vid_str = f"{vid:04X}" if vid is not None else "N/A"
                     pid_str = f"{pid:04X}" if pid is not None else "N/A"
                     
-                    is_arduino_by_vid_pid = False
-                    if vid is not None and pid is not None:
-                        is_arduino_by_vid_pid = (vid, pid) in ARDUINO_VID_PID_PAIRS
-                    
-                    is_arduino_by_desc = False
-                    if description and description.upper():
-                        desc_upper = description.upper()
-                        is_arduino_by_desc = any(
-                            identifier in desc_upper
-                            for identifier in [
-                                "ARDUINO",
-                                "ARDUINO NANO",
-                                "NANO",
-                                "CH340",
-                                "CH341",
-                                "FTDI",
-                                "CP210",
-                                "PL2303",
-                            ]
-                        )
+                    is_arduino, board_type = identify_board_type(vid, pid, description)
                     
                     is_usb_serial = (
                         device.startswith("/dev/ttyUSB")
                         or device.startswith("/dev/ttyACM")
+                        or device.startswith("/dev/ttyAMA")
                     )
                     
                     port_data = {
@@ -159,42 +170,26 @@ class ArduinoInterface:
                         "description": description,
                         "vid": vid_str,
                         "pid": pid_str,
-                        "is_arduino_vid_pid": is_arduino_by_vid_pid,
-                        "is_arduino_desc": is_arduino_by_desc,
+                        "board_type": board_type,
+                        "is_arduino": is_arduino,
                         "is_usb_serial": is_usb_serial,
                     }
                     
-                    if is_arduino_by_vid_pid:
+                    if is_arduino:
                         arduino_ports.insert(0, port_data)
-                        desc_upper_check = description.upper() if description else ""
-                        is_nano = (
-                            "NANO" in desc_upper_check or 
-                            (vid is not None and pid is not None and (vid, pid) in [
-                                (0x2341, 0x0010),  # Genuine Arduino Nano
-                                (0x2A03, 0x0010),  # Arduino Nano clone
-                                (0x1A86, 0x7523),  # CH340 (common Nano clone)
-                            ])
-                        )
-                        board_type = "Arduino Nano" if is_nano else "Arduino"
                         logger.info(
-                            f"  ✓ {board_type} detected (VID/PID): {device} - {description} "
-                            f"(VID={vid_str}, PID={pid_str})"
-                        )
-                    elif is_arduino_by_desc:
-                        arduino_ports.append(port_data)
-                        logger.info(
-                            f"  → Possible Arduino (description): {device} - {description} "
-                            f"(VID={vid_str}, PID={pid_str})"
+                            f"  ✓ {board_type} detected on {device} "
+                            f"(VID={vid_str}, PID={pid_str}, Description: {description})"
                         )
                     elif is_usb_serial:
                         other_ports.append(port_data)
                         logger.info(
-                            f"  - USB Serial: {device} - {description} "
+                            f"  → USB Serial port: {device} - {description} "
                             f"(VID={vid_str}, PID={pid_str})"
                         )
                     else:
                         logger.debug(
-                            f"  - Other: {device} - {description} "
+                            f"  - Other port: {device} - {description} "
                             f"(VID={vid_str}, PID={pid_str})"
                         )
                 except Exception as e:
@@ -205,7 +200,11 @@ class ArduinoInterface:
                 selected = arduino_ports[0]
                 logger.info(
                     f"Auto-selected Arduino port: {selected['device']} "
-                    f"({selected['description']})"
+                    f"({selected['board_type']}) - {selected['description']}"
+                )
+                logger.info(
+                    f"Board details: VID={selected['vid']}, PID={selected['pid']}, "
+                    f"Device={selected['device']}"
                 )
                 return selected["device"]
 
@@ -527,9 +526,12 @@ class ArduinoInterface:
 
         try:
             angle = int(round(float(motor_degree)))
-            if angle < 0 or angle > 359:
-                logger.error(f"Motor degree out of range: {angle} (must be 0-359)")
+            if angle < 0 or angle > 360:
+                logger.error(f"Motor degree out of range: {angle} (must be 0-360)")
                 return False
+            
+            if angle == 360:
+                angle = 0
             
             command = f"{component_name}:{angle}"
             direction_info = f" ({direction})" if direction else ""
