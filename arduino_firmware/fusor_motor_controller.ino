@@ -63,12 +63,30 @@ int findMotorIndex(const String& label) {
   return -1;
 }
 
-void moveMotorToAngle(int idx, int angle) {
-  int diff = angle - currentAngle[idx];
-  if (diff > 180) diff -= 360;
-  if (diff < -180) diff += 360;
-
-  long steps = (long)((diff / 360.0) * MOTOR_CONFIGS[idx].stepsPerRev);
+void moveMotorToAngle(int idx, int angle, String direction) {
+  int current_angle = currentAngle[idx];
+  int target_angle = angle;
+  
+  int angle_diff;
+  if (direction.equals("forward")) {
+    if (target_angle >= current_angle) {
+      angle_diff = target_angle - current_angle;
+    } else {
+      angle_diff = (360 - current_angle) + target_angle;
+    }
+  } else if (direction.equals("backward")) {
+    if (target_angle <= current_angle) {
+      angle_diff = target_angle - current_angle;
+    } else {
+      angle_diff = target_angle - (current_angle + 360);
+    }
+  } else {
+    angle_diff = target_angle - current_angle;
+    if (angle_diff > 180) angle_diff -= 360;
+    if (angle_diff < -180) angle_diff += 360;
+  }
+  
+  long steps = (long)((angle_diff / 360.0) * MOTOR_CONFIGS[idx].stepsPerRev);
   long target = steppers[idx].currentPosition() + steps;
 
   steppers[idx].moveTo(target);
@@ -76,20 +94,38 @@ void moveMotorToAngle(int idx, int angle) {
 
   Serial.print(MOTOR_CONFIGS[idx].label);
   Serial.print(":OK:");
-  Serial.println(angle);
+  Serial.print(angle);
+  Serial.print(":");
+  Serial.println(direction);
 }
 
 void processCommand(String cmd) {
   cmd.trim();
+  if (cmd.length() == 0) {
+    return;
+  }
   
-  int colon = cmd.indexOf(':');
-  if (colon < 0) {
+  int colon1 = cmd.indexOf(':');
+  if (colon1 < 0) {
     Serial.println("ERROR_BAD_FORMAT");
     return;
   }
 
-  String label = cmd.substring(0, colon);
-  int angle = cmd.substring(colon + 1).toInt();
+  String label = cmd.substring(0, colon1);
+  String remainder = cmd.substring(colon1 + 1);
+  
+  int colon2 = remainder.indexOf(':');
+  String angleStr, directionStr;
+  
+  if (colon2 < 0) {
+    angleStr = remainder;
+    directionStr = "none";
+  } else {
+    angleStr = remainder.substring(0, colon2);
+    directionStr = remainder.substring(colon2 + 1);
+  }
+
+  int angle = angleStr.toInt();
 
   if (angle < 0 || angle > 359) {
     Serial.println("ERROR_BAD_ANGLE");
@@ -102,5 +138,5 @@ void processCommand(String cmd) {
     return;
   }
 
-  moveMotorToAngle(idx, angle);
+  moveMotorToAngle(idx, angle, directionStr);
 }
