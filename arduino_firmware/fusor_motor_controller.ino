@@ -1,106 +1,79 @@
 #include <AccelStepper.h>
 
-struct MotorConfig {
-  const char* label;
-  int stepPin;
-  int dirPin;
-  int stepsPerRev;
-};
+#define STEP_PIN 2
+#define DIR_PIN 4
 
-const MotorConfig MOTOR_CONFIGS[] = {
-  {"MOTOR_1", 2, 3, 200},
-  {"MOTOR_2", 4, 5, 200},
-  {"MOTOR_3", 6, 7, 200},
-  {"MOTOR_4", 8, 9, 200},
-  {"MOTOR_5", 10, 11, 200},
-  {"MOTOR_6", 12, 13, 200},
-};
+const float DEG_PER_STEP = 1.8;
+const float STEPS_PER_DEG = 1.0 / DEG_PER_STEP;
 
-const int NUM_MOTORS = sizeof(MOTOR_CONFIGS) / sizeof(MOTOR_CONFIGS[0]);
+AccelStepper stepper(AccelStepper::DRIVER, STEP_PIN, DIR_PIN);
 
-AccelStepper steppers[NUM_MOTORS] = {
-  AccelStepper(AccelStepper::DRIVER, 2, 3),
-  AccelStepper(AccelStepper::DRIVER, 4, 5),
-  AccelStepper(AccelStepper::DRIVER, 6, 7),
-  AccelStepper(AccelStepper::DRIVER, 8, 9),
-  AccelStepper(AccelStepper::DRIVER, 10, 11),
-  AccelStepper(AccelStepper::DRIVER, 12, 13)
-};
+int currentDeg = 0;
+String serialBuffer = "";
+bool newCommand = false;
+int targetDeg = 0;
 
-int currentAngle[NUM_MOTORS] = {0};
-String inputLine = "";
+long degreesToSteps(int newDeg, int oldDeg) {
+  int deltaDeg = newDeg - oldDeg;
+  long steps = (long)(abs(deltaDeg) * STEPS_PER_DEG);
+  return steps;
+}
+
+void handleSerialInput() {
+  while (Serial.available()) {
+    char c = Serial.read();
+
+    if (c == '\n' || c == '\r') {
+      if (serialBuffer.length() > 0) {
+        targetDeg = serialBuffer.toInt();
+        newCommand = true;
+        serialBuffer = "";
+      }
+    } else {
+      serialBuffer += c;
+    }
+  }
+}
+
+void applyMove() {
+  if (!newCommand) return;
+
+  if (targetDeg < 0 || targetDeg > 359) {
+    newCommand = false;
+    return;
+  }
+
+  if (targetDeg != currentDeg) {
+    long steps = degreesToSteps(targetDeg, currentDeg);
+
+    if (targetDeg > currentDeg) {
+      digitalWrite(DIR_PIN, HIGH);
+    } else {
+      digitalWrite(DIR_PIN, LOW);
+    }
+
+    long newPos = stepper.currentPosition() + steps;
+
+    stepper.moveTo(newPos);
+    stepper.runToPosition();
+
+    currentDeg = targetDeg;
+  }
+
+  newCommand = false;
+}
 
 void setup() {
   Serial.begin(9600);
-  for (int i = 0; i < NUM_MOTORS; i++) {
-    steppers[i].setMaxSpeed(800);
-    steppers[i].setAcceleration(400);
-    steppers[i].setCurrentPosition(0);
-  }
-  Serial.println("STEPPER_CONTROLLER_READY");
+
+  pinMode(DIR_PIN, OUTPUT);
+
+  stepper.setMaxSpeed(1000);
+  stepper.setAcceleration(500);
+  stepper.setCurrentPosition(0);
 }
 
 void loop() {
-  while (Serial.available()) {
-    char c = Serial.read();
-    if (c == '\n') {
-      processCommand(inputLine);
-      inputLine = "";
-    } else if (c != '\r') {
-      inputLine += c;
-    }
-  }
-
-  for (int i = 0; i < NUM_MOTORS; i++) {
-    steppers[i].run();
-  }
-}
-
-int findMotorIndex(const String& label) {
-  for (int i = 0; i < NUM_MOTORS; i++) {
-    if (label.equals(MOTOR_CONFIGS[i].label)) return i;
-  }
-  return -1;
-}
-
-void moveMotorToAngle(int idx, int angle) {
-  int diff = angle - currentAngle[idx];
-  if (diff > 180) diff -= 360;
-  if (diff < -180) diff += 360;
-
-  long steps = (long)((diff / 360.0) * MOTOR_CONFIGS[idx].stepsPerRev);
-  long target = steppers[idx].currentPosition() + steps;
-
-  steppers[idx].moveTo(target);
-  currentAngle[idx] = angle;
-
-  Serial.print(MOTOR_CONFIGS[idx].label);
-  Serial.print(":OK:");
-  Serial.println(angle);
-}
-
-void processCommand(String cmd) {
-  cmd.trim();
-  
-  int colon = cmd.indexOf(':');
-  if (colon < 0) {
-    Serial.println("ERROR_BAD_FORMAT");
-    return;
-  }
-
-  String label = cmd.substring(0, colon);
-  int angle = cmd.substring(colon + 1).toInt();
-
-  if (angle < 0 || angle > 359) {
-    Serial.println("ERROR_BAD_ANGLE");
-    return;
-  }
-
-  int idx = findMotorIndex(label);
-  if (idx < 0) {
-    Serial.println("ERROR_UNKNOWN_MOTOR");
-    return;
-  }
-
-  moveMotorToAngle(idx, angle);
+  handleSerialInput();
+  applyMove();
 }
