@@ -847,18 +847,6 @@ class FusorHostApp:
         test_buttons_frame = ctk.CTkFrame(target_logs_frame)
         test_buttons_frame.pack(pady=10)
         
-        test_arduino_button = ctk.CTkButton(
-            test_buttons_frame,
-            text="Test Arduino",
-            command=self._test_arduino,
-            font=ctk.CTkFont(size=12),
-            width=150,
-            height=35,
-            fg_color="green",
-            hover_color="darkgreen",
-        )
-        test_arduino_button.pack(side="left", padx=5)
-        
         clear_target_logs_button = ctk.CTkButton(
             test_buttons_frame,
             text="Clear Target Logs",
@@ -1875,11 +1863,6 @@ class FusorHostApp:
         if self.data_display:
             self.data_display.delete("1.0", "end")
 
-    def _test_arduino(self):
-        self._update_target_logs("[Host] Sending TEST_ARDUINO command...")
-        self._send_command("TEST_ARDUINO")
-        self._update_status("Testing Arduino communication...", "blue")
-    
     def _clear_target_logs(self):
         if self.target_logs_display:
             self.target_logs_display.configure(state="normal")
