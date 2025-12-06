@@ -1144,11 +1144,11 @@ class FusorHostApp:
             try:
                 if hasattr(self, "pressure_display1") and self.pressure_display1:
                     self.pressure_display1.configure(
-                        text=f"Turbo Pressure Sensor [ADC CH1]: {value} mT"
+                        text=f"Turbo Pressure Sensor [ADC CH0]: {value} mT"
                     )
                 if hasattr(self, "pressure_label") and self.pressure_label:
                     self.pressure_label.configure(
-                        text=f"Turbo Pressure Sensor [ADC CH1]: {value} mT"
+                        text=f"Turbo Pressure Sensor [ADC CH0]: {value} mT"
                     )
             except Exception:
                 pass
@@ -1163,11 +1163,11 @@ class FusorHostApp:
             try:
                 if hasattr(self, "adc_ch0_label") and self.adc_ch0_label:
                     self.adc_ch0_label.configure(
-                        text=f"ADC CH0 [Potentiometer - Testing]: {value}"
+                        text=f"ADC CH0 [Turbo Pressure Sensor]: {value}"
                     )
                 if hasattr(self, "adc_label") and self.adc_label:
                     self.adc_label.configure(
-                        text=f"ADC CH0 [Potentiometer - Testing]: {value}"
+                        text=f"ADC CH0 [Turbo Pressure Sensor]: {value}"
                     )
             except Exception:
                 pass
@@ -1193,9 +1193,9 @@ class FusorHostApp:
 
                 if isinstance(adc_data, (list, tuple)) and len(adc_data) >= 8:
                     channel_labels = {
-                        0: "ADC CH0 [Potentiometer - Testing]",
-                        1: "ADC CH1",
-                        2: "ADC CH2",
+                        0: "ADC CH0 [Turbo Pressure Sensor]",
+                        1: "ADC CH1 [Fusor Pressure Sensor]",
+                        2: "ADC CH2 [Foreline Pressure Sensor]",
                         3: "ADC CH3",
                         4: "ADC CH4",
                         5: "ADC CH5",
@@ -1698,7 +1698,7 @@ class FusorHostApp:
 
         self.pressure_display1 = ctk.CTkLabel(
             pressure_row1,
-            text="Turbo Pressure Sensor [ADC CH1]: --- mT",
+            text="Turbo Pressure Sensor [ADC CH0]: --- mT",
             font=ctk.CTkFont(size=13),
             anchor="w",
             width=400,
@@ -1711,7 +1711,7 @@ class FusorHostApp:
 
         self.pressure_display2 = ctk.CTkLabel(
             pressure_row2,
-            text="Fusor Pressure Sensor [ADC CH2]: --- mT",
+            text="Fusor Pressure Sensor [ADC CH1]: --- mT",
             font=ctk.CTkFont(size=13),
             anchor="w",
             width=400,
@@ -1724,7 +1724,7 @@ class FusorHostApp:
 
         self.pressure_display3 = ctk.CTkLabel(
             pressure_row3,
-            text="Foreline Pressure Sensor [ADC CH3]: --- mT",
+            text="Foreline Pressure Sensor [ADC CH2]: --- mT",
             font=ctk.CTkFont(size=13),
             anchor="w",
             width=400,
@@ -1749,10 +1749,10 @@ class FusorHostApp:
 
         self.adc_ch0_label = ctk.CTkLabel(
             adc_row1,
-            text="ADC CH0 [Potentiometer - Testing]: ---",
+            text="ADC CH0 [Turbo Pressure Sensor]: ---",
             font=ctk.CTkFont(size=13),
             anchor="w",
-            width=300,
+            width=280,
             height=30,
         )
         self.adc_ch0_label.pack(side="left", padx=8, pady=3)
@@ -1762,20 +1762,20 @@ class FusorHostApp:
 
         self.adc_ch1_label = ctk.CTkLabel(
             adc_row2,
-            text="ADC CH1: ---",
+            text="ADC CH1 [Fusor Pressure Sensor]: ---",
             font=ctk.CTkFont(size=13),
             anchor="w",
-            width=180,
+            width=250,
             height=30,
         )
         self.adc_ch1_label.pack(side="left", padx=8, pady=3)
 
         self.adc_ch2_label = ctk.CTkLabel(
             adc_row2,
-            text="ADC CH2: ---",
+            text="ADC CH2 [Foreline Pressure Sensor]: ---",
             font=ctk.CTkFont(size=13),
             anchor="w",
-            width=180,
+            width=250,
             height=30,
         )
         self.adc_ch2_label.pack(side="left", padx=8, pady=3)
