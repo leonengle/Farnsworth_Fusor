@@ -282,36 +282,6 @@ Legacy command to move Motor 1 (VARIAC control).
 
 ## Sensor Reading
 
-### `READ_POWER_SUPPLY_VOLTAGE`
-Reads the power supply voltage from ADC channel 0.
-
-**Format:** `READ_POWER_SUPPLY_VOLTAGE`
-
-**Response:**
-- Success: `POWER_SUPPLY_VOLTAGE:<voltage>`
-- Failure: `READ_POWER_SUPPLY_VOLTAGE_FAILED: <error_message>`
-
-**Example:**
-```
-Command: READ_POWER_SUPPLY_VOLTAGE
-Response: POWER_SUPPLY_VOLTAGE:1000.50
-```
-
-### `READ_POWER_SUPPLY_CURRENT`
-Reads the power supply current from ADC channel 1.
-
-**Format:** `READ_POWER_SUPPLY_CURRENT`
-
-**Response:**
-- Success: `POWER_SUPPLY_CURRENT:<current>`
-- Failure: `READ_POWER_SUPPLY_CURRENT_FAILED: <error_message>`
-
-**Example:**
-```
-Command: READ_POWER_SUPPLY_CURRENT
-Response: POWER_SUPPLY_CURRENT:5.250
-```
-
 ### `READ_PRESSURE_SENSOR:<sensor_id>`
 Reads a pressure sensor value.
 

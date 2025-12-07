@@ -40,6 +40,33 @@ class UDPClientObject:
 
             return None
         except json.JSONDecodeError:
+            # Handle PRESSURE_SENSOR_X_VALUE format: PRESSURE_SENSOR_1_VALUE:123.456|TC1|TC Gauge 1|123.46 mTorr
+            if data.startswith("PRESSURE_SENSOR_") and "_VALUE:" in data:
+                try:
+                    # Extract sensor ID from format: PRESSURE_SENSOR_1_VALUE:...
+                    sensor_id_match = data.split("_VALUE:")[0].replace("PRESSURE_SENSOR_", "")
+                    sensor_id = int(sensor_id_match)
+                    sensor_key = f"pressure_sensor_{sensor_id}"
+                    
+                    # Parse the value part: 123.456|TC1|TC Gauge 1|123.46 mTorr
+                    value_part = data.split("_VALUE:")[1]
+                    parts = value_part.split("|")
+                    pressure_value = float(parts[0])  # First part is numeric value in mTorr
+                    formatted_value = parts[-1] if len(parts) > 3 else parts[0]  # Last part is formatted string
+                    
+                    with self._registry_lock:
+                        sensor = self.sensor_registry.get(sensor_key)
+                        if sensor:
+                            # Store the formatted value string for display
+                            sensor.update_value(formatted_value)
+                            logger.debug(
+                                f"UDP Client Object: Matched PRESSURE_SENSOR_{sensor_id} to sensor '{sensor.name}', updated value to {formatted_value}"
+                            )
+                            return sensor_key
+                except (ValueError, IndexError) as e:
+                    logger.debug(f"UDP Client Object: Error parsing PRESSURE_SENSOR format: {e}")
+            
+            # Handle simple "identifier:value" format
             if ":" in data:
                 parts = data.split(":", 1)
                 if len(parts) == 2:

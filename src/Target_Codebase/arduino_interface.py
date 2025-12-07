@@ -526,12 +526,23 @@ class ArduinoInterface:
 
         try:
             angle = int(round(float(motor_degree)))
-            if angle < 0 or angle > 360:
-                logger.error(f"Motor degree out of range: {angle} (must be 0-360)")
-                return False
+            motor_id = None
+            if component_name.upper().startswith("MOTOR_"):
+                try:
+                    motor_id = int(component_name.upper().replace("MOTOR_", ""))
+                except ValueError:
+                    pass
             
-            if angle == 360:
-                angle = 0
+            if motor_id == 5:
+                if angle < 0 or angle > 300:
+                    logger.error(f"VARIAC motor degree out of range: {angle} (must be 0-300)")
+                    return False
+            else:
+                if angle < 0 or angle > 360:
+                    logger.error(f"Motor degree out of range: {angle} (must be 0-360)")
+                    return False
+                if angle == 360:
+                    angle = 0
             
             command = f"{component_name}:{angle}"
             direction_info = f" ({direction})" if direction else ""

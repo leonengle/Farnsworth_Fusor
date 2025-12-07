@@ -74,7 +74,7 @@ class BundledInterface:
         direction = "forward" if new_percentage > old_percentage else "backward" if new_percentage < old_percentage else "none"
         
         component_name = f"MOTOR_{motor_id}"
-        motor_degree = self.validator.map_percentage_to_degree(percentage_or_power)
+        motor_degree = self.validator.map_percentage_to_degree(percentage_or_power, motor_id)
         
         is_valid, error = self.validator.validate_motor_degree_object(component_name, motor_degree)
         if not is_valid:
