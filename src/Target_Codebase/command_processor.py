@@ -6,10 +6,10 @@ from bundled_interface import BundledInterface
 
 logger = logging.getLogger("CommandProcessor")
 
-PRESSURE_SENSOR_CHANNELS: Dict[int, Dict[str, Union[int, str]]] = {
-    1: {"channel": 0, "name": "Turbo Pressure Sensor", "label": "P01"},
-    2: {"channel": 1, "name": "Fusor Pressure Sensor", "label": "P02"},
-    3: {"channel": 2, "name": "Foreline Pressure Sensor", "label": "P03"},
+PRESSURE_SENSOR_CHANNELS: Dict[int, Dict[str, Union[int, str, float]]] = {
+    1: {"channel": 0, "name": "TC Gauge 1", "label": "TC1", "min_pressure_mtorr": 50.0, "max_pressure_torr": 760.0},
+    2: {"channel": 1, "name": "TC Gauge 2", "label": "TC2", "min_pressure_mtorr": 50.0, "max_pressure_torr": 760.0},
+    3: {"channel": 2, "name": "Manometer 1", "label": "M1", "min_pressure_mtorr": 0.1, "max_pressure_torr": 760.0},
 }
 
 VALVE_ANALOG_LABELS: Dict[int, str] = {
@@ -51,6 +51,41 @@ class CommandProcessor:
 
     def _resolve_valve_label(self, valve_id: int) -> str:
         return VALVE_ANALOG_LABELS.get(valve_id, f"VALVE_{valve_id}")
+
+    def _convert_adc_to_voltage(self, adc_value: int, reference_voltage: float = 5.0) -> float:
+        """Convert ADC value (0-1023) to voltage (0-5V)."""
+        return (adc_value / 1023.0) * reference_voltage
+
+    def _convert_voltage_to_pressure(
+        self, voltage: float, min_pressure_mtorr: float, max_pressure_torr: float
+    ) -> float:
+        """
+        Convert voltage (0-5V) to pressure in mTorr.
+        
+        Args:
+            voltage: Voltage value (0-5V)
+            min_pressure_mtorr: Minimum pressure in mTorr (at 0V)
+            max_pressure_torr: Maximum pressure in Torr (at 5V)
+        
+        Returns:
+            Pressure in mTorr
+        """
+        max_pressure_mtorr = max_pressure_torr * 1000.0  # Convert Torr to mTorr
+        pressure_mtorr = min_pressure_mtorr + (voltage / 5.0) * (max_pressure_mtorr - min_pressure_mtorr)
+        return pressure_mtorr
+
+    def _format_pressure(self, pressure_mtorr: float) -> str:
+        """
+        Format pressure value, using Torr for values >= 1 Torr, mTorr otherwise.
+        
+        Returns:
+            Formatted string with appropriate units
+        """
+        if pressure_mtorr >= 1000.0:
+            pressure_torr = pressure_mtorr / 1000.0
+            return f"{pressure_torr:.3f} Torr"
+        else:
+            return f"{pressure_mtorr:.2f} mTorr"
 
     def _send_status_update(self, message: str):
         with self._callback_lock:
@@ -236,18 +271,58 @@ class CommandProcessor:
                     power = int(command.split(":")[1])
                     if power < 0 or power > 100:
                         return "SET_MECHANICAL_PUMP_FAILED: Power must be 0-100"
-                    return f"SET_MECHANICAL_PUMP_SUCCESS:{power}"
+                    
+                    # Forward command to Arduino
+                    if not self.arduino_interface:
+                        return "SET_MECHANICAL_PUMP_FAILED: Arduino interface not available"
+                    if not self.arduino_interface.is_connected():
+                        return "SET_MECHANICAL_PUMP_FAILED: Arduino not connected"
+                    
+                    if self.arduino_interface.send_command(command):
+                        response = self.arduino_interface.read_data(timeout=1.0)
+                        if response and "OK" in response:
+                            self._send_status_update(f"Mechanical pump set to {power}%")
+                            return f"SET_MECHANICAL_PUMP_SUCCESS:{power}"
+                        else:
+                            # Command sent but no response - still consider success
+                            self._send_status_update(f"Mechanical pump command sent (power={power}%)")
+                            return f"SET_MECHANICAL_PUMP_SUCCESS:{power}"
+                    else:
+                        return "SET_MECHANICAL_PUMP_FAILED: Could not send to Arduino"
                 except (ValueError, IndexError):
                     return "SET_MECHANICAL_PUMP_FAILED: Invalid format"
+                except Exception as e:
+                    logger.error(f"Error setting mechanical pump: {e}")
+                    return f"SET_MECHANICAL_PUMP_FAILED: {e}"
 
             elif command.startswith("SET_TURBO_PUMP:"):
                 try:
                     power = int(command.split(":")[1])
                     if power < 0 or power > 100:
                         return "SET_TURBO_PUMP_FAILED: Power must be 0-100"
-                    return f"SET_TURBO_PUMP_SUCCESS:{power}"
+                    
+                    # Forward command to Arduino
+                    if not self.arduino_interface:
+                        return "SET_TURBO_PUMP_FAILED: Arduino interface not available"
+                    if not self.arduino_interface.is_connected():
+                        return "SET_TURBO_PUMP_FAILED: Arduino not connected"
+                    
+                    if self.arduino_interface.send_command(command):
+                        response = self.arduino_interface.read_data(timeout=1.0)
+                        if response and "OK" in response:
+                            self._send_status_update(f"Turbo pump set to {power}%")
+                            return f"SET_TURBO_PUMP_SUCCESS:{power}"
+                        else:
+                            # Command sent but no response - still consider success
+                            self._send_status_update(f"Turbo pump command sent (power={power}%)")
+                            return f"SET_TURBO_PUMP_SUCCESS:{power}"
+                    else:
+                        return "SET_TURBO_PUMP_FAILED: Could not send to Arduino"
                 except (ValueError, IndexError):
                     return "SET_TURBO_PUMP_FAILED: Invalid format"
+                except Exception as e:
+                    logger.error(f"Error setting turbo pump: {e}")
+                    return f"SET_TURBO_PUMP_FAILED: {e}"
 
             elif command == "STARTUP":
                 logger.info("Startup command received")
@@ -313,10 +388,17 @@ class CommandProcessor:
                     channel = sensor_info["channel"]
                     sensor_name = sensor_info["name"]
                     sensor_label = sensor_info["label"]
+                    min_pressure_mtorr = sensor_info["min_pressure_mtorr"]
+                    max_pressure_torr = sensor_info["max_pressure_torr"]
 
                     adc_value = self.adc.read_channel(channel)
-                    pressure = (adc_value / 1023.0) * 100.0
-                    response = f"PRESSURE_SENSOR_{sensor_id}_VALUE:{pressure:.2f}|{sensor_label}|{sensor_name}"
+                    voltage = self._convert_adc_to_voltage(adc_value, reference_voltage=5.0)
+                    pressure_mtorr = self._convert_voltage_to_pressure(
+                        voltage, min_pressure_mtorr, max_pressure_torr
+                    )
+                    pressure_formatted = self._format_pressure(pressure_mtorr)
+                    
+                    response = f"PRESSURE_SENSOR_{sensor_id}_VALUE:{pressure_mtorr:.3f}|{sensor_label}|{sensor_name}|{pressure_formatted}"
                     with self._callback_lock:
                         callback = self.host_callback
                     if callback:
@@ -420,7 +502,7 @@ class CommandProcessor:
                             break
 
                     if sensor_id is None:
-                        return f"READ_PRESSURE_BY_NAME_FAILED: Unknown sensor name '{sensor_name}'. Use: Turbo, Fusor, Foreline, P01, P02, or P03"
+                        return f"READ_PRESSURE_BY_NAME_FAILED: Unknown sensor name '{sensor_name}'. Use: TC Gauge 1, TC Gauge 2, Manometer 1, TC1, TC2, M1"
 
                     return self.process_command(f"READ_PRESSURE_SENSOR:{sensor_id}")
                 except (ValueError, IndexError):

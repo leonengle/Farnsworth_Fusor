@@ -551,8 +551,9 @@ class FusorHostApp:
             self.tcp_client_object.register_actuator(actuator.name, actuator.label)
         
         self.sensors = {
-            "pressure_sensor_1": SensorObject("pressure sensor 1"),
-            "pressure_sensor_2": SensorObject("pressure sensor 2"),
+            "pressure_sensor_1": SensorObject("TC Gauge 1"),
+            "pressure_sensor_2": SensorObject("TC Gauge 2"),
+            "pressure_sensor_3": SensorObject("Manometer 1"),
         }
         
         self.udp_client_object = UDPClientObject(self.sensors)
@@ -1136,20 +1137,31 @@ class FusorHostApp:
             self._update_status(f"Valve {valve_name} not found", "red")
             self._update_data_display(f"[ERROR] Valve {valve_name} not found")
 
-    def _update_pressure_display(self, value):
+    def _update_pressure_display(self, sensor_id: int, value):
         if not self.root:
             return
 
         def _do_update():
             try:
-                if hasattr(self, "pressure_display1") and self.pressure_display1:
-                    self.pressure_display1.configure(
-                        text=f"Turbo Pressure Sensor [ADC CH0]: {value} mT"
-                    )
-                if hasattr(self, "pressure_label") and self.pressure_label:
-                    self.pressure_label.configure(
-                        text=f"Turbo Pressure Sensor [ADC CH0]: {value} mT"
-                    )
+                if sensor_id == 1:
+                    if hasattr(self, "pressure_display1") and self.pressure_display1:
+                        self.pressure_display1.configure(
+                            text=f"TC Gauge 1 [ADC CH0]: {value}"
+                        )
+                    if hasattr(self, "pressure_label") and self.pressure_label:
+                        self.pressure_label.configure(
+                            text=f"TC Gauge 1 [ADC CH0]: {value}"
+                        )
+                elif sensor_id == 2:
+                    if hasattr(self, "pressure_display2") and self.pressure_display2:
+                        self.pressure_display2.configure(
+                            text=f"TC Gauge 2 [ADC CH1]: {value}"
+                        )
+                elif sensor_id == 3:
+                    if hasattr(self, "pressure_display3") and self.pressure_display3:
+                        self.pressure_display3.configure(
+                            text=f"Manometer 1 [ADC CH2]: {value}"
+                        )
             except Exception:
                 pass
 
@@ -1163,11 +1175,11 @@ class FusorHostApp:
             try:
                 if hasattr(self, "adc_ch0_label") and self.adc_ch0_label:
                     self.adc_ch0_label.configure(
-                        text=f"ADC CH0 [Turbo Pressure Sensor]: {value}"
+                        text=f"ADC CH0 [TC Gauge 1]: {value}"
                     )
                 if hasattr(self, "adc_label") and self.adc_label:
                     self.adc_label.configure(
-                        text=f"ADC CH0 [Turbo Pressure Sensor]: {value}"
+                        text=f"ADC CH0 [TC Gauge 1]: {value}"
                     )
             except Exception:
                 pass
@@ -1193,9 +1205,9 @@ class FusorHostApp:
 
                 if isinstance(adc_data, (list, tuple)) and len(adc_data) >= 8:
                     channel_labels = {
-                        0: "ADC CH0 [Turbo Pressure Sensor]",
-                        1: "ADC CH1 [Fusor Pressure Sensor]",
-                        2: "ADC CH2 [Foreline Pressure Sensor]",
+                        0: "ADC CH0 [TC Gauge 1]",
+                        1: "ADC CH1 [TC Gauge 2]",
+                        2: "ADC CH2 [Manometer 1]",
                         3: "ADC CH3",
                         4: "ADC CH4",
                         5: "ADC CH5",
@@ -1550,7 +1562,7 @@ class FusorHostApp:
                 if sensor and sensor.value is not None:
                     if matched_sensor == "pressure_sensor_1":
                         try:
-                            self._update_pressure_display(sensor.value)
+                            self._update_pressure_display(1, sensor.value)
                         except Exception:
                             pass
                         with self._previous_values_lock:
@@ -1561,11 +1573,47 @@ class FusorHostApp:
                                 try:
                                     self._log_terminal_update(
                                         "TARGET_STATUS",
-                                        f"Pressure Sensor 1: {sensor.value} mT",
+                                        f"TC Gauge 1: {sensor.value}",
                                     )
                                 except Exception:
                                     pass
                             self.previous_values["Pressure_Sensor_1"] = sensor.value
+                    elif matched_sensor == "pressure_sensor_2":
+                        try:
+                            self._update_pressure_display(2, sensor.value)
+                        except Exception:
+                            pass
+                        with self._previous_values_lock:
+                            prev_pressure = self.previous_values.get(
+                                "Pressure_Sensor_2"
+                            )
+                            if prev_pressure != sensor.value:
+                                try:
+                                    self._log_terminal_update(
+                                        "TARGET_STATUS",
+                                        f"TC Gauge 2: {sensor.value}",
+                                    )
+                                except Exception:
+                                    pass
+                            self.previous_values["Pressure_Sensor_2"] = sensor.value
+                    elif matched_sensor == "pressure_sensor_3":
+                        try:
+                            self._update_pressure_display(3, sensor.value)
+                        except Exception:
+                            pass
+                        with self._previous_values_lock:
+                            prev_pressure = self.previous_values.get(
+                                "Pressure_Sensor_3"
+                            )
+                            if prev_pressure != sensor.value:
+                                try:
+                                    self._log_terminal_update(
+                                        "TARGET_STATUS",
+                                        f"Manometer 1: {sensor.value}",
+                                    )
+                                except Exception:
+                                    pass
+                            self.previous_values["Pressure_Sensor_3"] = sensor.value
         
         try:
             payload = json.loads(message)
@@ -1698,7 +1746,7 @@ class FusorHostApp:
 
         self.pressure_display1 = ctk.CTkLabel(
             pressure_row1,
-            text="Turbo Pressure Sensor [ADC CH0]: --- mT",
+            text="TC Gauge 1 [ADC CH0]: ---",
             font=ctk.CTkFont(size=13),
             anchor="w",
             width=400,
@@ -1711,7 +1759,7 @@ class FusorHostApp:
 
         self.pressure_display2 = ctk.CTkLabel(
             pressure_row2,
-            text="Fusor Pressure Sensor [ADC CH1]: --- mT",
+            text="TC Gauge 2 [ADC CH1]: ---",
             font=ctk.CTkFont(size=13),
             anchor="w",
             width=400,
@@ -1724,7 +1772,7 @@ class FusorHostApp:
 
         self.pressure_display3 = ctk.CTkLabel(
             pressure_row3,
-            text="Foreline Pressure Sensor [ADC CH2]: --- mT",
+            text="Manometer 1 [ADC CH2]: ---",
             font=ctk.CTkFont(size=13),
             anchor="w",
             width=400,
@@ -1749,7 +1797,7 @@ class FusorHostApp:
 
         self.adc_ch0_label = ctk.CTkLabel(
             adc_row1,
-            text="ADC CH0 [Turbo Pressure Sensor]: ---",
+            text="ADC CH0 [TC Gauge 1]: ---",
             font=ctk.CTkFont(size=13),
             anchor="w",
             width=280,
@@ -1762,7 +1810,7 @@ class FusorHostApp:
 
         self.adc_ch1_label = ctk.CTkLabel(
             adc_row2,
-            text="ADC CH1 [Fusor Pressure Sensor]: ---",
+            text="ADC CH1 [TC Gauge 2]: ---",
             font=ctk.CTkFont(size=13),
             anchor="w",
             width=250,
@@ -1772,7 +1820,7 @@ class FusorHostApp:
 
         self.adc_ch2_label = ctk.CTkLabel(
             adc_row2,
-            text="ADC CH2 [Foreline Pressure Sensor]: ---",
+            text="ADC CH2 [Manometer 1]: ---",
             font=ctk.CTkFont(size=13),
             anchor="w",
             width=250,
