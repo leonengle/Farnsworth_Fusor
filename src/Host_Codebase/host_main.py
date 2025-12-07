@@ -1494,12 +1494,14 @@ class FusorHostApp:
             for ch in range(8):
                 adc_key = f"ADC_CH{ch}"
                 adc_value = parsed.get(adc_key)
-                if adc_value is not None:
-                    adc_values.append(adc_value)
-                    if ch == 0:
-                        self._update_adc_display(adc_value)
+                if adc_value is None:
+                    adc_value = "---"
+                adc_values.append(adc_value)
+                if ch == 0:
+                    self._update_adc_display(adc_value)
             
-            if len(adc_values) >= 8:
+            # If at least CH0 is present, update all labels
+            if any(v != "---" for v in adc_values):
                 self._update_all_adc_channels(adc_values)
 
             adc_data = parsed.get("ADC_DATA")

@@ -146,6 +146,7 @@ class TargetSystem:
                             all_adc_values.extend([0] * (8 - len(all_adc_values)))
                         
                         with self._adc_lock:
+                            adc_value_list = []
                             for channel in range(8):
                                 raw_value = all_adc_values[channel]
                                 
@@ -168,12 +169,17 @@ class TargetSystem:
                                     
                                     if is_floating:
                                         data_parts.append(f"ADC_CH{channel}:FLOATING")
+                                        adc_value_list.append("FLOATING")
                                     else:
                                         data_parts.append(f"ADC_CH{channel}:{raw_value}")
+                                        adc_value_list.append(str(raw_value))
                                 else:
                                     data_parts.append(f"ADC_CH{channel}:{raw_value}")
+                                    adc_value_list.append(str(raw_value))
                                 
                                 self.adc_last_reported_values[channel] = raw_value
+                            
+                            data_parts.append(f"ADC_DATA:{','.join(adc_value_list)}")
                     except Exception as e:
                         logger.warning(f"Error reading ADC channels: {e}")
                         for channel in range(8):

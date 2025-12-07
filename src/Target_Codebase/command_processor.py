@@ -83,6 +83,20 @@ class CommandProcessor:
             self.host_callback = callback
         logger.info("Host callback set")
 
+    def _ensure_adc_ready(self) -> bool:
+        """Ensure ADC is available and initialized. Returns True if ready, False otherwise."""
+        if not self.adc:
+            logger.error("ADC requested but not attached to BundledInterface")
+            return False
+        if not self.adc.is_initialized():
+            logger.warning("ADC not initialized – attempting initialization now")
+            try:
+                return self.adc.initialize()
+            except Exception as e:
+                logger.error(f"ADC initialization error in CommandProcessor: {e}")
+                return False
+        return True
+
     def _validate_and_create_motor_object(self, motor_id: int, percentage: float) -> tuple[bool, Optional[dict], Optional[str]]:
         logger.info(f"Validating motor command: motor_id={motor_id}, percentage={percentage}")
         self._send_status_update(f"Validating motor command: motor_id={motor_id}, percentage={percentage}%")
@@ -328,7 +342,7 @@ class CommandProcessor:
                     sensor_id = int(command.split(":")[1])
                     if sensor_id < 1 or sensor_id > 3:
                         return "READ_PRESSURE_SENSOR_FAILED: Sensor ID must be 1-3"
-                    if not self.adc or not self.adc.is_initialized():
+                    if not self._ensure_adc_ready():
                         return "READ_PRESSURE_SENSOR_FAILED: ADC not initialized"
 
                     sensor_info = PRESSURE_SENSOR_CHANNELS.get(sensor_id)
@@ -365,7 +379,7 @@ class CommandProcessor:
                     node_id = int(command.split(":")[1])
                     if node_id < 1 or node_id > 3:
                         return "READ_NODE_VOLTAGE_FAILED: Node ID must be 1-3"
-                    if not self.adc or not self.adc.is_initialized():
+                    if not self._ensure_adc_ready():
                         return "READ_NODE_VOLTAGE_FAILED: ADC not initialized"
                     channel = node_id + 4
                     adc_value = self.adc.read_channel(channel)
@@ -387,7 +401,7 @@ class CommandProcessor:
                     node_id = int(command.split(":")[1])
                     if node_id < 1 or node_id > 3:
                         return "READ_NODE_CURRENT_FAILED: Node ID must be 1-3"
-                    if not self.adc or not self.adc.is_initialized():
+                    if not self._ensure_adc_ready():
                         return "READ_NODE_CURRENT_FAILED: ADC not initialized"
                     channel = node_id + 4
                     adc_value = self.adc.read_channel(channel)
@@ -423,7 +437,7 @@ class CommandProcessor:
                     return "READ_INPUT_FAILED"
 
             elif command == "READ_ADC":
-                if not self.adc or not self.adc.is_initialized():
+                if not self._ensure_adc_ready():
                     return "READ_ADC_FAILED: ADC not initialized"
 
                 try:

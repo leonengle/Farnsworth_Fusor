@@ -21,11 +21,24 @@ class BundledInterface:
         self.arduino_interface = arduino_interface
         self.validator = ArduinoCommandValidator()
         self._motor_percentages = {i: 0.0 for i in range(1, 7)}
-        
+
         logger.info("Bundled Interface initialized")
         logger.info(f"  GPIO: {'Available' if gpio_handler else 'Not available'}")
         logger.info(f"  SPI (ADC): {'Available' if adc else 'Not available'}")
         logger.info(f"  USB (Arduino): {'Available' if arduino_interface else 'Not available'}")
+
+        # ⭐ NEW: ensure ADC is actually initialized
+        if self.adc:
+            try:
+                if not self.adc.is_initialized():
+                    logger.info("Initializing ADC from BundledInterface...")
+                    if self.adc.initialize():
+                        logger.info("ADC initialization successful")
+                    else:
+                        logger.error("ADC initialization FAILED")
+            except Exception as e:
+                logger.error(f"Error while initializing ADC in BundledInterface: {e}")
+
 
     def get_gpio(self) -> Optional[GPIOHandler]:
         return self.gpio_handler
