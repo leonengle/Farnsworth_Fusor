@@ -94,8 +94,8 @@ class TargetSystem:
         self.running = False
 
         self.adc_filter_size = 10
-        self.adc_readings_buffer = []
-        self.adc_last_reported_value = None
+        self.adc_readings_buffers = [[] for _ in range(8)]
+        self.adc_last_reported_values = [None] * 8
         self.adc_noise_threshold = 0
         self.adc_floating_threshold = 50
 
@@ -134,78 +134,70 @@ class TargetSystem:
             import time
 
             timestamp = time.strftime("%H:%M:%S")
-
-            has_changes = False
-            has_errors = False
-            data_parts = []
+            data_parts = [f"TIME:{timestamp}"]
 
             adc = self.bundled_interface.get_adc() if self.bundled_interface else None
             if adc:
                 if adc.is_initialized():
                     try:
-                        raw_value = self.tcp_command_server.read_adc_channel(0)
-
+                        all_adc_values = adc.read_all_channels()
+                        
                         with self._adc_lock:
-                            self.adc_readings_buffer.append(raw_value)
-                            if len(self.adc_readings_buffer) > self.adc_filter_size:
-                                self.adc_readings_buffer.pop(0)
-
-                            if len(self.adc_readings_buffer) >= 3:
-                                filtered_value = int(
-                                    sum(self.adc_readings_buffer)
-                                    / len(self.adc_readings_buffer)
-                                )
-                                
-                                variance = sum(
-                                    (x - filtered_value) ** 2 
-                                    for x in self.adc_readings_buffer
-                                ) / len(self.adc_readings_buffer)
-                                std_dev = variance ** 0.5
-                                
-                                is_floating = std_dev > self.adc_floating_threshold
-                            else:
-                                filtered_value = raw_value
-                                is_floating = False
-
-                            if (
-                                self.adc_last_reported_value is None
-                                or filtered_value != self.adc_last_reported_value
-                            ):
-                                data_parts.append(f"TIME:{timestamp}")
-                                if is_floating:
-                                    data_parts.append("ADC_CH0:FLOATING")
+                            for channel in range(8):
+                                if channel < len(all_adc_values):
+                                    raw_value = all_adc_values[channel]
+                                    
+                                    self.adc_readings_buffers[channel].append(raw_value)
+                                    if len(self.adc_readings_buffers[channel]) > self.adc_filter_size:
+                                        self.adc_readings_buffers[channel].pop(0)
+                                    
+                                    if len(self.adc_readings_buffers[channel]) >= 3:
+                                        filtered_value = int(
+                                            sum(self.adc_readings_buffers[channel])
+                                            / len(self.adc_readings_buffers[channel])
+                                        )
+                                        
+                                        if channel < 3:
+                                            variance = sum(
+                                                (x - filtered_value) ** 2 
+                                                for x in self.adc_readings_buffers[channel]
+                                            ) / len(self.adc_readings_buffers[channel])
+                                            std_dev = variance ** 0.5
+                                            is_floating = std_dev > self.adc_floating_threshold
+                                        else:
+                                            is_floating = False
+                                    else:
+                                        filtered_value = raw_value
+                                        is_floating = False
+                                    
+                                    if is_floating:
+                                        data_parts.append(f"ADC_CH{channel}:FLOATING")
+                                    else:
+                                        data_parts.append(f"ADC_CH{channel}:{filtered_value}")
+                                    
+                                    self.adc_last_reported_values[channel] = filtered_value
                                 else:
-                                    data_parts.append(f"ADC_CH0:{filtered_value}")
-                                self.adc_last_reported_value = filtered_value
-                                has_changes = True
+                                    data_parts.append(f"ADC_CH{channel}:ERROR")
                     except Exception as e:
-                        logger.warning(f"Error reading ADC channel 0: {e}")
-                        data_parts.append(f"TIME:{timestamp}")
-                        data_parts.append("ADC_CH0:ERROR")
-                        has_errors = True
+                        logger.warning(f"Error reading ADC channels: {e}")
+                        for channel in range(8):
+                            data_parts.append(f"ADC_CH{channel}:ERROR")
                 else:
                     if (
                         not hasattr(self, "_adc_status_reported")
                         or self._adc_status_reported != "NOT_INITIALIZED"
                     ):
-                        data_parts.append(f"TIME:{timestamp}")
                         data_parts.append("ADC:NOT_INITIALIZED")
                         self._adc_status_reported = "NOT_INITIALIZED"
-                        has_errors = True
             else:
                 if (
                     not hasattr(self, "_adc_status_reported")
                     or self._adc_status_reported != "NOT_AVAILABLE"
                 ):
-                    data_parts.append(f"TIME:{timestamp}")
                     data_parts.append("ADC:NOT_AVAILABLE")
                     self._adc_status_reported = "NOT_AVAILABLE"
-                    has_errors = True
 
-            if has_changes or has_errors:
-                return "|".join(data_parts)
-            else:
-                return ""
+            return "|".join(data_parts)
         except Exception as e:
             logger.error(f"Error getting periodic data: {e}")
             return f"TIME:{time.strftime('%H:%M:%S')}|ERROR:{str(e)}"

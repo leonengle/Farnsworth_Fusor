@@ -1,7 +1,7 @@
   #include <AccelStepper.h>
 
-const int MOTOR_STEP_PINS[5] = {3, 5, 7, 9, 11};
-const int MOTOR_DIR_PINS[5] = {4, 6, 8, 10, 12};
+const int MOTOR_STEP_PINS[5] = {12, 10, 8, 6, 4};
+const int MOTOR_DIR_PINS[5] = {11, 9, 7, 5, 3};
 
 const int MECHANICAL_PUMP_PIN = A0;
 const int TURBO_PUMP_PIN = A1;
