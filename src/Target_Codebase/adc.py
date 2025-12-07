@@ -147,17 +147,14 @@ class MCP3008ADC(ADCInterface):
     # ---------- Core reading helpers ----------
 
     def _validate_channel(self, channel: int) -> bool:
+        """Ensure channel is between 0 and 7."""
         if channel < 0 or channel > 7:
-            logger.error(f"ADC channel out of range: {channel} (must be 0–7)")
+            logger.error(f"ERROR: ADC channel value must be between 0 and 7! Got: {channel}")
             return False
         return True
 
     def read_channel(self, channel: int) -> int:
-        """
-        Read a single ADC channel (0–7).
-        Returns an integer 0–1023.
-        Returns 0 on failure, but logs the reason.
-        """
+        """Read from the specified ADC channel (0-7). Returns 0-1023."""
         with self._init_lock:
             if not self._is_initialized:
                 logger.error("ADC read attempted before initialization")
@@ -169,7 +166,7 @@ class MCP3008ADC(ADCInterface):
         try:
             with self._mcp_lock:
                 value = self.mcp.read_adc(channel)
-            logger.debug(f"ADC read: ch{channel} -> {value}")
+            logger.info(f"ADC Channel {channel}: {value}")
             return value
         except Exception as e:
             logger.error(f"Error reading ADC channel {channel}: {e}", exc_info=True)

@@ -459,10 +459,10 @@ class CommandProcessor:
                 try:
                     active_channels = [0, 1, 2]
                     adc_values = []
+                    
                     for channel in active_channels:
                         value = self.adc.read_channel(channel)
                         adc_values.append(value)
-                        logger.info(f"ADC Channel {channel}: {value}")
                     
                     response_parts = []
                     for i, channel in enumerate(active_channels):
