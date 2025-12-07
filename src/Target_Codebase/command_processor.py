@@ -380,7 +380,11 @@ class CommandProcessor:
                         return "READ_NODE_VOLTAGE_FAILED: ADC not initialized"
                     channel = node_id + 4
                     adc_value = self.adc.read_channel(channel)
-                    voltage = self.adc.convert_to_voltage(adc_value) * 10
+                    # If ADC value is very low (unconnected), return 0
+                    if adc_value <= 5:
+                        voltage = 0.0
+                    else:
+                        voltage = self.adc.convert_to_voltage(adc_value) * 10
                     response = f"NODE_{node_id}_VOLTAGE:{voltage:.2f}"
                     with self._callback_lock:
                         callback = self.host_callback
@@ -402,7 +406,11 @@ class CommandProcessor:
                         return "READ_NODE_CURRENT_FAILED: ADC not initialized"
                     channel = node_id + 4
                     adc_value = self.adc.read_channel(channel)
-                    current = (adc_value / 1023.0) * 5.0
+                    # If ADC value is very low (unconnected), return 0
+                    if adc_value <= 5:
+                        current = 0.0
+                    else:
+                        current = (adc_value / 1023.0) * 5.0
                     response = f"NODE_{node_id}_CURRENT:{current:.3f}"
                     with self._callback_lock:
                         callback = self.host_callback
