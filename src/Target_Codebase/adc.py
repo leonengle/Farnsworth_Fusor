@@ -123,7 +123,7 @@ class MCP3008ADC(ADCInterface):
                     try:
                         value = self.mcp.read_adc(channel)
                         test_reads.append((channel, value))
-                        logger.info(f"  Channel {channel}: {value}")
+                        logger.debug(f"  Channel {channel}: {value}")
                     except Exception as e:
                         logger.error(f"  Channel {channel} read failed: {e}")
                         return False
@@ -166,7 +166,6 @@ class MCP3008ADC(ADCInterface):
         try:
             with self._mcp_lock:
                 value = self.mcp.read_adc(channel)
-            logger.info(f"ADC Channel {channel}: {value}")
             return value
         except Exception as e:
             logger.error(f"Error reading ADC channel {channel}: {e}", exc_info=True)
