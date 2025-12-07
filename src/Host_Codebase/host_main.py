@@ -1585,14 +1585,20 @@ class FusorHostApp:
                     if key == "TIME":
                         continue
                     
+                    # Skip ADC and pressure sensor fields from logging (only show communication logs)
+                    is_adc_field = key.startswith("ADC_CH") or key == "ADC_DATA"
+                    is_pressure_field = key.startswith("PRESSURE_SENSOR_")
+                    
+                    if is_adc_field or is_pressure_field:
+                        # Still track for display purposes but skip logging
+                        self.previous_values[key] = value
+                        continue
+                    
                     prev_value = self.previous_values.get(key)
                     
-                    # Track ADC values for display but don't include in logging
-                    is_adc_field = key.startswith("ADC_CH") or key == "ADC_DATA"
-                    
-                    # For numeric values (like ADC_CH0, Pressure_Sensor_1), compare as numbers
+                    # For numeric values, compare as numbers
                     try:
-                        if key.startswith("ADC_CH") or key == "Pressure_Sensor_1":
+                        if key == "Pressure_Sensor_1":
                             if str(value).upper() == "FLOATING":
                                 if prev_value != value:
                                     self.previous_values[key] = value
@@ -1703,10 +1709,11 @@ class FusorHostApp:
             
             if values_changed or has_error:
                 if changed_items:
-                    # Filter out ADC-related items from logging (check both "ADC_CH" and "ADC_DATA" at start of item)
+                    # Filter out ADC and pressure sensor items from logging (only show communication logs)
                     filtered_items = [
                         item for item in changed_items 
-                        if not (item.startswith("ADC_CH") or item.startswith("ADC_DATA=") or "=ADC_CH" in item or "=ADC_DATA" in item)
+                        if not (item.startswith("ADC_CH") or item.startswith("ADC_DATA=") or "=ADC_CH" in item or "=ADC_DATA" in item
+                                or item.startswith("PRESSURE_SENSOR_") or "PRESSURE_SENSOR_" in item)
                     ]
                     if filtered_items:
                         summary = ", ".join(filtered_items)
@@ -1718,15 +1725,17 @@ class FusorHostApp:
                     summary = ", ".join(
                         f"{k}={v}"
                         for k, v in parsed.items()
-                        if not k.startswith("ADC_CH") and not k.startswith("ADC_DATA")
+                        if not k.startswith("ADC_CH") and not k.startswith("ADC_DATA") and not k.startswith("PRESSURE_SENSOR_")
                         and ("ERROR" in str(v).upper()
                         or "NOT_AVAILABLE" in str(v).upper()
                         or "NOT_INITIALIZED" in str(v).upper()
                         or "DISCONNECTED" in str(v).upper())
                     )
                     if summary:
-                        # Double-check no ADC data slipped through
-                        if not any(f"ADC_CH{ch}" in summary for ch in range(8)) and "ADC_DATA" not in summary:
+                        # Double-check no ADC or pressure sensor data slipped through
+                        if (not any(f"ADC_CH{ch}" in summary for ch in range(8)) 
+                            and "ADC_DATA" not in summary 
+                            and "PRESSURE_SENSOR_" not in summary):
                             self._update_target_logs(f"[UDP Data] {summary}")
                             self._log_terminal_update("TARGET_ERROR", summary)
         else:
@@ -2119,9 +2128,11 @@ class FusorHostApp:
         if not self.target_logs_display or not self.root:
             return
         
-        # Filter out any ADC data that might have slipped through
+        # Filter out any ADC or pressure sensor data (only show communication logs)
         log_upper = log_message.upper()
-        if any(f"ADC_CH{ch}" in log_upper for ch in range(8)) or "ADC_DATA" in log_upper:
+        if (any(f"ADC_CH{ch}" in log_upper for ch in range(8)) 
+            or "ADC_DATA" in log_upper 
+            or "PRESSURE_SENSOR_" in log_upper):
             return
 
         def _do_update():
@@ -2167,9 +2178,11 @@ class FusorHostApp:
 
     def _log_terminal_update(self, tag: str, message: str):
         """Log periodic updates to terminal for visibility."""
-        # Filter out any ADC data
+        # Filter out any ADC or pressure sensor data (only show communication logs)
         message_upper = message.upper()
-        if any(f"ADC_CH{ch}" in message_upper for ch in range(8)) or "ADC_DATA" in message_upper:
+        if (any(f"ADC_CH{ch}" in message_upper for ch in range(8)) 
+            or "ADC_DATA" in message_upper 
+            or "PRESSURE_SENSOR_" in message_upper):
             return
         
         timestamp = time.strftime("%H:%M:%S")

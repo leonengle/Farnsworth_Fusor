@@ -94,6 +94,51 @@ class CommandProcessor:
                 return False
         return True
 
+    def _is_adc_floating(self, channel: int, num_readings: int = 5) -> bool:
+        """
+        Detect if an ADC channel is floating (unconnected) by taking multiple readings
+        and checking for instability or values in noise ranges.
+        Returns True if floating, False if connected.
+        """
+        if not self.adc or not self.adc.is_initialized():
+            return True
+        
+        try:
+            readings = []
+            for _ in range(num_readings):
+                value = self.adc.read_channel(channel)
+                readings.append(value)
+            
+            # Check if all readings are in floating ranges
+            # Floating inputs typically show:
+            # - Very low values (0-10) - near ground
+            # - Very high values (1013-1023) - near VCC
+            # - Or high variance (unstable)
+            
+            all_low = all(v <= 10 for v in readings)
+            all_high = all(v >= 1013 for v in readings)
+            
+            if all_low or all_high:
+                return True
+            
+            # Check variance - floating inputs show high variance
+            if len(readings) >= 3:
+                mean = sum(readings) / len(readings)
+                variance = sum((v - mean) ** 2 for v in readings) / len(readings)
+                std_dev = variance ** 0.5
+                
+                # If standard deviation is high relative to mean, likely floating
+                if mean > 0 and std_dev / mean > 0.3:
+                    return True
+                # If absolute std dev is very high (>50), likely floating
+                if std_dev > 50:
+                    return True
+            
+            return False
+        except Exception as e:
+            logger.error(f"Error detecting floating ADC channel {channel}: {e}")
+            return True  # Assume floating on error
+
     def _validate_and_create_motor_object(self, motor_id: int, percentage: float) -> tuple[bool, Optional[dict], Optional[str]]:
         logger.info(f"Validating motor command: motor_id={motor_id}, percentage={percentage}")
         self._send_status_update(f"Validating motor command: motor_id={motor_id}, percentage={percentage}%")
@@ -379,12 +424,14 @@ class CommandProcessor:
                     if not self._ensure_adc_ready():
                         return "READ_NODE_VOLTAGE_FAILED: ADC not initialized"
                     channel = node_id + 4
-                    adc_value = self.adc.read_channel(channel)
-                    # If ADC value is very low (unconnected), return 0
-                    if adc_value <= 5:
+                    
+                    # Check if channel is floating (unconnected)
+                    if self._is_adc_floating(channel):
                         voltage = 0.0
                     else:
+                        adc_value = self.adc.read_channel(channel)
                         voltage = self.adc.convert_to_voltage(adc_value) * 10
+                    
                     response = f"NODE_{node_id}_VOLTAGE:{voltage:.2f}"
                     with self._callback_lock:
                         callback = self.host_callback
@@ -405,12 +452,14 @@ class CommandProcessor:
                     if not self._ensure_adc_ready():
                         return "READ_NODE_CURRENT_FAILED: ADC not initialized"
                     channel = node_id + 4
-                    adc_value = self.adc.read_channel(channel)
-                    # If ADC value is very low (unconnected), return 0
-                    if adc_value <= 5:
+                    
+                    # Check if channel is floating (unconnected)
+                    if self._is_adc_floating(channel):
                         current = 0.0
                     else:
+                        adc_value = self.adc.read_channel(channel)
                         current = (adc_value / 1023.0) * 5.0
+                    
                     response = f"NODE_{node_id}_CURRENT:{current:.3f}"
                     with self._callback_lock:
                         callback = self.host_callback
