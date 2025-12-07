@@ -19,6 +19,12 @@ from gpio_handler import GPIOHandler
 from adc import MCP3008ADC
 from logging_setup import setup_logging, get_logger
 
+PRESSURE_SENSOR_CHANNELS = {
+    1: {"channel": 0, "name": "TC Gauge 1", "label": "TC1", "min_pressure_mtorr": 50.0, "max_pressure_torr": 760.0},
+    2: {"channel": 1, "name": "TC Gauge 2", "label": "TC2", "min_pressure_mtorr": 50.0, "max_pressure_torr": 760.0},
+    3: {"channel": 2, "name": "Manometer 1", "label": "M1", "min_pressure_mtorr": 0.1, "max_pressure_torr": 760.0},
+}
+
 # Setup logging first
 setup_logging()
 logger = get_logger("TargetMain")
@@ -50,10 +56,11 @@ class TargetSystem:
                 logger.info("Initializing ADC (MCP3008) via SPI...")
                 adc = MCP3008ADC()
                 if not adc.initialize():
-                    logger.warning("ADC initialization failed - continuing without ADC")
+                    logger.error("ADC initialization/verification failed - continuing without ADC")
+                    logger.error("Check SPI connection, wiring, and that MCP3008 is powered")
                     adc = None
                 else:
-                    logger.info("ADC initialized successfully")
+                    logger.info("ADC initialized and verified successfully")
             except Exception as e:
                 logger.warning(f"ADC setup error: {e} - continuing without ADC")
                 adc = None
@@ -97,7 +104,7 @@ class TargetSystem:
         self.adc_readings_buffers = [[] for _ in range(8)]
         self.adc_last_reported_values = [None] * 8
         self.adc_noise_threshold = 0
-        self.adc_floating_threshold = 50
+        self.adc_floating_threshold = 200
 
         self._adc_lock = threading.Lock()
         self._running_lock = threading.Lock()
@@ -141,8 +148,10 @@ class TargetSystem:
                 if adc.is_initialized():
                     try:
                         all_adc_values = adc.read_all_channels()
+                        logger.debug(f"Raw ADC values from read_all_channels(): {all_adc_values}")
                         
                         if len(all_adc_values) < 8:
+                            logger.warning(f"ADC returned only {len(all_adc_values)} values, padding with zeros")
                             all_adc_values.extend([0] * (8 - len(all_adc_values)))
                         
                         with self._adc_lock:
@@ -154,34 +163,59 @@ class TargetSystem:
                                 if len(self.adc_readings_buffers[channel]) > self.adc_filter_size:
                                     self.adc_readings_buffers[channel].pop(0)
                                 
-                                if channel < 3 and len(self.adc_readings_buffers[channel]) >= 3:
+                                filtered_value = raw_value
+                                if len(self.adc_readings_buffers[channel]) >= 3:
                                     filtered_value = int(
                                         sum(self.adc_readings_buffers[channel])
                                         / len(self.adc_readings_buffers[channel])
                                     )
-                                    
-                                    variance = sum(
-                                        (x - filtered_value) ** 2 
-                                        for x in self.adc_readings_buffers[channel]
-                                    ) / len(self.adc_readings_buffers[channel])
-                                    std_dev = variance ** 0.5
-                                    is_floating = std_dev > self.adc_floating_threshold
-                                    
-                                    if is_floating:
-                                        data_parts.append(f"ADC_CH{channel}:FLOATING")
-                                        adc_value_list.append("FLOATING")
-                                    else:
-                                        data_parts.append(f"ADC_CH{channel}:{raw_value}")
-                                        adc_value_list.append(str(raw_value))
-                                else:
-                                    data_parts.append(f"ADC_CH{channel}:{raw_value}")
-                                    adc_value_list.append(str(raw_value))
                                 
-                                self.adc_last_reported_values[channel] = raw_value
+                                if channel >= 3:
+                                    if filtered_value <= 5:
+                                        data_parts.append(f"ADC_CH{channel}:UNUSED")
+                                        adc_value_list.append("UNUSED")
+                                    else:
+                                        data_parts.append(f"ADC_CH{channel}:{filtered_value}")
+                                        adc_value_list.append(str(filtered_value))
+                                else:
+                                    data_parts.append(f"ADC_CH{channel}:{filtered_value}")
+                                    adc_value_list.append(str(filtered_value))
+                                
+                                self.adc_last_reported_values[channel] = filtered_value
                             
                             data_parts.append(f"ADC_DATA:{','.join(adc_value_list)}")
+                            
+                            for sensor_id, sensor_info in PRESSURE_SENSOR_CHANNELS.items():
+                                channel = sensor_info["channel"]
+                                if channel < len(all_adc_values):
+                                    adc_value = all_adc_values[channel]
+                                    
+                                    if len(self.adc_readings_buffers[channel]) >= 3:
+                                        filtered_adc = int(
+                                            sum(self.adc_readings_buffers[channel])
+                                            / len(self.adc_readings_buffers[channel])
+                                        )
+                                    else:
+                                        filtered_adc = adc_value
+                                    
+                                    voltage = (filtered_adc / 1023.0) * 5.0
+                                    min_pressure_mtorr = sensor_info["min_pressure_mtorr"]
+                                    max_pressure_torr = sensor_info["max_pressure_torr"]
+                                    max_pressure_mtorr = max_pressure_torr * 1000.0
+                                    pressure_mtorr = min_pressure_mtorr + (voltage / 5.0) * (max_pressure_mtorr - min_pressure_mtorr)
+                                    
+                                    if pressure_mtorr >= 1000.0:
+                                        pressure_formatted = f"{pressure_mtorr / 1000.0:.3f} Torr"
+                                    else:
+                                        pressure_formatted = f"{pressure_mtorr:.2f} mTorr"
+                                    
+                                    sensor_label = sensor_info["label"]
+                                    sensor_name = sensor_info["name"]
+                                    data_parts.append(f"PRESSURE_SENSOR_{sensor_id}_VALUE:{pressure_mtorr:.3f}|{sensor_label}|{sensor_name}|{pressure_formatted}")
+                            
+                            logger.debug(f"Sending ADC data packet with {len([p for p in data_parts if p.startswith('ADC_CH')])} channels")
                     except Exception as e:
-                        logger.warning(f"Error reading ADC channels: {e}")
+                        logger.error(f"Error reading ADC channels: {e}", exc_info=True)
                         for channel in range(8):
                             data_parts.append(f"ADC_CH{channel}:ERROR")
                 else:

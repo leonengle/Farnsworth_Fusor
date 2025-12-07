@@ -79,6 +79,14 @@ class MCP3008ADC(ADCInterface):
             with self._init_lock:
                 self._is_initialized = True
             logger.info("MCP3008 ADC initialized successfully")
+            
+            if not self.verify_connection():
+                logger.error("ADC initialization succeeded but verification failed")
+                logger.error("ADC may not be properly connected or responding")
+                with self._init_lock:
+                    self._is_initialized = False
+                return False
+            
             return True
         except PermissionError as e:
             logger.error(f"ADC permission error: {e}")
@@ -95,6 +103,46 @@ class MCP3008ADC(ADCInterface):
     def is_initialized(self) -> bool:
         with self._init_lock:
             return self._is_initialized
+
+    def verify_connection(self) -> bool:
+        """
+        Verify that the MCP3008 ADC is actually responding and can read data.
+        Attempts to read all 8 channels and checks for valid responses.
+        Returns True if the ADC is working, False otherwise.
+        """
+        with self._init_lock:
+            if not self._is_initialized:
+                logger.error("ADC verification attempted before initialization")
+                return False
+
+        try:
+            logger.info("Verifying MCP3008 ADC connection...")
+            test_reads = []
+            with self._mcp_lock:
+                for channel in range(8):
+                    try:
+                        value = self.mcp.read_adc(channel)
+                        test_reads.append((channel, value))
+                        logger.info(f"  Channel {channel}: {value}")
+                    except Exception as e:
+                        logger.error(f"  Channel {channel} read failed: {e}")
+                        return False
+
+            if len(test_reads) != 8:
+                logger.error("ADC verification failed: Could not read all 8 channels")
+                return False
+
+            all_valid = all(0 <= val <= 1023 for _, val in test_reads)
+            if not all_valid:
+                logger.error("ADC verification failed: Some values out of range (0-1023)")
+                return False
+
+            logger.info("MCP3008 ADC connection verified successfully - all channels responding")
+            return True
+
+        except Exception as e:
+            logger.error(f"ADC verification error: {e}", exc_info=True)
+            return False
 
     # ---------- Core reading helpers ----------
 
@@ -124,7 +172,7 @@ class MCP3008ADC(ADCInterface):
             logger.debug(f"ADC read: ch{channel} -> {value}")
             return value
         except Exception as e:
-            logger.error(f"Error reading ADC channel {channel}: {e}")
+            logger.error(f"Error reading ADC channel {channel}: {e}", exc_info=True)
             return 0
 
     def read_multiple_channels(self, channels: List[int]) -> List[int]:
