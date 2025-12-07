@@ -142,42 +142,38 @@ class TargetSystem:
                     try:
                         all_adc_values = adc.read_all_channels()
                         
+                        if len(all_adc_values) < 8:
+                            all_adc_values.extend([0] * (8 - len(all_adc_values)))
+                        
                         with self._adc_lock:
                             for channel in range(8):
-                                if channel < len(all_adc_values):
-                                    raw_value = all_adc_values[channel]
+                                raw_value = all_adc_values[channel]
+                                
+                                self.adc_readings_buffers[channel].append(raw_value)
+                                if len(self.adc_readings_buffers[channel]) > self.adc_filter_size:
+                                    self.adc_readings_buffers[channel].pop(0)
+                                
+                                if channel < 3 and len(self.adc_readings_buffers[channel]) >= 3:
+                                    filtered_value = int(
+                                        sum(self.adc_readings_buffers[channel])
+                                        / len(self.adc_readings_buffers[channel])
+                                    )
                                     
-                                    self.adc_readings_buffers[channel].append(raw_value)
-                                    if len(self.adc_readings_buffers[channel]) > self.adc_filter_size:
-                                        self.adc_readings_buffers[channel].pop(0)
-                                    
-                                    if len(self.adc_readings_buffers[channel]) >= 3:
-                                        filtered_value = int(
-                                            sum(self.adc_readings_buffers[channel])
-                                            / len(self.adc_readings_buffers[channel])
-                                        )
-                                        
-                                        if channel < 3:
-                                            variance = sum(
-                                                (x - filtered_value) ** 2 
-                                                for x in self.adc_readings_buffers[channel]
-                                            ) / len(self.adc_readings_buffers[channel])
-                                            std_dev = variance ** 0.5
-                                            is_floating = std_dev > self.adc_floating_threshold
-                                        else:
-                                            is_floating = False
-                                    else:
-                                        filtered_value = raw_value
-                                        is_floating = False
+                                    variance = sum(
+                                        (x - filtered_value) ** 2 
+                                        for x in self.adc_readings_buffers[channel]
+                                    ) / len(self.adc_readings_buffers[channel])
+                                    std_dev = variance ** 0.5
+                                    is_floating = std_dev > self.adc_floating_threshold
                                     
                                     if is_floating:
                                         data_parts.append(f"ADC_CH{channel}:FLOATING")
                                     else:
-                                        data_parts.append(f"ADC_CH{channel}:{filtered_value}")
-                                    
-                                    self.adc_last_reported_values[channel] = filtered_value
+                                        data_parts.append(f"ADC_CH{channel}:{raw_value}")
                                 else:
-                                    data_parts.append(f"ADC_CH{channel}:ERROR")
+                                    data_parts.append(f"ADC_CH{channel}:{raw_value}")
+                                
+                                self.adc_last_reported_values[channel] = raw_value
                     except Exception as e:
                         logger.warning(f"Error reading ADC channels: {e}")
                         for channel in range(8):
