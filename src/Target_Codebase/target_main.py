@@ -93,10 +93,11 @@ class TargetSystem:
 
         self.running = False
 
-        self.adc_filter_size = 3
+        self.adc_filter_size = 10
         self.adc_readings_buffer = []
         self.adc_last_reported_value = None
         self.adc_noise_threshold = 0
+        self.adc_floating_threshold = 50
 
         self._adc_lock = threading.Lock()
         self._running_lock = threading.Lock()
@@ -149,20 +150,32 @@ class TargetSystem:
                             if len(self.adc_readings_buffer) > self.adc_filter_size:
                                 self.adc_readings_buffer.pop(0)
 
-                            if len(self.adc_readings_buffer) >= 2:
+                            if len(self.adc_readings_buffer) >= 3:
                                 filtered_value = int(
                                     sum(self.adc_readings_buffer)
                                     / len(self.adc_readings_buffer)
                                 )
+                                
+                                variance = sum(
+                                    (x - filtered_value) ** 2 
+                                    for x in self.adc_readings_buffer
+                                ) / len(self.adc_readings_buffer)
+                                std_dev = variance ** 0.5
+                                
+                                is_floating = std_dev > self.adc_floating_threshold
                             else:
                                 filtered_value = raw_value
+                                is_floating = False
 
                             if (
                                 self.adc_last_reported_value is None
                                 or filtered_value != self.adc_last_reported_value
                             ):
                                 data_parts.append(f"TIME:{timestamp}")
-                                data_parts.append(f"ADC_CH0:{filtered_value}")
+                                if is_floating:
+                                    data_parts.append("ADC_CH0:FLOATING")
+                                else:
+                                    data_parts.append(f"ADC_CH0:{filtered_value}")
                                 self.adc_last_reported_value = filtered_value
                                 has_changes = True
                     except Exception as e:

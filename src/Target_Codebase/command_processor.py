@@ -53,34 +53,16 @@ class CommandProcessor:
         return VALVE_ANALOG_LABELS.get(valve_id, f"VALVE_{valve_id}")
 
     def _convert_adc_to_voltage(self, adc_value: int, reference_voltage: float = 5.0) -> float:
-        """Convert ADC value (0-1023) to voltage (0-5V)."""
         return (adc_value / 1023.0) * reference_voltage
 
     def _convert_voltage_to_pressure(
         self, voltage: float, min_pressure_mtorr: float, max_pressure_torr: float
     ) -> float:
-        """
-        Convert voltage (0-5V) to pressure in mTorr.
-        
-        Args:
-            voltage: Voltage value (0-5V)
-            min_pressure_mtorr: Minimum pressure in mTorr (at 0V)
-            max_pressure_torr: Maximum pressure in Torr (at 5V)
-        
-        Returns:
-            Pressure in mTorr
-        """
         max_pressure_mtorr = max_pressure_torr * 1000.0  # Convert Torr to mTorr
         pressure_mtorr = min_pressure_mtorr + (voltage / 5.0) * (max_pressure_mtorr - min_pressure_mtorr)
         return pressure_mtorr
 
     def _format_pressure(self, pressure_mtorr: float) -> str:
-        """
-        Format pressure value, using Torr for values >= 1 Torr, mTorr otherwise.
-        
-        Returns:
-            Formatted string with appropriate units
-        """
         if pressure_mtorr >= 1000.0:
             pressure_torr = pressure_mtorr / 1000.0
             return f"{pressure_torr:.3f} Torr"
@@ -117,7 +99,7 @@ class CommandProcessor:
             self._send_status_update(f"[ERROR] {error_msg}")
             return False, None, error_msg
         
-        motor_degree = self.bundled_interface.validator.map_percentage_to_degree(percentage)
+        motor_degree = self.bundled_interface.validator.map_percentage_to_degree(percentage, motor_id)
         component_name = f"MOTOR_{motor_id}"
         
         is_valid, error = self.bundled_interface.validator.validate_motor_degree_object(component_name, motor_degree)
@@ -340,38 +322,6 @@ class CommandProcessor:
                     self.bundled_interface.send_motor_object(i, 0.0)
                 
                 return "EMERGENCY_SHUTOFF_SUCCESS"
-
-            elif command == "READ_POWER_SUPPLY_VOLTAGE":
-                if not self.adc or not self.adc.is_initialized():
-                    return "READ_POWER_SUPPLY_VOLTAGE_FAILED: ADC not initialized"
-                try:
-                    adc_value = self.adc.read_channel(0)
-                    voltage = self.adc.convert_to_voltage(adc_value) * 10
-                    response = f"POWER_SUPPLY_VOLTAGE:{voltage:.2f}"
-                    with self._callback_lock:
-                        callback = self.host_callback
-                    if callback:
-                        callback(response)
-                    return response
-                except Exception as e:
-                    logger.error(f"Error reading power supply voltage: {e}")
-                    return f"READ_POWER_SUPPLY_VOLTAGE_FAILED: {e}"
-
-            elif command == "READ_POWER_SUPPLY_CURRENT":
-                if not self.adc or not self.adc.is_initialized():
-                    return "READ_POWER_SUPPLY_CURRENT_FAILED: ADC not initialized"
-                try:
-                    adc_value = self.adc.read_channel(1)
-                    current = (adc_value / 1023.0) * 5.0
-                    response = f"POWER_SUPPLY_CURRENT:{current:.3f}"
-                    with self._callback_lock:
-                        callback = self.host_callback
-                    if callback:
-                        callback(response)
-                    return response
-                except Exception as e:
-                    logger.error(f"Error reading power supply current: {e}")
-                    return f"READ_POWER_SUPPLY_CURRENT_FAILED: {e}"
 
             elif command.startswith("READ_PRESSURE_SENSOR:"):
                 try:

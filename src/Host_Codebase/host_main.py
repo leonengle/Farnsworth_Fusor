@@ -1173,13 +1173,14 @@ class FusorHostApp:
 
         def _do_update():
             try:
+                display_value = "FLOATING (No sensor connected)" if str(value).upper() == "FLOATING" else value
                 if hasattr(self, "adc_ch0_label") and self.adc_ch0_label:
                     self.adc_ch0_label.configure(
-                        text=f"ADC CH0 [TC Gauge 1]: {value}"
+                        text=f"ADC CH0 [TC Gauge 1]: {display_value}"
                     )
                 if hasattr(self, "adc_label") and self.adc_label:
                     self.adc_label.configure(
-                        text=f"ADC CH0 [TC Gauge 1]: {value}"
+                        text=f"ADC CH0 [TC Gauge 1]: {display_value}"
                     )
             except Exception:
                 pass
@@ -1221,8 +1222,10 @@ class FusorHostApp:
                                 label_text = channel_labels.get(
                                     channel, f"ADC CH{channel}"
                                 )
+                                channel_value = adc_data[channel]
+                                display_value = "FLOATING (No sensor connected)" if str(channel_value).upper() == "FLOATING" else channel_value
                                 label.configure(
-                                    text=f"{label_text}: {adc_data[channel]}"
+                                    text=f"{label_text}: {display_value}"
                                 )
             except Exception:
                 pass
@@ -1449,15 +1452,21 @@ class FusorHostApp:
                     # For numeric values (like ADC_CH0), compare as numbers to handle string/int differences
                     try:
                         if key.startswith("ADC_CH") or key == "Pressure_Sensor_1":
-                            value_num = float(value) if value else None
-                            prev_value_num = float(prev_value) if prev_value else None
-                            if (
-                                prev_value_num is None
-                                or abs(value_num - prev_value_num) >= 5.0
-                            ):  # At least 5 unit change (noise filtering)
-                                values_changed = True
-                                changed_items.append(f"{key}={value}")
-                                self.previous_values[key] = value
+                            if str(value).upper() == "FLOATING":
+                                if prev_value != value:
+                                    values_changed = True
+                                    changed_items.append(f"{key}={value}")
+                                    self.previous_values[key] = value
+                            else:
+                                value_num = float(value) if value else None
+                                prev_value_num = float(prev_value) if prev_value else None
+                                if (
+                                    prev_value_num is None
+                                    or abs(value_num - prev_value_num) >= 5.0
+                                ):  # At least 5 unit change (noise filtering)
+                                    values_changed = True
+                                    changed_items.append(f"{key}={value}")
+                                    self.previous_values[key] = value
                         else:
                             # String comparison for non-numeric values
                             if prev_value != value:

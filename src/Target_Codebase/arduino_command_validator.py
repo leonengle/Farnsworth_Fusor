@@ -11,6 +11,7 @@ class ArduinoCommandValidator:
     MAX_MOTOR_STEPS = 10000
     MIN_MOTOR_DEGREE = 0.0
     MAX_MOTOR_DEGREE = 360.0
+    VARIAC_MAX_DEGREE = 300.0
     MIN_MOTOR_SPEED = 0.0
     MAX_MOTOR_SPEED = 100.0
     VALID_DIRECTIONS = ["FORWARD", "BACKWARD", "REVERSE"]
@@ -47,33 +48,17 @@ class ArduinoCommandValidator:
         logger.info("Arduino Command Validator initialized")
 
     @staticmethod
-    def map_percentage_to_degree(percentage: float) -> float:
-        """
-        Maps percentage (0-100) or power level (0-100) to motor degree (0-360).
-
-        Args:
-            percentage: Value between 0 and 100 (slider percentage or power level)
-
-        Returns:
-            Motor degree value between 0 and 360
-        """
+    def map_percentage_to_degree(percentage: float, motor_id: Optional[int] = None) -> float:
         percentage = max(0.0, min(100.0, float(percentage)))
-        degree = (percentage / 100.0) * 360.0
+        if motor_id == 5:
+            degree = (percentage / 100.0) * 300.0
+        else:
+            degree = (percentage / 100.0) * 360.0
         return round(degree, 2)
 
     def validate_motor_degree_object(
         self, component_name: str, motor_degree: float
     ) -> Tuple[bool, Optional[str]]:
-        """
-        Validates a motor command object with component_name and motor_degree.
-
-        Args:
-            component_name: Name of the motor component (e.g., "MOTOR_1", "MOTOR_2")
-            motor_degree: Motor degree value (0-360)
-
-        Returns:
-            Tuple of (is_valid, error_message)
-        """
         if not component_name or not isinstance(component_name, str):
             return False, "Component name must be a non-empty string"
 
@@ -93,13 +78,14 @@ class ArduinoCommandValidator:
 
             try:
                 degree_float = float(motor_degree)
+                max_degree = self.VARIAC_MAX_DEGREE if motor_id == 5 else self.MAX_MOTOR_DEGREE
                 if (
                     degree_float < self.MIN_MOTOR_DEGREE
-                    or degree_float > self.MAX_MOTOR_DEGREE
+                    or degree_float > max_degree
                 ):
                     return (
                         False,
-                        f"Motor degree out of range: {degree_float} (must be {self.MIN_MOTOR_DEGREE} to {self.MAX_MOTOR_DEGREE})",
+                        f"Motor degree out of range: {degree_float} (must be {self.MIN_MOTOR_DEGREE} to {max_degree})",
                     )
 
                 return True, None
