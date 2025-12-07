@@ -48,11 +48,29 @@ class UDPClientObject:
                     sensor_id = int(sensor_id_match)
                     sensor_key = f"pressure_sensor_{sensor_id}"
                     
-                    # Parse the value part: 123.456|TC1|TC Gauge 1|123.46 mTorr
+                    # Parse the value part: 123.456|TC1|TC Gauge 1|0.050000 Torr
                     value_part = data.split("_VALUE:")[1]
                     parts = value_part.split("|")
                     pressure_value = float(parts[0])  # First part is numeric value in mTorr
-                    formatted_value = parts[-1] if len(parts) > 3 else parts[0]  # Last part is formatted string
+                    
+                    # Get formatted value (last part should have units)
+                    if len(parts) >= 4:
+                        formatted_value = parts[3]  # Last part is formatted string with units
+                    elif len(parts) >= 1:
+                        # Fallback: convert mTorr to Torr and add units
+                        pressure_torr = pressure_value / 1000.0
+                        formatted_value = f"{pressure_torr:.6f} Torr"
+                    else:
+                        formatted_value = "---"
+                    
+                    # Ensure units are present
+                    if "Torr" not in formatted_value and "mTorr" not in formatted_value and formatted_value != "---":
+                        # If no units found, assume it's in mTorr and convert to Torr
+                        try:
+                            pressure_torr = float(formatted_value) / 1000.0
+                            formatted_value = f"{pressure_torr:.6f} Torr"
+                        except (ValueError, TypeError):
+                            formatted_value = f"{pressure_value / 1000.0:.6f} Torr"
                     
                     with self._registry_lock:
                         sensor = self.sensor_registry.get(sensor_key)

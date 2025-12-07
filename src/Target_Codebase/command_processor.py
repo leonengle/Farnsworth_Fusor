@@ -63,11 +63,8 @@ class CommandProcessor:
         return pressure_mtorr
 
     def _format_pressure(self, pressure_mtorr: float) -> str:
-        if pressure_mtorr >= 1000.0:
-            pressure_torr = pressure_mtorr / 1000.0
-            return f"{pressure_torr:.3f} Torr"
-        else:
-            return f"{pressure_mtorr:.2f} mTorr"
+        pressure_torr = pressure_mtorr / 1000.0
+        return f"{pressure_torr:.6f} Torr"
 
     def _send_status_update(self, message: str):
         with self._callback_lock:

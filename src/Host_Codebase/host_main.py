@@ -1009,6 +1009,30 @@ class FusorHostApp:
                 except Exception as e:
                     logger.warning(f"Error processing ADC response: {e}")
 
+            # Process voltage responses
+            if response and "NODE_" in response and "_VOLTAGE:" in response:
+                try:
+                    parts = response.split(":")
+                    if len(parts) >= 2:
+                        node_part = parts[0].replace("NODE_", "").replace("_VOLTAGE", "")
+                        node_id = int(node_part)
+                        voltage = float(parts[1])
+                        self._update_voltage_display(node_id, voltage)
+                except (ValueError, IndexError) as e:
+                    logger.warning(f"Error parsing voltage response: {e}")
+
+            # Process current responses
+            if response and "NODE_" in response and "_CURRENT:" in response:
+                try:
+                    parts = response.split(":")
+                    if len(parts) >= 2:
+                        node_part = parts[0].replace("NODE_", "").replace("_CURRENT", "")
+                        node_id = int(node_part)
+                        current = float(parts[1])
+                        self._update_current_display(node_id, current)
+                except (ValueError, IndexError) as e:
+                    logger.warning(f"Error parsing current response: {e}")
+
             # Display response
             if response:
                 # Check for success/failure in response
@@ -1185,6 +1209,53 @@ class FusorHostApp:
         else:
             self._update_status(f"Valve {valve_name} not found", "red")
             self._update_data_display(f"[ERROR] Valve {valve_name} not found")
+
+    def _update_voltage_display(self, node_id: int, voltage: float):
+        if not self.root:
+            return
+
+        def _do_update():
+            try:
+                if node_id == 1:
+                    if hasattr(self, "rectifier_voltage_label") and self.rectifier_voltage_label:
+                        self.rectifier_voltage_label.configure(
+                            text=f"Rectifier: {voltage:.2f} V"
+                        )
+                elif node_id == 2:
+                    if hasattr(self, "transformer_voltage_label") and self.transformer_voltage_label:
+                        self.transformer_voltage_label.configure(
+                            text=f"Transformer: {voltage:.2f} V"
+                        )
+                elif node_id == 3:
+                    if hasattr(self, "vmultiplier_voltage_label") and self.vmultiplier_voltage_label:
+                        self.vmultiplier_voltage_label.configure(
+                            text=f"V-Multiplier: {voltage:.2f} V"
+                        )
+            except Exception:
+                pass
+
+        self._schedule_gui_update(_do_update)
+
+    def _update_current_display(self, node_id: int, current: float):
+        if not self.root:
+            return
+
+        def _do_update():
+            try:
+                if node_id == 1:
+                    if hasattr(self, "rectifier_current_label") and self.rectifier_current_label:
+                        self.rectifier_current_label.configure(
+                            text=f"Rectifier: {current:.3f} A"
+                        )
+                elif node_id == 3:
+                    if hasattr(self, "vmultiplier_current_label") and self.vmultiplier_current_label:
+                        self.vmultiplier_current_label.configure(
+                            text=f"V-Multiplier: {current:.3f} A"
+                        )
+            except Exception:
+                pass
+
+        self._schedule_gui_update(_do_update)
 
     def _update_pressure_display(self, sensor_id: int, value):
         if not self.root:
@@ -1478,7 +1549,10 @@ class FusorHostApp:
             self._update_data_display("[ERROR] Steps must be a number")
 
     def _handle_udp_data(self, data: str):
-        self._update_data_display(f"[UDP Data] {data}")
+        # Filter out ADC data from logging section
+        has_adc_data = any(f"ADC_CH{ch}:" in data for ch in range(8)) or "ADC_DATA:" in data
+        if not has_adc_data:
+            self._update_data_display(f"[UDP Data] {data}")
         parsed = self._parse_periodic_packet(data)
         
         # Debug: Log ADC channel data if present
@@ -1508,14 +1582,19 @@ class FusorHostApp:
                     
                     prev_value = self.previous_values.get(key)
                     
-                    # For numeric values (like ADC_CH0), compare as numbers to handle string/int differences
+                    # Track ADC values for display but don't include in logging
+                    is_adc_field = key.startswith("ADC_CH") or key == "ADC_DATA"
+                    
+                    # For numeric values (like ADC_CH0, Pressure_Sensor_1), compare as numbers
                     try:
                         if key.startswith("ADC_CH") or key == "Pressure_Sensor_1":
                             if str(value).upper() == "FLOATING":
                                 if prev_value != value:
-                                    values_changed = True
-                                    changed_items.append(f"{key}={value}")
                                     self.previous_values[key] = value
+                                    # Don't add ADC fields to changed_items for logging
+                                    if not is_adc_field:
+                                        values_changed = True
+                                        changed_items.append(f"{key}={value}")
                             else:
                                 value_num = float(value) if value else None
                                 prev_value_num = float(prev_value) if prev_value else None
@@ -1523,20 +1602,26 @@ class FusorHostApp:
                                     prev_value_num is None
                                     or abs(value_num - prev_value_num) >= 5.0
                                 ):  # At least 5 unit change (noise filtering)
-                                    values_changed = True
-                                    changed_items.append(f"{key}={value}")
                                     self.previous_values[key] = value
+                                    # Don't add ADC fields to changed_items for logging
+                                    if not is_adc_field:
+                                        values_changed = True
+                                        changed_items.append(f"{key}={value}")
                         else:
                             # String comparison for non-numeric values
                             if prev_value != value:
-                                values_changed = True
-                                changed_items.append(f"{key}={value}")
                                 self.previous_values[key] = value
+                                # Don't add ADC fields to changed_items for logging
+                                if not is_adc_field:
+                                    values_changed = True
+                                    changed_items.append(f"{key}={value}")
                             elif key not in self.previous_values:
                                 # First time seeing this value
-                                values_changed = True
-                                changed_items.append(f"{key}={value}")
                                 self.previous_values[key] = value
+                                # Don't add ADC fields to changed_items for logging
+                                if not is_adc_field:
+                                    values_changed = True
+                                    changed_items.append(f"{key}={value}")
                     except (ValueError, TypeError):
                         # Fallback to string comparison if conversion fails
                         if prev_value != value:
@@ -1608,22 +1693,27 @@ class FusorHostApp:
             
             if values_changed or has_error:
                 if changed_items:
-                    summary = ", ".join(changed_items)
-                    if has_error:
-                        summary += " [ERROR DETECTED]"
-                    self._update_target_logs(f"[UDP Data] {summary}")
-                    self._log_terminal_update("TARGET_DATA", summary)
+                    # Filter out ADC-related items from logging
+                    filtered_items = [item for item in changed_items if not item.startswith("ADC_CH") and not item.startswith("ADC_DATA")]
+                    if filtered_items:
+                        summary = ", ".join(filtered_items)
+                        if has_error:
+                            summary += " [ERROR DETECTED]"
+                        self._update_target_logs(f"[UDP Data] {summary}")
+                        self._log_terminal_update("TARGET_DATA", summary)
                 elif has_error:
                     summary = ", ".join(
                         f"{k}={v}"
                         for k, v in parsed.items()
-                        if "ERROR" in str(v).upper()
+                        if not k.startswith("ADC_CH") and not k.startswith("ADC_DATA")
+                        and ("ERROR" in str(v).upper()
                         or "NOT_AVAILABLE" in str(v).upper()
                         or "NOT_INITIALIZED" in str(v).upper()
-                        or "DISCONNECTED" in str(v).upper()
+                        or "DISCONNECTED" in str(v).upper())
                     )
-                    self._update_target_logs(f"[UDP Data] {summary}")
-                    self._log_terminal_update("TARGET_ERROR", summary)
+                    if summary:
+                        self._update_target_logs(f"[UDP Data] {summary}")
+                        self._log_terminal_update("TARGET_ERROR", summary)
         else:
             if has_error or "ERROR" in data.upper():
                 self._update_target_logs(f"[UDP Data] {data}")
@@ -1820,7 +1910,7 @@ class FusorHostApp:
 
         self.data_reading_window = ctk.CTkToplevel(self.root)
         self.data_reading_window.title("Sensor Data Readouts")
-        self.data_reading_window.geometry("800x600")
+        self.data_reading_window.geometry("800x700")
 
         data_reading_container = ctk.CTkFrame(self.data_reading_window)
         data_reading_container.pack(fill="both", expand=True, padx=10, pady=10)
@@ -1832,12 +1922,91 @@ class FusorHostApp:
         )
         data_reading_title.pack(pady=10)
 
+        # Voltage Reading Section
+        voltage_readout_frame = ctk.CTkFrame(data_reading_container)
+        voltage_readout_frame.pack(fill="x", padx=5, pady=8)
+
+        voltage_readout_label = ctk.CTkLabel(
+            voltage_readout_frame,
+            text="Voltage Reading",
+            font=ctk.CTkFont(size=14, weight="bold"),
+        )
+        voltage_readout_label.pack(pady=8)
+
+        voltage_row1 = ctk.CTkFrame(voltage_readout_frame)
+        voltage_row1.pack(fill="x", padx=5, pady=5)
+
+        self.rectifier_voltage_label = ctk.CTkLabel(
+            voltage_row1,
+            text="Rectifier: --- V",
+            font=ctk.CTkFont(size=13),
+            anchor="w",
+            width=250,
+            height=30,
+        )
+        self.rectifier_voltage_label.pack(side="left", padx=8, pady=3)
+
+        self.transformer_voltage_label = ctk.CTkLabel(
+            voltage_row1,
+            text="Transformer: --- V",
+            font=ctk.CTkFont(size=13),
+            anchor="w",
+            width=250,
+            height=30,
+        )
+        self.transformer_voltage_label.pack(side="left", padx=8, pady=3)
+
+        self.vmultiplier_voltage_label = ctk.CTkLabel(
+            voltage_row1,
+            text="V-Multiplier: --- V",
+            font=ctk.CTkFont(size=13),
+            anchor="w",
+            width=250,
+            height=30,
+        )
+        self.vmultiplier_voltage_label.pack(side="left", padx=8, pady=3)
+
+        # Current Reading Section
+        current_readout_frame = ctk.CTkFrame(data_reading_container)
+        current_readout_frame.pack(fill="x", padx=5, pady=8)
+
+        current_readout_label = ctk.CTkLabel(
+            current_readout_frame,
+            text="Current Reading",
+            font=ctk.CTkFont(size=14, weight="bold"),
+        )
+        current_readout_label.pack(pady=8)
+
+        current_row1 = ctk.CTkFrame(current_readout_frame)
+        current_row1.pack(fill="x", padx=5, pady=5)
+
+        self.rectifier_current_label = ctk.CTkLabel(
+            current_row1,
+            text="Rectifier: --- A",
+            font=ctk.CTkFont(size=13),
+            anchor="w",
+            width=250,
+            height=30,
+        )
+        self.rectifier_current_label.pack(side="left", padx=8, pady=3)
+
+        self.vmultiplier_current_label = ctk.CTkLabel(
+            current_row1,
+            text="V-Multiplier: --- A",
+            font=ctk.CTkFont(size=13),
+            anchor="w",
+            width=250,
+            height=30,
+        )
+        self.vmultiplier_current_label.pack(side="left", padx=8, pady=3)
+
+        # Pressure Reading Section
         pressure_readout_frame = ctk.CTkFrame(data_reading_container)
         pressure_readout_frame.pack(fill="x", padx=5, pady=8)
 
         pressure_readout_label = ctk.CTkLabel(
             pressure_readout_frame,
-            text="Pressure Sensor Readouts",
+            text="Pressure Reading",
             font=ctk.CTkFont(size=14, weight="bold"),
         )
         pressure_readout_label.pack(pady=8)
@@ -1883,111 +2052,15 @@ class FusorHostApp:
 
         self.pressure_label = self.pressure_display1
 
-        adc_readout_frame = ctk.CTkFrame(data_reading_container)
-        adc_readout_frame.pack(fill="x", padx=5, pady=8)
-
-        adc_readout_label = ctk.CTkLabel(
-            adc_readout_frame,
-            text="ADC Channel Readouts",
-            font=ctk.CTkFont(size=14, weight="bold"),
-        )
-        adc_readout_label.pack(pady=8)
-
-        adc_row1 = ctk.CTkFrame(adc_readout_frame)
-        adc_row1.pack(fill="x", padx=5, pady=5)
-
-        self.adc_ch0_label = ctk.CTkLabel(
-            adc_row1,
-            text="ADC CH0 [TC Gauge 1]: ---",
-            font=ctk.CTkFont(size=13),
-            anchor="w",
-            width=280,
-            height=30,
-        )
-        self.adc_ch0_label.pack(side="left", padx=8, pady=3)
-
-        adc_row2 = ctk.CTkFrame(adc_readout_frame)
-        adc_row2.pack(fill="x", padx=5, pady=5)
-
-        self.adc_ch1_label = ctk.CTkLabel(
-            adc_row2,
-            text="ADC CH1 [TC Gauge 2]: ---",
-            font=ctk.CTkFont(size=13),
-            anchor="w",
-            width=250,
-            height=30,
-        )
-        self.adc_ch1_label.pack(side="left", padx=8, pady=3)
-
-        self.adc_ch2_label = ctk.CTkLabel(
-            adc_row2,
-            text="ADC CH2 [Manometer 1]: ---",
-            font=ctk.CTkFont(size=13),
-            anchor="w",
-            width=250,
-            height=30,
-        )
-        self.adc_ch2_label.pack(side="left", padx=8, pady=3)
-
-        self.adc_ch3_label = ctk.CTkLabel(
-            adc_row2,
-            text="ADC CH3: ---",
-            font=ctk.CTkFont(size=13),
-            anchor="w",
-            width=180,
-            height=30,
-        )
-        self.adc_ch3_label.pack(side="left", padx=8, pady=3)
-
-        adc_row3 = ctk.CTkFrame(adc_readout_frame)
-        adc_row3.pack(fill="x", padx=5, pady=5)
-
-        self.adc_ch4_label = ctk.CTkLabel(
-            adc_row3,
-            text="ADC CH4: ---",
-            font=ctk.CTkFont(size=13),
-            anchor="w",
-            width=180,
-            height=30,
-        )
-        self.adc_ch4_label.pack(side="left", padx=8, pady=3)
-
-        self.adc_ch5_label = ctk.CTkLabel(
-            adc_row3,
-            text="ADC CH5: ---",
-            font=ctk.CTkFont(size=13),
-            anchor="w",
-            width=180,
-            height=30,
-        )
-        self.adc_ch5_label.pack(side="left", padx=8, pady=3)
-
-        self.adc_ch6_label = ctk.CTkLabel(
-            adc_row3,
-            text="ADC CH6: ---",
-            font=ctk.CTkFont(size=13),
-            anchor="w",
-            width=180,
-            height=30,
-        )
-        self.adc_ch6_label.pack(side="left", padx=8, pady=3)
-
-        self.adc_ch7_label = ctk.CTkLabel(
-            adc_row3,
-            text="ADC CH7: ---",
-            font=ctk.CTkFont(size=13),
-            anchor="w",
-            width=180,
-            height=30,
-        )
-        self.adc_ch7_label.pack(side="left", padx=8, pady=3)
-
-        self.adc_label = self.adc_ch0_label
-
         self.data_reading_window.protocol("WM_DELETE_WINDOW", self._close_data_reading_window)
         
-        # Send command to read active ADC channels when window opens
+        # Send commands to read all data when window opens
         self._send_command("READ_ACTIVE_ADC_CHANNELS")
+        self._send_command("READ_NODE_VOLTAGE:1")  # Rectifier
+        self._send_command("READ_NODE_VOLTAGE:2")  # Transformer
+        self._send_command("READ_NODE_VOLTAGE:3")  # V-Multiplier
+        self._send_command("READ_NODE_CURRENT:1")  # Rectifier
+        self._send_command("READ_NODE_CURRENT:3")  # V-Multiplier
 
     def _close_data_reading_window(self):
         if hasattr(self, "data_reading_window") and self.data_reading_window:
@@ -2000,14 +2073,11 @@ class FusorHostApp:
             self.pressure_display1 = None
             self.pressure_display2 = None
             self.pressure_display3 = None
-            self.adc_ch0_label = None
-            self.adc_ch1_label = None
-            self.adc_ch2_label = None
-            self.adc_ch3_label = None
-            self.adc_ch4_label = None
-            self.adc_ch5_label = None
-            self.adc_ch6_label = None
-            self.adc_ch7_label = None
+            self.rectifier_voltage_label = None
+            self.transformer_voltage_label = None
+            self.vmultiplier_voltage_label = None
+            self.rectifier_current_label = None
+            self.vmultiplier_current_label = None
             self.pressure_label = None
             self.adc_label = None
 
