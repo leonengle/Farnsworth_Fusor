@@ -6,6 +6,7 @@ const int MOTOR_DIR_PINS[5] = {11, 9, 7, 5, 3};
 const int MECHANICAL_PUMP_PIN = A0;
 const int TURBO_PUMP_PIN = A1;
 const int VARIAC_LIMIT_SWITCH_PIN = A2;
+const int ENABLE_PIN = 4;
 
 const float DEG_PER_STEP = 1.8;
 const float STEPS_PER_DEG = 1.0 / DEG_PER_STEP;
@@ -103,6 +104,7 @@ void setup() {
 void loop() {
   handleSerialInput();
   applyMove();
+  digitalWrite(ENABLE_PIN, LOW)
   for (int i = 0; i < 5; i++) {
     motors[i].run();
   }
