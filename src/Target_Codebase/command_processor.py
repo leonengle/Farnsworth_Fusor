@@ -452,6 +452,33 @@ class CommandProcessor:
                     logger.error(f"ADC read error: {e}")
                     return f"READ_ADC_FAILED: {e}"
 
+            elif command == "READ_ACTIVE_ADC_CHANNELS":
+                if not self._ensure_adc_ready():
+                    return "READ_ACTIVE_ADC_CHANNELS_FAILED: ADC not initialized"
+
+                try:
+                    active_channels = [0, 1, 2]
+                    adc_values = []
+                    for channel in active_channels:
+                        value = self.adc.read_channel(channel)
+                        adc_values.append(value)
+                        logger.info(f"ADC Channel {channel}: {value}")
+                    
+                    response_parts = []
+                    for i, channel in enumerate(active_channels):
+                        response_parts.append(f"ADC_CH{channel}:{adc_values[i]}")
+                    response_parts.append(f"ADC_DATA:{','.join(map(str, adc_values))}")
+                    
+                    response = "|".join(response_parts)
+                    with self._callback_lock:
+                        callback = self.host_callback
+                    if callback:
+                        callback(response)
+                    return response
+                except Exception as e:
+                    logger.error(f"Active ADC channels read error: {e}")
+                    return f"READ_ACTIVE_ADC_CHANNELS_FAILED: {e}"
+
             elif command.startswith("READ_PRESSURE_BY_NAME:"):
                 try:
                     sensor_name = command.split(":", 1)[1].strip().upper()

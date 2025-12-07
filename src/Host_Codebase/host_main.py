@@ -960,13 +960,62 @@ class FusorHostApp:
             self._update_status(f"Sending command: {command}...", "blue")
             response = self.tcp_command_client.send_command(command)
 
+            # Process ADC data if this is an ADC read command
+            if response and ("ADC_CH" in response or "ADC_DATA" in response):
+                try:
+                    # Parse the response similar to UDP data
+                    parsed = {}
+                    parts = response.split("|")
+                    for part in parts:
+                        if ":" in part:
+                            key, value = part.split(":", 1)
+                            parsed[key] = value
+                    
+                    # Update ADC displays
+                    adc_values = ["---"] * 8
+                    for ch in range(8):
+                        adc_key = f"ADC_CH{ch}"
+                        if adc_key in parsed:
+                            adc_values[ch] = parsed[adc_key]
+                    
+                    # Update all ADC channel labels
+                    if any(v != "---" for v in adc_values):
+                        self._update_all_adc_channels(adc_values)
+                    
+                    # Process ADC_DATA if present
+                    adc_data = parsed.get("ADC_DATA")
+                    if adc_data:
+                        try:
+                            if isinstance(adc_data, str):
+                                adc_list = []
+                                for x in adc_data.split(","):
+                                    x = x.strip()
+                                    if x.upper() in ["FLOATING", "UNUSED"]:
+                                        adc_list.append(x.upper())
+                                    else:
+                                        try:
+                                            adc_list.append(int(x))
+                                        except ValueError:
+                                            adc_list.append(x)
+                                
+                                # Update channels 0, 1, 2 with the parsed values
+                                for i, val in enumerate(adc_list[:3]):
+                                    if i < len(adc_values):
+                                        adc_values[i] = val
+                                
+                                self._update_all_adc_channels(adc_values)
+                        except Exception as e:
+                            logger.warning(f"Error parsing ADC_DATA from command response: {e}")
+                except Exception as e:
+                    logger.warning(f"Error processing ADC response: {e}")
+
             # Display response
             if response:
                 # Check for success/failure in response
                 if "SUCCESS" in response.upper():
                     self._update_status(
                         f"Command sent: {command} - Response: {response}", "green"
-                )
+                    )
                 elif "FAILED" in response.upper() or "ERROR" in response.upper():
                     self._update_status(
                         f"Command sent: {command} - Response: {response}", "red"
@@ -1223,7 +1272,12 @@ class FusorHostApp:
                                     channel, f"ADC CH{channel}"
                                 )
                                 channel_value = adc_data[channel]
-                                display_value = "FLOATING (No sensor connected)" if str(channel_value).upper() == "FLOATING" else channel_value
+                                if str(channel_value).upper() == "FLOATING":
+                                    display_value = "FLOATING (No sensor connected)"
+                                elif str(channel_value).upper() == "UNUSED":
+                                    display_value = "UNUSED"
+                                else:
+                                    display_value = channel_value
                                 label.configure(
                                     text=f"{label_text}: {display_value}"
                                 )
@@ -1427,6 +1481,11 @@ class FusorHostApp:
         self._update_data_display(f"[UDP Data] {data}")
         parsed = self._parse_periodic_packet(data)
         
+        # Debug: Log ADC channel data if present
+        if any(f"ADC_CH{ch}" in parsed for ch in range(8)):
+            adc_debug = {f"ADC_CH{ch}": parsed.get(f"ADC_CH{ch}") for ch in range(8)}
+            logger.debug(f"Parsed ADC channels from UDP: {adc_debug}")
+        
         # Check for errors first (always log errors)
         has_error = any(
             "ERROR" in str(v).upper()
@@ -1500,20 +1559,51 @@ class FusorHostApp:
                 if ch == 0:
                     self._update_adc_display(adc_value)
             
-            # If at least CH0 is present, update all labels
+            # Always update all labels if we have any ADC data
             if any(v != "---" for v in adc_values):
+                logger.debug(f"Updating ADC channels with values: {adc_values}")
                 self._update_all_adc_channels(adc_values)
+            elif any(f"ADC_CH{ch}" in parsed for ch in range(8)):
+                logger.debug(f"ADC channels found in parsed data but all are None: {[parsed.get(f'ADC_CH{ch}') for ch in range(8)]}")
+                self._update_all_adc_channels(adc_values)
+
+            # Process pressure sensor values from periodic data
+            for sensor_id in range(1, 4):
+                pressure_key = f"PRESSURE_SENSOR_{sensor_id}_VALUE"
+                pressure_value = parsed.get(pressure_key)
+                if pressure_value:
+                    matched_sensor = self.udp_client_object.process_received_data(f"{pressure_key}:{pressure_value}")
+                    if matched_sensor:
+                        with self._sensors_lock:
+                            sensor = self.sensors.get(matched_sensor)
+                            if sensor and sensor.value is not None:
+                                if matched_sensor == "pressure_sensor_1":
+                                    self._update_pressure_display(1, sensor.value)
+                                elif matched_sensor == "pressure_sensor_2":
+                                    self._update_pressure_display(2, sensor.value)
+                                elif matched_sensor == "pressure_sensor_3":
+                                    self._update_pressure_display(3, sensor.value)
 
             adc_data = parsed.get("ADC_DATA")
             if adc_data:
                 try:
                     if isinstance(adc_data, str):
-                        adc_list = [int(x.strip()) for x in adc_data.split(",")]
+                        adc_list = []
+                        for x in adc_data.split(","):
+                            x = x.strip()
+                            if x.upper() == "FLOATING":
+                                adc_list.append("FLOATING")
+                            else:
+                                try:
+                                    adc_list.append(int(x))
+                                except ValueError:
+                                    adc_list.append(0)
                     else:
                         adc_list = list(adc_data)
                     if len(adc_list) >= 8:
                         self._update_all_adc_channels(adc_list)
-                except (ValueError, TypeError):
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"Error parsing ADC_DATA: {e}, data: {adc_data}")
                     pass
             
             if values_changed or has_error:
@@ -1895,6 +1985,9 @@ class FusorHostApp:
         self.adc_label = self.adc_ch0_label
 
         self.data_reading_window.protocol("WM_DELETE_WINDOW", self._close_data_reading_window)
+        
+        # Send command to read active ADC channels when window opens
+        self._send_command("READ_ACTIVE_ADC_CHANNELS")
 
     def _close_data_reading_window(self):
         if hasattr(self, "data_reading_window") and self.data_reading_window:
