@@ -148,7 +148,6 @@ class TargetSystem:
                 if adc.is_initialized():
                     try:
                         all_adc_values = adc.read_all_channels()
-                        logger.debug(f"Raw ADC values from read_all_channels(): {all_adc_values}")
                         
                         if len(all_adc_values) < 8:
                             logger.warning(f"ADC returned only {len(all_adc_values)} values, padding with zeros")
@@ -211,7 +210,6 @@ class TargetSystem:
                                     sensor_name = sensor_info["name"]
                                     data_parts.append(f"PRESSURE_SENSOR_{sensor_id}_VALUE:{pressure_mtorr:.3f}|{sensor_label}|{sensor_name}|{pressure_formatted}")
                             
-                            logger.debug(f"Sending ADC data packet with {len([p for p in data_parts if p.startswith('ADC_CH')])} channels")
                     except Exception as e:
                         logger.error(f"Error reading ADC channels: {e}", exc_info=True)
                         for channel in range(8):
