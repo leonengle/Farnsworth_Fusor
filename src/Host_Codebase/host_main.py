@@ -1549,8 +1549,13 @@ class FusorHostApp:
             self._update_data_display("[ERROR] Steps must be a number")
 
     def _handle_udp_data(self, data: str):
-        # Filter out ADC data from logging section
-        has_adc_data = any(f"ADC_CH{ch}:" in data for ch in range(8)) or "ADC_DATA:" in data
+        # Filter out ADC data from logging section (case-insensitive check)
+        data_upper = data.upper()
+        has_adc_data = (
+            any(f"ADC_CH{ch}:" in data_upper or f"ADC_CH{ch}=" in data_upper for ch in range(8)) 
+            or "ADC_DATA:" in data_upper 
+            or "ADC_DATA=" in data_upper
+        )
         if not has_adc_data:
             self._update_data_display(f"[UDP Data] {data}")
         parsed = self._parse_periodic_packet(data)
@@ -1624,14 +1629,19 @@ class FusorHostApp:
                                     changed_items.append(f"{key}={value}")
                     except (ValueError, TypeError):
                         # Fallback to string comparison if conversion fails
+                        is_adc_field = key.startswith("ADC_CH") or key == "ADC_DATA"
                         if prev_value != value:
-                            values_changed = True
-                            changed_items.append(f"{key}={value}")
                             self.previous_values[key] = value
+                            # Don't add ADC fields to changed_items for logging
+                            if not is_adc_field:
+                                values_changed = True
+                                changed_items.append(f"{key}={value}")
                         elif key not in self.previous_values:
-                            values_changed = True
-                            changed_items.append(f"{key}={value}")
                             self.previous_values[key] = value
+                            # Don't add ADC fields to changed_items for logging
+                            if not is_adc_field:
+                                values_changed = True
+                                changed_items.append(f"{key}={value}")
             
             # Update ADC displays
             adc_values = []
@@ -1693,8 +1703,11 @@ class FusorHostApp:
             
             if values_changed or has_error:
                 if changed_items:
-                    # Filter out ADC-related items from logging
-                    filtered_items = [item for item in changed_items if not item.startswith("ADC_CH") and not item.startswith("ADC_DATA")]
+                    # Filter out ADC-related items from logging (check both "ADC_CH" and "ADC_DATA" at start of item)
+                    filtered_items = [
+                        item for item in changed_items 
+                        if not (item.startswith("ADC_CH") or item.startswith("ADC_DATA=") or "=ADC_CH" in item or "=ADC_DATA" in item)
+                    ]
                     if filtered_items:
                         summary = ", ".join(filtered_items)
                         if has_error:
@@ -1712,14 +1725,24 @@ class FusorHostApp:
                         or "DISCONNECTED" in str(v).upper())
                     )
                     if summary:
-                        self._update_target_logs(f"[UDP Data] {summary}")
-                        self._log_terminal_update("TARGET_ERROR", summary)
+                        # Double-check no ADC data slipped through
+                        if not any(f"ADC_CH{ch}" in summary for ch in range(8)) and "ADC_DATA" not in summary:
+                            self._update_target_logs(f"[UDP Data] {summary}")
+                            self._log_terminal_update("TARGET_ERROR", summary)
         else:
-            if has_error or "ERROR" in data.upper():
-                self._update_target_logs(f"[UDP Data] {data}")
-                self._log_terminal_update("TARGET_ERROR", data)
-            else:
-                self._update_target_logs(f"[UDP Data] {data}")
+            # Filter out ADC data even in the else branch (case-insensitive check)
+            data_upper = data.upper()
+            has_adc_data = (
+                any(f"ADC_CH{ch}:" in data_upper or f"ADC_CH{ch}=" in data_upper for ch in range(8)) 
+                or "ADC_DATA:" in data_upper 
+                or "ADC_DATA=" in data_upper
+            )
+            if not has_adc_data:
+                if has_error or "ERROR" in data.upper():
+                    self._update_target_logs(f"[UDP Data] {data}")
+                    self._log_terminal_update("TARGET_ERROR", data)
+                else:
+                    self._update_target_logs(f"[UDP Data] {data}")
 
     def _handle_udp_status(self, message: str, address: tuple):
         self._update_data_display(f"[UDP Status] From {address[0]}: {message}")
@@ -2095,6 +2118,11 @@ class FusorHostApp:
     def _update_target_logs(self, log_message: str):
         if not self.target_logs_display or not self.root:
             return
+        
+        # Filter out any ADC data that might have slipped through
+        log_upper = log_message.upper()
+        if any(f"ADC_CH{ch}" in log_upper for ch in range(8)) or "ADC_DATA" in log_upper:
+            return
 
         def _do_update():
             try:
@@ -2116,6 +2144,11 @@ class FusorHostApp:
         self._schedule_gui_update(_do_update)
 
     def _update_data_display(self, data: str):
+        # Filter out ADC data from data display
+        data_upper = data.upper()
+        if any(f"ADC_CH{ch}" in data_upper for ch in range(8)) or "ADC_DATA" in data_upper:
+            return
+        
         if not self.data_display or not self.root:
             if "ERROR" in data.upper() or "FAILED" in data.upper():
                 self._log_terminal_update("ERROR", data)
@@ -2134,6 +2167,11 @@ class FusorHostApp:
 
     def _log_terminal_update(self, tag: str, message: str):
         """Log periodic updates to terminal for visibility."""
+        # Filter out any ADC data
+        message_upper = message.upper()
+        if any(f"ADC_CH{ch}" in message_upper for ch in range(8)) or "ADC_DATA" in message_upper:
+            return
+        
         timestamp = time.strftime("%H:%M:%S")
         try:
             print(f"{timestamp} [{tag}] {message}", flush=True)
