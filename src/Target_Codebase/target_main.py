@@ -204,10 +204,8 @@ class TargetSystem:
                                     max_pressure_mtorr = max_pressure_torr * 1000.0
                                     pressure_mtorr = min_pressure_mtorr + (voltage / 5.0) * (max_pressure_mtorr - min_pressure_mtorr)
                                     
-                                    if pressure_mtorr >= 1000.0:
-                                        pressure_formatted = f"{pressure_mtorr / 1000.0:.3f} Torr"
-                                    else:
-                                        pressure_formatted = f"{pressure_mtorr:.2f} mTorr"
+                                    pressure_torr = pressure_mtorr / 1000.0
+                                    pressure_formatted = f"{pressure_torr:.6f} Torr"
                                     
                                     sensor_label = sensor_info["label"]
                                     sensor_name = sensor_info["name"]
