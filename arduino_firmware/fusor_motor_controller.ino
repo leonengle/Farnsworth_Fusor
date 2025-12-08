@@ -138,7 +138,7 @@ void handleSerialInput() {
                 mechanicalPumpState = false;
                 digitalWrite(MECHANICAL_PUMP_PIN, LOW);
                 Serial.println("OK: MECHANICAL_PUMP OFF (0%)");
-              } else {
+              } else if (power == 100) {
                 mechanicalPumpState = true;
                 digitalWrite(MECHANICAL_PUMP_PIN, HIGH);
                 Serial.println("OK: MECHANICAL_PUMP ON (100%)");
@@ -164,7 +164,7 @@ void handleSerialInput() {
                 turboPumpState = false;
                 digitalWrite(TURBO_PUMP_PIN, LOW);
                 Serial.println("OK: TURBO_PUMP OFF (0%)");
-              } else {
+              } else if (power == 100) {
                 turboPumpState = true;
                 digitalWrite(TURBO_PUMP_PIN, HIGH);
                 Serial.println("OK: TURBO_PUMP ON (100%)");

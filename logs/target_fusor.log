@@ -1,0 +1,142 @@
+2025-12-07 22:40:48 - TargetLoggingSetup - INFO - Target logging system initialized
+2025-12-07 22:40:48 - TargetLoggingSetup - INFO - Target log files: logs\target_fusor.log, logs\target_fusor_errors.log, logs\target_session_20251207_224048.log
+2025-12-07 22:40:48 - MCP3008ADC - ERROR - ADC read attempted before initialization
+2025-12-07 22:40:48 - MCP3008ADC - ERROR - ADC multi-read attempted before initialization
+2025-12-07 22:44:31 - TargetLoggingSetup - INFO - Target logging system initialized
+2025-12-07 22:44:31 - TargetLoggingSetup - INFO - Target log files: logs\target_fusor.log, logs\target_fusor_errors.log, logs\target_session_20251207_224431.log
+2025-12-07 22:44:32 - MCP3008ADC - ERROR - ADC read attempted before initialization
+2025-12-07 22:44:32 - MCP3008ADC - ERROR - ADC multi-read attempted before initialization
+2025-12-07 22:44:32 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:44:32 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:44:32 - CommandProcessor - INFO - Processing command from host: SET_VALVE1:60
+2025-12-07 22:44:32 - CommandProcessor - INFO - Validating motor command: motor_id=1, percentage=60.0
+2025-12-07 22:44:32 - CommandProcessor - INFO - Motor object created: motor_id=1, degree=216.0, component=MOTOR_1
+2025-12-07 22:44:32 - CommandProcessor - INFO - Motor object sent to Arduino: motor_id=1, degree=216.0
+2025-12-07 22:44:33 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:44:33 - CommandProcessor - INFO - Processing command from host: EMERGENCY_SHUTOFF
+2025-12-07 22:44:33 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:44:33 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:44:33 - CommandProcessor - INFO - Processing command from host: INVALID_COMMAND
+2025-12-07 22:44:33 - CommandProcessor - WARNING - ERROR: Unknown command 'INVALID_COMMAND'
+2025-12-07 22:44:33 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:44:33 - CommandProcessor - INFO - Processing command from host: LED_OFF
+2025-12-07 22:44:33 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:44:33 - CommandProcessor - INFO - Processing command from host: LED_ON
+2025-12-07 22:44:33 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:44:33 - CommandProcessor - INFO - Processing command from host: POWER_SUPPLY_DISABLE
+2025-12-07 22:44:33 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:44:33 - CommandProcessor - INFO - Processing command from host: POWER_SUPPLY_ENABLE
+2025-12-07 22:44:33 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:44:33 - CommandProcessor - INFO - Processing command from host: SET_MECHANICAL_PUMP:75
+2025-12-07 22:44:33 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:44:33 - CommandProcessor - INFO - Processing command from host: SET_TURBO_PUMP:80
+2025-12-07 22:44:33 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:44:33 - CommandProcessor - INFO - Processing command from host: SET_VALVE1:50
+2025-12-07 22:44:33 - CommandProcessor - INFO - Validating motor command: motor_id=1, percentage=50.0
+2025-12-07 22:44:33 - CommandProcessor - INFO - Motor object created: motor_id=1, degree=180.0, component=MOTOR_1
+2025-12-07 22:44:33 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:44:33 - CommandProcessor - INFO - Processing command from host: SET_VALVE1
+2025-12-07 22:44:33 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:44:33 - CommandProcessor - INFO - Processing command from host: SET_VOLTAGE:10.5
+2025-12-07 22:44:33 - CommandProcessor - INFO - Validating motor command: motor_id=5, percentage=0.0375
+2025-12-07 22:44:33 - CommandProcessor - INFO - Motor object created: motor_id=5, degree=0.11, component=MOTOR_5
+2025-12-07 22:44:33 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:44:33 - CommandProcessor - INFO - Processing command from host: SET_VOLTAGE:
+2025-12-07 22:44:33 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:44:33 - CommandProcessor - INFO - Processing command from host: SHUTDOWN
+2025-12-07 22:44:33 - CommandProcessor - INFO - Shutdown sequence completed
+2025-12-07 22:44:33 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:44:33 - CommandProcessor - INFO - Processing command from host: STARTUP
+2025-12-07 22:44:33 - CommandProcessor - INFO - Startup command received
+2025-12-07 22:45:00 - TargetLoggingSetup - INFO - Target logging system initialized
+2025-12-07 22:45:00 - TargetLoggingSetup - INFO - Target log files: logs\target_fusor.log, logs\target_fusor_errors.log, logs\target_session_20251207_224500.log
+2025-12-07 22:45:01 - MCP3008ADC - ERROR - ADC read attempted before initialization
+2025-12-07 22:45:01 - MCP3008ADC - ERROR - ADC multi-read attempted before initialization
+2025-12-07 22:45:01 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:45:01 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:45:01 - CommandProcessor - INFO - Processing command from host: SET_VALVE1:60
+2025-12-07 22:45:01 - CommandProcessor - INFO - Validating motor command: motor_id=1, percentage=60.0
+2025-12-07 22:45:01 - CommandProcessor - INFO - Motor object created: motor_id=1, degree=216.0, component=MOTOR_1
+2025-12-07 22:45:01 - CommandProcessor - INFO - Motor object sent to Arduino: motor_id=1, degree=216.0
+2025-12-07 22:45:01 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:45:01 - CommandProcessor - INFO - Processing command from host: EMERGENCY_SHUTOFF
+2025-12-07 22:45:01 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:45:01 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:45:01 - CommandProcessor - INFO - Processing command from host: INVALID_COMMAND
+2025-12-07 22:45:01 - CommandProcessor - WARNING - ERROR: Unknown command 'INVALID_COMMAND'
+2025-12-07 22:45:01 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:45:01 - CommandProcessor - INFO - Processing command from host: LED_OFF
+2025-12-07 22:45:01 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:45:01 - CommandProcessor - INFO - Processing command from host: LED_ON
+2025-12-07 22:45:01 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:45:01 - CommandProcessor - INFO - Processing command from host: POWER_SUPPLY_DISABLE
+2025-12-07 22:45:01 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:45:01 - CommandProcessor - INFO - Processing command from host: POWER_SUPPLY_ENABLE
+2025-12-07 22:45:01 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:45:01 - CommandProcessor - INFO - Processing command from host: SET_MECHANICAL_PUMP:75
+2025-12-07 22:45:01 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:45:01 - CommandProcessor - INFO - Processing command from host: SET_TURBO_PUMP:80
+2025-12-07 22:45:01 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:45:01 - CommandProcessor - INFO - Processing command from host: SET_VALVE1:50
+2025-12-07 22:45:01 - CommandProcessor - INFO - Validating motor command: motor_id=1, percentage=50.0
+2025-12-07 22:45:01 - CommandProcessor - INFO - Motor object created: motor_id=1, degree=180.0, component=MOTOR_1
+2025-12-07 22:45:01 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:45:01 - CommandProcessor - INFO - Processing command from host: SET_VALVE1
+2025-12-07 22:45:01 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:45:01 - CommandProcessor - INFO - Processing command from host: SET_VOLTAGE:10.5
+2025-12-07 22:45:01 - CommandProcessor - INFO - Validating motor command: motor_id=5, percentage=0.0375
+2025-12-07 22:45:01 - CommandProcessor - INFO - Motor object created: motor_id=5, degree=0.11, component=MOTOR_5
+2025-12-07 22:45:01 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:45:01 - CommandProcessor - INFO - Processing command from host: SET_VOLTAGE:
+2025-12-07 22:45:01 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:45:01 - CommandProcessor - INFO - Processing command from host: SHUTDOWN
+2025-12-07 22:45:01 - CommandProcessor - INFO - Shutdown sequence completed
+2025-12-07 22:45:01 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:45:01 - CommandProcessor - INFO - Processing command from host: STARTUP
+2025-12-07 22:45:01 - CommandProcessor - INFO - Startup command received
+2025-12-07 22:46:27 - TargetLoggingSetup - INFO - Target logging system initialized
+2025-12-07 22:46:27 - TargetLoggingSetup - INFO - Target log files: logs\target_fusor.log, logs\target_fusor_errors.log, logs\target_session_20251207_224627.log
+2025-12-07 22:46:27 - MCP3008ADC - ERROR - ADC read attempted before initialization
+2025-12-07 22:46:27 - MCP3008ADC - ERROR - ADC multi-read attempted before initialization
+2025-12-07 22:46:27 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:46:27 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:46:27 - CommandProcessor - INFO - Processing command from host: SET_VALVE1:60
+2025-12-07 22:46:27 - CommandProcessor - INFO - Validating motor command: motor_id=1, percentage=60.0
+2025-12-07 22:46:27 - CommandProcessor - INFO - Motor object created: motor_id=1, degree=216.0, component=MOTOR_1
+2025-12-07 22:46:27 - CommandProcessor - INFO - Motor object sent to Arduino: motor_id=1, degree=216.0
+2025-12-07 22:46:27 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:46:27 - CommandProcessor - INFO - Processing command from host: EMERGENCY_SHUTOFF
+2025-12-07 22:46:27 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:46:27 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:46:27 - CommandProcessor - INFO - Processing command from host: INVALID_COMMAND
+2025-12-07 22:46:27 - CommandProcessor - WARNING - ERROR: Unknown command 'INVALID_COMMAND'
+2025-12-07 22:46:27 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:46:27 - CommandProcessor - INFO - Processing command from host: LED_OFF
+2025-12-07 22:46:27 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:46:27 - CommandProcessor - INFO - Processing command from host: LED_ON
+2025-12-07 22:46:27 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:46:27 - CommandProcessor - INFO - Processing command from host: POWER_SUPPLY_DISABLE
+2025-12-07 22:46:27 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:46:27 - CommandProcessor - INFO - Processing command from host: POWER_SUPPLY_ENABLE
+2025-12-07 22:46:27 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:46:27 - CommandProcessor - INFO - Processing command from host: SET_MECHANICAL_PUMP:75
+2025-12-07 22:46:27 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:46:27 - CommandProcessor - INFO - Processing command from host: SET_TURBO_PUMP:80
+2025-12-07 22:46:27 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:46:27 - CommandProcessor - INFO - Processing command from host: SET_VALVE1:50
+2025-12-07 22:46:27 - CommandProcessor - INFO - Validating motor command: motor_id=1, percentage=50.0
+2025-12-07 22:46:27 - CommandProcessor - INFO - Motor object created: motor_id=1, degree=180.0, component=MOTOR_1
+2025-12-07 22:46:27 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:46:27 - CommandProcessor - INFO - Processing command from host: SET_VALVE1
+2025-12-07 22:46:27 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:46:27 - CommandProcessor - INFO - Processing command from host: SET_VOLTAGE:10.5
+2025-12-07 22:46:27 - CommandProcessor - INFO - Validating motor command: motor_id=5, percentage=0.0375
+2025-12-07 22:46:27 - CommandProcessor - INFO - Motor object created: motor_id=5, degree=0.11, component=MOTOR_5
+2025-12-07 22:46:27 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:46:27 - CommandProcessor - INFO - Processing command from host: SET_VOLTAGE:
+2025-12-07 22:46:27 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:46:27 - CommandProcessor - INFO - Processing command from host: SHUTDOWN
+2025-12-07 22:46:27 - CommandProcessor - INFO - Shutdown sequence completed
+2025-12-07 22:46:27 - CommandProcessor - INFO - Command processor initialized with Bundled Interface
+2025-12-07 22:46:27 - CommandProcessor - INFO - Processing command from host: STARTUP
+2025-12-07 22:46:27 - CommandProcessor - INFO - Startup command received
