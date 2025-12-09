@@ -225,13 +225,15 @@ Farnsworth_Fusor/
 - TelemetryToEventMapper monitors UDP data and triggers state transitions automatically
 
 ### **Hardware Control**
-- **Power Supply Control**: Enable/disable and voltage setting (0-27kV)
+- **Power Supply Control**: Enable/disable and voltage setting (0-28000V / 0-28kV)
 - **Valve Control**: 6 valves with proportional control (0-100%)
 - **Pump Control**: Mechanical pump and turbo pump with power control (0-100%)
 - **Sensor Reading**: Pressure sensors, voltage/current monitoring, neutron counting
-- **Distributed Motor/Actuator Control**: Arduino Nano (Stepper Controllers 1-4) receives labeled analog commands and motor control commands over USB via the BundledInterface
-- **Labeled Analog Datalink**: Every analog command is forwarded to the Arduino as `ANALOG:<FUSOR_COMPONENT>:<value>` so each actuator (valves, pumps, power supply, etc.) carries its destination label across the Pi↔Arduino link
-- **Motor Control**: Motors 1-4 are controlled via Arduino Nano over USB serial (9600 baud) with commands like `MOVE_MOTOR:1:100:FORWARD`, `ENABLE_MOTOR:2`, `SET_MOTOR_SPEED:3:50`
+- **Distributed Motor/Actuator Control**: Arduino Nano (Stepper Controllers 1-5) receives motor control commands over USB via the BundledInterface
+- **Motor Control**: Motors 1-5 are controlled via Arduino Nano over USB serial (9600 baud) with commands like `MOTOR_X:degree` where X is 1-5
+  - **Motors 1-4**: Accept degrees 0-359
+  - **Motor 5 (VARIAC)**: Accepts degrees 0-300, controlled by power supply slider (0-28000V maps to 0-300°)
+- **Pump Control**: Mechanical and turbo pumps controlled via Arduino with `SET_MECHANICAL_PUMP:0-100` and `SET_TURBO_PUMP:0-100` commands
 - **Emergency Shutdown**: Immediate shutdown of all systems
 
 ### **Professional GUI**
@@ -257,14 +259,6 @@ Farnsworth_Fusor/
 - **UDP Data Port**: 12345 (RPi → Host telemetry)
 - **UDP Status Ports**: 8888 (RPi → Host), 8889 (Host → RPi)
 
-### **GPIO Pin Assignments**
-- **LED Pin**: GPIO 26
-- **Input Pin**: GPIO 6
-- **Power Supply**: GPIO 5
-- **Valves**: Controlled via Arduino
-- **Mechanical Pump**: Controlled via Arduino
-- **Turbo Pump**: Controlled via Arduino
-
 ### **Logging & Monitoring**
 - Multi-level logging (console, file, error-specific)
 - Log rotation with size limits
@@ -283,29 +277,31 @@ Farnsworth_Fusor/
 
 The system is organized in four layers so the host laptop treats the Raspberry Pi as a "bundled interface" that aggregates every hardware interface.  
 1. **Communication Layer** – Three dedicated channels keep traffic separated: the TCP Command Server listens on `192.168.0.2:2222` for reliable command/response, the UDP Data Server pushes structured telemetry on `:12345` (only when values change), and bidirectional UDP status links operate on host `8888` / target `8889` for lightweight heartbeats.  
-2. **Processing Layer** – `CommandProcessor` parses every host command, validates arguments, and routes work to the correct subsystem. It tags analog actuators (valves 1‑6, power supply, pumps) with semantic labels before forwarding them to the Arduino, and routes motor commands (Motors 1-4) directly to the Arduino.  
-3. **Hardware Abstraction Layer** – The `BundledInterface` unifies GPIO, ADC (MCP3008 over SPI), and Arduino USB interface, each exposing clean Python APIs. The Arduino Nano handles Stepper Controllers 1‑4 via USB serial communication (9600 baud).  
+2. **Processing Layer** – `CommandProcessor` parses every host command, validates arguments, and routes work to the correct subsystem. It converts voltage commands (0-28000V) to motor 5 (VARIAC) position (0-300°), and routes motor commands (Motors 1-5) directly to the Arduino. Pump commands are forwarded to Arduino as well.  
+3. **Hardware Abstraction Layer** – The `BundledInterface` unifies GPIO, ADC (MCP3008 over SPI), and Arduino USB interface, each exposing clean Python APIs. The Arduino Nano handles Stepper Controllers 1‑5 via USB serial communication (9600 baud).  
 4. **Hardware Layer** – SPI wiring to the MCP3008, USB serial connection to Arduino Nano, and the actual motors, valves, and sensors.
 
-**Arduino Datalink:** Every analog command that originates on the Pi is mirrored to the Arduino as `ANALOG:<FUSOR_COMPONENT>:<value>`. Example labels include `POWER_SUPPLY_VOLTAGE_SETPOINT`, `ATM_DEPRESSURE_VALVE`, `VACUUM_SYSTEM_VALVE`, `ROUGHING_PUMP_POWER`, and `TURBO_PUMP_POWER`. This guarantees the distributed controllers receive unambiguous instructions even when multiple actuators share the same electrical characteristics.
+**Arduino Datalink:** The Arduino Nano receives motor and pump commands via USB serial. Motor commands use the format `MOTOR_X:degree` where X is the motor ID (1-5) and degree is the target position.
 
-### Arduino Analog Datalink
+### Arduino Command Datalink
 
 | Trigger on Host | Pi CommandProcessor Action | USB Payload → Arduino | Target Hardware |
 |-----------------|---------------------------|------------------------|-----------------|
-| `SET_VOLTAGE:X` | Update GPIO + label (`POWER_SUPPLY_VOLTAGE_SETPOINT`) | `ANALOG:POWER_SUPPLY_VOLTAGE_SETPOINT:X` | High-voltage supply control |
-| `SET_VALVE<i>:Y` | Forward to Arduino | `ANALOG:<VALVE_LABEL_i>:Y` | Valve actuators (1-6) |
-| `SET_MECHANICAL_PUMP:Y` | Forward to Arduino | `ANALOG:ROUGHING_PUMP_POWER:Y` | Roughing pump driver |
-| `SET_TURBO_PUMP:Y` | Forward to Arduino | `ANALOG:TURBO_PUMP_POWER:Y` | Turbo pump driver |
-| `MOVE_MOTOR:ID:STEPS:DIR` | Route to Arduino | `MOVE_MOTOR:ID:STEPS:DIR` | Stepper motors 1-4 |
-| `ENABLE_MOTOR:ID` | Route to Arduino | `ENABLE_MOTOR:ID` | Enable motor 1-4 |
-| `SET_MOTOR_SPEED:ID:SPEED` | Route to Arduino | `SET_MOTOR_SPEED:ID:SPEED` | Set motor speed |
+| `SET_VOLTAGE:X` | Convert voltage (0-28000V) to percentage, then to degrees (0-300°) | `MOTOR_5:{degree}` | Motor 5 (VARIAC) - Power supply control |
+| `SET_MECHANICAL_PUMP:Y` | Forward to Arduino | `SET_MECHANICAL_PUMP:Y` | Mechanical pump (0-100%) |
+| `SET_TURBO_PUMP:Y` | Forward to Arduino | `SET_TURBO_PUMP:Y` | Turbo pump (0-100%) |
+| Motor position commands | Convert percentage to degrees | `MOTOR_X:{degree}` | Stepper motors 1-5 |
 
-- **Message format:** `ANALOG:<FUSOR_COMPONENT>:<value>` with `value` normalized to two decimal places for floats.  
-- **Label registry:** Defined in `command_processor.py` so every actuator has a fixed string (e.g., `ATM_DEPRESSURE_VALVE`, `FORELINE_VALVE`, `VACUUM_SYSTEM_VALVE`, `DEUTERIUM_SUPPLY_VALVE`, plus placeholders for future channels).  
-- **Flow:** Host GUI → TCP command → CommandProcessor → GPIO action on Pi → labeled USB packet → Arduino Nano (Stepper Controllers 1‑4 + generic analog sinks).  
-- **Motor Commands:** Motor commands (Motors 1-4) are routed directly to Arduino as `MOVE_MOTOR:1:100:FORWARD`, `ENABLE_MOTOR:2`, `DISABLE_MOTOR:3`, `SET_MOTOR_SPEED:4:50` via USB serial.
-- **Resilience:** If the Arduino interface is disconnected, the Pi continues to service GPIO locally and automatically resumes mirroring once the USB link reconnects. The systemd service logs any missed forwards to aid troubleshooting.
+- **Motor Command Format:** `MOTOR_X:degree` where:
+  - X = 1-5 (motor ID)
+  - Motors 1-4: degree range 0-359
+  - Motor 5 (VARIAC): degree range 0-300
+- **Power Supply Control:** The power supply slider (0-28000V) controls Motor 5 (VARIAC):
+  - Voltage is converted to percentage: `(voltage / 28000.0) * 100.0`
+  - Percentage is converted to degrees: `(percentage / 100.0) * 300.0`
+  - Arduino converts degrees to steps: `54 steps per degree` (16,200 steps for 300°)
+- **Flow:** Host GUI → TCP command → CommandProcessor → Motor/pump command → Arduino Nano via USB serial (9600 baud)
+- **Resilience:** If the Arduino interface is disconnected, the Pi continues to service GPIO locally and automatically resumes communication once the USB link reconnects.
 
 ## Code Quality Tools
 
