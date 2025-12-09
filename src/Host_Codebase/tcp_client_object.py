@@ -116,7 +116,5 @@ class TCPClientObject:
             return 3
         elif "deuterium" in name_lower or ("supply" in name_lower and "deuterium" in name_lower):
             return 4
-        elif "turbo" in name_lower and "valve" in name_lower:
-            return 5
         
         return None
