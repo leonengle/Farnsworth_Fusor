@@ -6,7 +6,7 @@ Codebase which implements an automated startup & shutdown sequence, data acquisi
 
 **This project is designed exclusively for Raspberry Pi environments.** It includes external libraries that only work within the Raspberry Pi ecosystem:
 
-- **RPi.GPIO**: Raspberry Pi GPIO control
+- **lgpio**: Raspberry Pi GPIO control (modern replacement for RPi.GPIO)
 - **Adafruit-MCP3008**: MCP3008 ADC (Analog-to-Digital Converter) interface
 - **Adafruit-GPIO**: GPIO abstraction layer for hardware control
 - **Hardware-specific dependencies**: ADC, motor control, and sensor interfaces
@@ -108,7 +108,7 @@ This project uses several Python libraries for different functionalities. Here's
 ### **Hardware Control Libraries** (Raspberry Pi Only)
 | Library | Version | Purpose | Required On |
 |---------|---------|---------|-------------|
-| `RPi.GPIO` | 0.7.1 | Basic GPIO control for Raspberry Pi pins | Raspberry Pi only |
+| `lgpio` | >=0.2.0.0 | Modern GPIO control for Raspberry Pi pins | Raspberry Pi only |
 | `Adafruit-GPIO` | 1.0.3 | GPIO abstraction layer for hardware control | Raspberry Pi only |
 | `Adafruit-MCP3008` | 1.0.2 | MCP3008 ADC (Analog-to-Digital Converter) interface | Raspberry Pi only |
 | `Adafruit-PureIO` | 1.1.11 | Pure Python I/O operations for hardware | Raspberry Pi only |
@@ -133,7 +133,7 @@ This project uses several Python libraries for different functionalities. Here's
 | `pre-commit` | 3.6.0 | Git hooks for automated code quality checks | Development only |
 
 ### **Installation Notes**
-- **Raspberry Pi**: Hardware libraries require system packages (`sudo apt install python3-rpi.gpio python3-dev`)
+- **Raspberry Pi**: Hardware libraries require system packages (`sudo apt install python3-lgpio python3-dev`)
 - **Development Tools**: Only needed for code development, not for running the application
 - **Communication**: Uses built-in Python socket library for TCP/UDP communication
 - **GUI Library**: tkinter is built into Python, no additional installation needed
@@ -349,7 +349,7 @@ sudo apt install python3-rpi.gpio python3-dev
 ```
 
 **If you're trying to run this on Windows/macOS/Linux (non-RPi):**
-- The target application will fail with import errors for RPi.GPIO and Adafruit libraries
+- The target application will fail with import errors for lgpio and Adafruit libraries
 - These libraries are Raspberry Pi-specific and cannot be installed on other systems
 - You must use a Raspberry Pi to run the target application
 - The host application can run on any system
