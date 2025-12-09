@@ -36,8 +36,6 @@ def _build_actuator_command(actuator_name: str, value: float) -> str:
             return f"SET_VALVE3:{int(value)}"
         elif "deuterium" in actuator_name.lower() or "supply" in actuator_name.lower():
             return f"SET_VALVE4:{int(value)}"
-        elif "turbo" in actuator_name.lower():
-            return f"SET_VALVE5:{int(value)}"
     elif "power" in actuator_name.lower() or "supply" in actuator_name.lower():
         return f"SET_VOLTAGE:{int(value)}"
     elif "pump" in actuator_name.lower():
@@ -510,13 +508,6 @@ class FusorHostApp:
                 _build_actuator_command,
                 self.tcp_client_object,
             ),
-            "turbo_valve": ActuatorObject(
-                "turbo valve",
-                "turbo valve",
-                self.tcp_command_client,
-                _build_actuator_command,
-                self.tcp_client_object,
-            ),
             "fusor_valve": ActuatorObject(
                 "valve 3",
                 "valve 3",
@@ -724,13 +715,12 @@ class FusorHostApp:
         valve_row = ctk.CTkFrame(valve_section)
         valve_row.pack(fill="x", padx=5, pady=5)
 
-        valve_names = ["ATM/Depressure", "Foreline", "Vacsys", "Deuterium", "Turbo"]
+        valve_names = ["ATM/Depressure", "Foreline", "Vacsys", "Deuterium"]
         valve_actuator_keys = [
             "atm_valve",
             "foreline_valve",
             "fusor_valve",
             "deuterium_valve",
-            "turbo_valve",
         ]
         self.valve_sliders = {}
         self.valve_value_labels = {}
@@ -775,11 +765,9 @@ class FusorHostApp:
             self.valve_set_buttons[actuator_key] = set_button
 
         self.foreline_manual_slider = self.valve_sliders.get("foreline_valve")
-        self.turbo_valve_manual_slider = self.valve_sliders.get("turbo_valve")
         self.vacsys_manual_slider = self.valve_sliders.get("fusor_valve")
         self.deuterium_manual_slider = self.valve_sliders.get("deuterium_valve")
         self.foreline_value_label = self.valve_value_labels.get("foreline_valve")
-        self.turbo_valve_value_label = self.valve_value_labels.get("turbo_valve")
         self.vacsys_value_label = self.valve_value_labels.get("fusor_valve")
         self.deuterium_value_label = self.valve_value_labels.get("deuterium_valve")
 
@@ -798,6 +786,21 @@ class FusorHostApp:
             hover_color="darkgreen",
         )
         open_data_reading_button.pack(pady=10)
+
+        emergency_button_frame = ctk.CTkFrame(left_column)
+        emergency_button_frame.pack(fill="x", padx=5, pady=10)
+
+        emergency_stop_button = ctk.CTkButton(
+            emergency_button_frame,
+            text="EMERGENCY STOP",
+            command=self._emergency_stop,
+            font=ctk.CTkFont(size=18, weight="bold"),
+            width=300,
+            height=80,
+            fg_color="red",
+            hover_color="darkred",
+        )
+        emergency_stop_button.pack(pady=10)
 
         # Initialize data reading window widgets as None (will be created in popup)
         self.pressure_display1 = None
@@ -1430,6 +1433,60 @@ class FusorHostApp:
         # Immediately re-enable manual controls for emergency stop
         # (State will be ALL_OFF after dispatch_event completes)
         self._enable_manual_controls()
+
+    def _emergency_stop(self):
+        """Emergency stop function - immediately stops all systems"""
+        self._update_status("EMERGENCY STOP ACTIVATED", "red")
+        self._update_data_display("[EMERGENCY] Emergency stop activated - shutting down all systems")
+        
+        if self._is_auto_mode_active():
+            if self.auto_log_display:
+                self.auto_log_display.configure(state="normal")
+                self.auto_log_display.insert("end", "[EMERGENCY] Emergency stop from manual tab - returning to ALL_OFF\n")
+                self.auto_log_display.configure(state="disabled")
+            self.auto_controller.dispatch_event(Event.STOP_CMD)
+        
+        with self._actuators_lock:
+            if "power_supply" in self.actuators:
+                self.actuators["power_supply"].setAnalogValue(0.0)
+            
+            if "mech_pump" in self.actuators:
+                self.actuators["mech_pump"].setAnalogValue(0.0)
+            if "turbo_pump" in self.actuators:
+                self.actuators["turbo_pump"].setAnalogValue(0.0)
+            
+            if "atm_valve" in self.actuators:
+                self.actuators["atm_valve"].setAnalogValue(0.0)
+            if "foreline_valve" in self.actuators:
+                self.actuators["foreline_valve"].setAnalogValue(0.0)
+            if "fusor_valve" in self.actuators:
+                self.actuators["fusor_valve"].setAnalogValue(0.0)
+            if "deuterium_valve" in self.actuators:
+                self.actuators["deuterium_valve"].setAnalogValue(0.0)
+        
+        self._send_command("POWER_SUPPLY_DISABLE")
+        
+        if self.voltage_scale:
+            self.voltage_scale.set(0)
+        if self.manual_mech_switch:
+            self.manual_mech_switch.deselect()
+            self.manual_mech_switch.configure(text="OFF")
+            self.manual_mech_switch_state = False
+        if self.turbo_pump_switch:
+            self.turbo_pump_switch.deselect()
+            self.turbo_pump_switch.configure(text="OFF")
+            self.turbo_pump_switch_state = False
+        
+        for slider in self.valve_sliders.values():
+            if slider:
+                slider.set(0)
+        for label in self.valve_value_labels.values():
+            if label:
+                label.configure(text="0%")
+        
+        self._enable_manual_controls()
+        
+        self._update_data_display("[EMERGENCY] All systems stopped - safe to proceed")
 
     def _auto_update_state_label(self, state: State):
         if not self.auto_state_label or not self.root:

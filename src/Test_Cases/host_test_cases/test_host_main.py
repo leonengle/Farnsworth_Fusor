@@ -76,7 +76,6 @@ class TestBuildActuatorCommand(unittest.TestCase):
         self.assertEqual(_build_actuator_command("foreline valve", 75), "SET_VALVE2:75")
         self.assertEqual(_build_actuator_command("vacuum valve", 25), "SET_VALVE3:25")
         self.assertEqual(_build_actuator_command("deuterium valve", 100), "SET_VALVE4:100")
-        self.assertEqual(_build_actuator_command("turbo valve", 0), "SET_VALVE5:0")
 
     def test_pump_commands(self):
         self.assertEqual(_build_actuator_command("mechanical pump", 100), "SET_MECHANICAL_PUMP:100")
