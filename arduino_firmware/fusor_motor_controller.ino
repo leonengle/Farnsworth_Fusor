@@ -1,11 +1,11 @@
   #include <AccelStepper.h>
 
-const int MOTOR_STEP_PINS[5] = {12, 10, 8, 6, 4};
-const int MOTOR_DIR_PINS[5] = {11, 9, 7, 5, 3};
+const int MOTOR_STEP_PINS[5] = {12, 10, 8, 6, 3};
+const int MOTOR_DIR_PINS[5] = {11, 9, 7, 5, 2};
 
 const int MECHANICAL_PUMP_PIN = A0;
 const int TURBO_PUMP_PIN = A1;
-const int VARIAC_LIMIT_SWITCH_PIN = A2;
+const int VARIAC_LIMIT_SWITCH_PIN = A3;
 const int ENABLE_PIN = 4;
 
 const float DEG_PER_STEP = 1.8;
@@ -13,6 +13,7 @@ const float STEPS_PER_DEG = 1.0 / DEG_PER_STEP;
 const int TOTAL_STEPS = 200;
 const int TOTAL_DEGREES = 360;
 const int VARIAC_MAX_DEGREES = 300;
+const int VARIAC_GEAR_RATIO = 30;
 
 AccelStepper motors[5] = {
   AccelStepper(AccelStepper::DRIVER, MOTOR_STEP_PINS[0], MOTOR_DIR_PINS[0]),
@@ -33,7 +34,7 @@ bool turboPumpState = false;
 
 void handleSerialInput();
 void applyMove();
-long degreesToSteps(int newDeg, int oldDeg);
+long degreesToSteps(int newDeg, int oldDeg, int motorIdx);
 
 void setup() {
   Serial.begin(9600);
@@ -46,8 +47,13 @@ void setup() {
 
   for (int i = 0; i < 5; i++) {
     pinMode(MOTOR_DIR_PINS[i], OUTPUT);
-    motors[i].setMaxSpeed(1000);
-    motors[i].setAcceleration(500);
+    if (i == 4) {
+      motors[i].setMaxSpeed(100);
+      motors[i].setAcceleration(50);
+    } else {
+      motors[i].setMaxSpeed(1000);
+      motors[i].setAcceleration(500);
+    }
     motors[i].setCurrentPosition(0);
   }
   
@@ -104,15 +110,21 @@ void setup() {
 void loop() {
   handleSerialInput();
   applyMove();
-  digitalWrite(ENABLE_PIN, LOW)
+  digitalWrite(ENABLE_PIN, LOW);
   for (int i = 0; i < 5; i++) {
     motors[i].run();
   }
 }
 
-long degreesToSteps(int newDeg, int oldDeg) {
+long degreesToSteps(int newDeg, int oldDeg, int motorIdx) {
   int deltaDeg = newDeg - oldDeg;
-  long steps = (long)(abs(deltaDeg) * STEPS_PER_DEG);
+  long steps;
+  
+  if (motorIdx == 4) {
+    steps = (long)(abs(deltaDeg) * 54);
+  } else {
+    steps = (long)(abs(deltaDeg) * STEPS_PER_DEG);
+  }
   return steps;
 }
 
@@ -138,7 +150,7 @@ void handleSerialInput() {
                 mechanicalPumpState = false;
                 digitalWrite(MECHANICAL_PUMP_PIN, LOW);
                 Serial.println("OK: MECHANICAL_PUMP OFF (0%)");
-              } else {
+              } else if (power == 100) {
                 mechanicalPumpState = true;
                 digitalWrite(MECHANICAL_PUMP_PIN, HIGH);
                 Serial.println("OK: MECHANICAL_PUMP ON (100%)");
@@ -164,7 +176,7 @@ void handleSerialInput() {
                 turboPumpState = false;
                 digitalWrite(TURBO_PUMP_PIN, LOW);
                 Serial.println("OK: TURBO_PUMP OFF (0%)");
-              } else {
+              } else if (power == 100) {
                 turboPumpState = true;
                 digitalWrite(TURBO_PUMP_PIN, HIGH);
                 Serial.println("OK: TURBO_PUMP ON (100%)");
@@ -253,7 +265,7 @@ void applyMove() {
     }
 
     bool limitSwitchState = digitalRead(VARIAC_LIMIT_SWITCH_PIN);
-    long steps = degreesToSteps(targetDeg, currentDeg[motorIdx]);
+    long steps = degreesToSteps(targetDeg, currentDeg[motorIdx], motorIdx);
     long newPos;
     
     if (limitSwitchState == LOW) {
@@ -296,7 +308,7 @@ void applyMove() {
     }
 
     if (targetDeg > currentDeg[motorIdx]) {
-      long steps = degreesToSteps(targetDeg, currentDeg[motorIdx]);
+      long steps = degreesToSteps(targetDeg, currentDeg[motorIdx], motorIdx);
       digitalWrite(MOTOR_DIR_PINS[motorIdx], HIGH);
       long newPos = motors[motorIdx].currentPosition() + steps;
       motors[motorIdx].moveTo(newPos);
@@ -308,7 +320,7 @@ void applyMove() {
       Serial.print(currentDeg[motorIdx]);
       Serial.println(" degrees");
     } else if (targetDeg < currentDeg[motorIdx]) {
-      long steps = degreesToSteps(targetDeg, currentDeg[motorIdx]);
+      long steps = degreesToSteps(targetDeg, currentDeg[motorIdx], motorIdx);
       digitalWrite(MOTOR_DIR_PINS[motorIdx], LOW);
       long newPos = motors[motorIdx].currentPosition() - steps;
       motors[motorIdx].moveTo(newPos);

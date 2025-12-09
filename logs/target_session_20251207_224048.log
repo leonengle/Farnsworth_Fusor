@@ -1,0 +1,4 @@
+2025-12-07 22:40:48 - TargetLoggingSetup - INFO - Target logging system initialized
+2025-12-07 22:40:48 - TargetLoggingSetup - INFO - Target log files: logs\target_fusor.log, logs\target_fusor_errors.log, logs\target_session_20251207_224048.log
+2025-12-07 22:40:48 - MCP3008ADC - ERROR - ADC read attempted before initialization
+2025-12-07 22:40:48 - MCP3008ADC - ERROR - ADC multi-read attempted before initialization

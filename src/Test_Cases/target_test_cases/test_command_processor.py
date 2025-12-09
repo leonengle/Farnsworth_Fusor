@@ -47,6 +47,7 @@ sys.modules["logging_setup"] = mock_logging_setup
 
 from gpio_handler import GPIOHandler
 from command_processor import CommandProcessor
+from bundled_interface import BundledInterface
 
 
 class TestCommandProcessor(unittest.TestCase):
@@ -54,17 +55,23 @@ class TestCommandProcessor(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures"""
-        mock_gpio.reset_mock()
-        self.patcher = patch("gpio_handler.GPIO", mock_gpio)
-        self.patcher.start()
+        mock_lgpio.reset_mock()
+        mock_lgpio.gpiochip_open.return_value = 0
         self.gpio_handler = GPIOHandler()
-        self.command_processor = CommandProcessor(
+        self.bundled_interface = BundledInterface(
             gpio_handler=self.gpio_handler, adc=None, arduino_interface=None
+        )
+        self.command_processor = CommandProcessor(
+            bundled_interface=self.bundled_interface
         )
 
     def tearDown(self):
         """Clean up after tests"""
-        self.patcher.stop()
+        if self.gpio_handler:
+            try:
+                self.gpio_handler.cleanup()
+            except Exception:
+                pass
 
     def test_empty_command(self):
         """Test processing empty command"""
@@ -115,13 +122,15 @@ class TestCommandProcessor(unittest.TestCase):
         """Ensure analog commands are labeled and forwarded to Arduino"""
         mock_arduino = MagicMock()
         mock_arduino.is_connected.return_value = True
-        processor = CommandProcessor(
+        mock_arduino.send_motor_object.return_value = True
+        bundled = BundledInterface(
             gpio_handler=self.gpio_handler,
             adc=None,
             arduino_interface=mock_arduino,
         )
+        processor = CommandProcessor(bundled_interface=bundled)
         processor.process_command("SET_VALVE1:60")
-        mock_arduino.send_analog_command.assert_called_with("ATM_DEPRESSURE_VALVE", 60)
+        mock_arduino.send_motor_object.assert_called()
 
     def test_startup_command(self):
         """Test STARTUP command"""

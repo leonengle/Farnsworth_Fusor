@@ -13,7 +13,7 @@ from logging_setup import setup_logging, get_logger
 setup_logging()
 logger = get_logger("MCP3008ADC")
 
-# Only import RPi libraries when not in test mode
+# Only import lgpio libraries when not in test mode
 try:
     import lgpio
     from Adafruit_GPIO import SPI
