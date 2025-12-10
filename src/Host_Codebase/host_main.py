@@ -85,12 +85,17 @@ class AutoController:
         sensors: dict = None,
         state_callback=None,
         log_callback=None,
+        command_handler=None,
+        send_command_callback=None,
     ):
         self.actuators = actuators
         self.sensors = sensors or {}
         self.currentState = State.ALL_OFF
         self.state_callback = state_callback
         self.log_callback = log_callback
+        self.command_handler = command_handler
+        self.send_command = send_command_callback
+        self._timeout_timer = None  # Timer for TIMEOUT_5S event
 
         self.FSM = {
             (State.ALL_OFF, Event.START): State.ROUGH_PUMP_DOWN,
@@ -146,9 +151,16 @@ class AutoController:
         logger.info(message)
 
     def _set_voltage_kv(self, kv: float):
-        # Note: AutoController accesses actuators, but it's called from main thread
-        # via telemetry mapper, so no lock needed here
-        if "power_supply" in self.actuators:
+        if self.command_handler and self.send_command:
+            voltage = int(kv * 1000.0)
+            command = self.command_handler.build_set_voltage_command(voltage)
+            if command:
+                self.send_command(command)
+                if kv > 0:
+                    self.send_command("POWER_SUPPLY_ENABLE")
+                else:
+                    self.send_command("POWER_SUPPLY_DISABLE")
+        elif "power_supply" in self.actuators:
             self.actuators["power_supply"].setAnalogValue(kv * 1000.0)
 
     def dispatch_event(self, event: Event):
@@ -174,197 +186,469 @@ class AutoController:
             self.state_callback(new_state)
 
     def _enter_all_off(self):
-        a = self.actuators
-        if "atm_valve" in a:
-            a["atm_valve"].setDigitalValue(False)
-        if "mech_pump" in a:
-            a["mech_pump"].setDigitalValue(False)
-        if "turbo_pump" in a:
-            a["turbo_pump"].setDigitalValue(False)
-        if "foreline_valve" in a:
-            a["foreline_valve"].setDigitalValue(False)
-        if "fusor_valve" in a:
-            a["fusor_valve"].setDigitalValue(False)
-        if "deuterium_valve" in a:
-            a["deuterium_valve"].setDigitalValue(False)
-        self._set_voltage_kv(0)
+        if self.command_handler and self.send_command:
+            cmd = self.command_handler.build_set_valve_command(1, 0)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_mechanical_pump_command(0)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_turbo_pump_command(0)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(2, 0)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(3, 0)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(4, 0)
+            if cmd:
+                self.send_command(cmd)
+            self._set_voltage_kv(0)
+
+        else:
+            a = self.actuators
+            if "atm_valve" in a:
+                a["atm_valve"].setDigitalValue(False)
+            if "mech_pump" in a:
+                a["mech_pump"].setDigitalValue(False)
+            if "turbo_pump" in a:
+                a["turbo_pump"].setDigitalValue(False)
+            if "foreline_valve" in a:
+                a["foreline_valve"].setDigitalValue(False)
+            if "fusor_valve" in a:
+                a["fusor_valve"].setDigitalValue(False)
+            if "deuterium_valve" in a:
+                a["deuterium_valve"].setDigitalValue(False)
+            self._set_voltage_kv(0)
 
     def _enter_rough_pump_down(self):
-        a = self.actuators
-        if "atm_valve" in a:
-            a["atm_valve"].setDigitalValue(False)
-        if "mech_pump" in a:
-            a["mech_pump"].setDigitalValue(True)
-        if "turbo_pump" in a:
-            a["turbo_pump"].setDigitalValue(False)
-        if "foreline_valve" in a:
-            a["foreline_valve"].setDigitalValue(False)
-        if "fusor_valve" in a:
-            a["fusor_valve"].setDigitalValue(False)
-        if "deuterium_valve" in a:
-            a["deuterium_valve"].setDigitalValue(False)
-        self._set_voltage_kv(0)
+        if self.command_handler and self.send_command:
+            cmd = self.command_handler.build_set_valve_command(1, 0)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_mechanical_pump_command(100)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_turbo_pump_command(0)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(2, 0)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(3, 0)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(4, 0)
+            if cmd:
+                self.send_command(cmd)
+            self._set_voltage_kv(0)
+        else:
+            a = self.actuators
+            if "atm_valve" in a:
+                a["atm_valve"].setDigitalValue(False)
+            if "mech_pump" in a:
+                a["mech_pump"].setDigitalValue(True)
+            if "turbo_pump" in a:
+                a["turbo_pump"].setDigitalValue(False)
+            if "foreline_valve" in a:
+                a["foreline_valve"].setDigitalValue(False)
+            if "fusor_valve" in a:
+                a["fusor_valve"].setDigitalValue(False)
+            if "deuterium_valve" in a:
+                a["deuterium_valve"].setDigitalValue(False)
+            self._set_voltage_kv(0)
 
-    def _enter_rp_down_turbo(self):
-        a = self.actuators
-        if "atm_valve" in a:
-            a["atm_valve"].setDigitalValue(False)
-        if "mech_pump" in a:
-            a["mech_pump"].setDigitalValue(True)
-        if "turbo_pump" in a:
-            a["turbo_pump"].setDigitalValue(False)
-        if "foreline_valve" in a:
-            a["foreline_valve"].setDigitalValue(True)
-        if "fusor_valve" in a:
-            a["fusor_valve"].setDigitalValue(False)
-        if "deuterium_valve" in a:
-            a["deuterium_valve"].setDigitalValue(False)
-        self._set_voltage_kv(0)
+    def _enter_evacuate_turbo(self):
+        if self.command_handler and self.send_command:
+            cmd = self.command_handler.build_set_valve_command(1, 0)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_mechanical_pump_command(100)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_turbo_pump_command(0)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(2, 100)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(3, 0)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(4, 0)
+            if cmd:
+                self.send_command(cmd)
+            self._set_voltage_kv(0)
+            if (self.adc.read_channel(1) <= 300):
+                self._enter_turbo_pump_down()
+        else:
+            a = self.actuators
+            if "atm_valve" in a:
+                a["atm_valve"].setDigitalValue(False)
+            if "mech_pump" in a:
+                a["mech_pump"].setDigitalValue(True)
+            if "turbo_pump" in a:
+                a["turbo_pump"].setDigitalValue(False)
+            if "foreline_valve" in a:
+                a["foreline_valve"].setDigitalValue(True)
+            if "fusor_valve" in a:
+                a["fusor_valve"].setDigitalValue(False)
+            if "deuterium_valve" in a:
+                a["deuterium_valve"].setDigitalValue(False)
+            self._set_voltage_kv(0)
 
     def _enter_turbo_pump_down(self):
-        a = self.actuators
-        if "atm_valve" in a:
-            a["atm_valve"].setDigitalValue(False)
-        if "mech_pump" in a:
-            a["mech_pump"].setDigitalValue(True)
-        if "turbo_pump" in a:
-            a["turbo_pump"].setDigitalValue(True)
-        if "foreline_valve" in a:
-            a["foreline_valve"].setDigitalValue(True)
-        if "fusor_valve" in a:
-            a["fusor_valve"].setDigitalValue(False)
-        if "deuterium_valve" in a:
-            a["deuterium_valve"].setDigitalValue(False)
-        self._set_voltage_kv(0)
+        if self.command_handler and self.send_command:
+            cmd = self.command_handler.build_set_valve_command(1, 0)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_mechanical_pump_command(100)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_turbo_pump_command(100)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(2, 100)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(3, 0)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(4, 0)
+            if cmd:
+                self.send_command(cmd)
+            self._set_voltage_kv(0)
+            if (self.adc.read_channel(1) <= 100):
+                self._enter_tp_down_main()
+        else:
+            a = self.actuators
+            if "atm_valve" in a:
+                a["atm_valve"].setDigitalValue(False)
+            if "mech_pump" in a:
+                a["mech_pump"].setDigitalValue(True)
+            if "turbo_pump" in a:
+                a["turbo_pump"].setDigitalValue(True)
+            if "foreline_valve" in a:
+                a["foreline_valve"].setDigitalValue(True)
+            if "fusor_valve" in a:
+                a["fusor_valve"].setDigitalValue(False)
+            if "deuterium_valve" in a:
+                a["deuterium_valve"].setDigitalValue(False)
+            self._set_voltage_kv(0)
 
     def _enter_tp_down_main(self):
-        a = self.actuators
-        if "atm_valve" in a:
-            a["atm_valve"].setDigitalValue(False)
-        if "mech_pump" in a:
-            a["mech_pump"].setDigitalValue(True)
-        if "turbo_pump" in a:
-            a["turbo_pump"].setDigitalValue(True)
-        if "foreline_valve" in a:
-            a["foreline_valve"].setDigitalValue(True)
-        if "fusor_valve" in a:
-            a["fusor_valve"].setDigitalValue(True)
-        if "deuterium_valve" in a:
-            a["deuterium_valve"].setDigitalValue(False)
-        self._set_voltage_kv(0)
+        if self.command_handler and self.send_command:
+            cmd = self.command_handler.build_set_valve_command(1, 0)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_mechanical_pump_command(100)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_turbo_pump_command(100)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(2, 100)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(3, 100)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(4, 0)
+            if cmd:
+                self.send_command(cmd)
+            self._set_voltage_kv(0)
+            if (self.adc.read_channel(2) == 0):
+                self._enter_settle_steady_pressure()
+        else:
+            a = self.actuators
+            if "atm_valve" in a:
+                a["atm_valve"].setDigitalValue(False)
+            if "mech_pump" in a:
+                a["mech_pump"].setDigitalValue(True)
+            if "turbo_pump" in a:
+                a["turbo_pump"].setDigitalValue(True)
+            if "foreline_valve" in a:
+                a["foreline_valve"].setDigitalValue(True)
+            if "fusor_valve" in a:
+                a["fusor_valve"].setDigitalValue(True)
+            if "deuterium_valve" in a:
+                a["deuterium_valve"].setDigitalValue(False)
+            self._set_voltage_kv(0)
+            
 
     def _enter_settle_steady_pressure(self):
-        a = self.actuators
-        if "atm_valve" in a:
-            a["atm_valve"].setDigitalValue(False)
-        if "mech_pump" in a:
-            a["mech_pump"].setDigitalValue(True)
-        if "turbo_pump" in a:
-            a["turbo_pump"].setDigitalValue(True)
-        if "foreline_valve" in a:
-            a["foreline_valve"].setDigitalValue(True)
-        if "fusor_valve" in a:
-            a["fusor_valve"].setDigitalValue(True)
-        if "deuterium_valve" in a:
-            a["deuterium_valve"].setDigitalValue(True)
-        self._set_voltage_kv(0)
+        if self.command_handler and self.send_command:
+            cmd = self.command_handler.build_set_valve_command(1, 0)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_mechanical_pump_command(100)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_turbo_pump_command(100)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(2, 100)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(3, 10)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(4, 90)
+            if cmd:
+                self.send_command(cmd)
+            self._set_voltage_kv(0)
+            if (self.adc.read_channel(2) == 50):
+                self._enter_settling_10kv()
+        else:
+            a = self.actuators
+            if "atm_valve" in a:
+                a["atm_valve"].setDigitalValue(False)
+            if "mech_pump" in a:
+                a["mech_pump"].setDigitalValue(True)
+            if "turbo_pump" in a:
+                a["turbo_pump"].setDigitalValue(True)
+            if "foreline_valve" in a:
+                a["foreline_valve"].setDigitalValue(True)
+            if "fusor_valve" in a:
+                a["fusor_valve"].setDigitalValue(True)
+            if "deuterium_valve" in a:
+                a["deuterium_valve"].setDigitalValue(True)
+            self._set_voltage_kv(0)
 
     def _enter_settling_10kv(self):
-        a = self.actuators
-        if "atm_valve" in a:
-            a["atm_valve"].setDigitalValue(False)
-        if "mech_pump" in a:
-            a["mech_pump"].setDigitalValue(True)
-        if "turbo_pump" in a:
-            a["turbo_pump"].setDigitalValue(True)
-        if "foreline_valve" in a:
-            a["foreline_valve"].setDigitalValue(True)
-        if "fusor_valve" in a:
-            a["fusor_valve"].setDigitalValue(True)
-        if "deuterium_valve" in a:
-            a["deuterium_valve"].setDigitalValue(True)
-        self._set_voltage_kv(10)
-
-    def _enter_admit_fuel_5ma(self):
-        a = self.actuators
-        if "atm_valve" in a:
-            a["atm_valve"].setDigitalValue(False)
-        if "mech_pump" in a:
-            a["mech_pump"].setDigitalValue(True)
-        if "turbo_pump" in a:
-            a["turbo_pump"].setDigitalValue(True)
-        if "foreline_valve" in a:
-            a["foreline_valve"].setDigitalValue(True)
-        if "fusor_valve" in a:
-            a["fusor_valve"].setDigitalValue(True)
-        if "deuterium_valve" in a:
-            a["deuterium_valve"].setDigitalValue(True)
-        self._set_voltage_kv(10)
+        if self.command_handler and self.send_command:
+            cmd = self.command_handler.build_set_valve_command(1, 0)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_mechanical_pump_command(100)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_turbo_pump_command(100)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(2, 100)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(3, 10)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(4, 90)
+            if cmd:
+                self.send_command(cmd)
+            self._set_voltage_kv(10)
+            if ((self.adc.read_channel(2) == 0) and self._enter_settling_10kv()):
+                self._enter_nominal_27kv()
+        else:
+            a = self.actuators
+            if "atm_valve" in a:
+                a["atm_valve"].setDigitalValue(False)
+            if "mech_pump" in a:
+                a["mech_pump"].setDigitalValue(True)
+            if "turbo_pump" in a:
+                a["turbo_pump"].setDigitalValue(True)
+            if "foreline_valve" in a:
+                a["foreline_valve"].setDigitalValue(True)
+            if "fusor_valve" in a:
+                a["fusor_valve"].setDigitalValue(True)
+            if "deuterium_valve" in a:
+                a["deuterium_valve"].setDigitalValue(True)
+            self._set_voltage_kv(10)
 
     def _enter_nominal_27kv(self):
-        a = self.actuators
-        if "atm_valve" in a:
-            a["atm_valve"].setDigitalValue(False)
-        if "mech_pump" in a:
-            a["mech_pump"].setDigitalValue(True)
-        if "turbo_pump" in a:
-            a["turbo_pump"].setDigitalValue(True)
-        if "foreline_valve" in a:
-            a["foreline_valve"].setDigitalValue(True)
-        if "fusor_valve" in a:
-            a["fusor_valve"].setDigitalValue(True)
-        if "deuterium_valve" in a:
-            a["deuterium_valve"].setDigitalValue(True)
-        self._set_voltage_kv(27)
+        if self.command_handler and self.send_command:
+            cmd = self.command_handler.build_set_valve_command(1, 0)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_mechanical_pump_command(100)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_turbo_pump_command(100)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(2, 100)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(3, 10)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(4, 90)
+            if cmd:
+                self.send_command(cmd)
+            self._set_voltage_kv(27)
+        else:
+            a = self.actuators
+            if "atm_valve" in a:
+                a["atm_valve"].setDigitalValue(False)
+            if "mech_pump" in a:
+                a["mech_pump"].setDigitalValue(True)
+            if "turbo_pump" in a:
+                a["turbo_pump"].setDigitalValue(True)
+            if "foreline_valve" in a:
+                a["foreline_valve"].setDigitalValue(True)
+            if "fusor_valve" in a:
+                a["fusor_valve"].setDigitalValue(True)
+            if "deuterium_valve" in a:
+                a["deuterium_valve"].setDigitalValue(True)
+            self._set_voltage_kv(27)
 
     def _enter_deenergizing(self):
-        a = self.actuators
-        if "atm_valve" in a:
-            a["atm_valve"].setDigitalValue(False)
-        if "mech_pump" in a:
-            a["mech_pump"].setDigitalValue(True)
-        if "turbo_pump" in a:
-            a["turbo_pump"].setDigitalValue(True)
-        if "foreline_valve" in a:
-            a["foreline_valve"].setDigitalValue(True)
-        if "fusor_valve" in a:
-            a["fusor_valve"].setDigitalValue(True)
-        if "deuterium_valve" in a:
-            a["deuterium_valve"].setDigitalValue(False)
-        self._set_voltage_kv(0)
+        if self.command_handler and self.send_command:
+            cmd = self.command_handler.build_set_valve_command(1, 0)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_mechanical_pump_command(100)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_turbo_pump_command(100)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(2, 100)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(3, 100)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(4, 0)
+            if cmd:
+                self.send_command(cmd)
+            self._set_voltage_kv(0)
+            if (self._set_voltage_kv(0)):
+                self._enter_closing_main()
+        else:
+            a = self.actuators
+            if "atm_valve" in a:
+                a["atm_valve"].setDigitalValue(False)
+            if "mech_pump" in a:
+                a["mech_pump"].setDigitalValue(True)
+            if "turbo_pump" in a:
+                a["turbo_pump"].setDigitalValue(True)
+            if "foreline_valve" in a:
+                a["foreline_valve"].setDigitalValue(True)
+            if "fusor_valve" in a:
+                a["fusor_valve"].setDigitalValue(True)
+            if "deuterium_valve" in a:
+                a["deuterium_valve"].setDigitalValue(False)
+            self._set_voltage_kv(0)
 
     def _enter_closing_main(self):
-        a = self.actuators
-        if "atm_valve" in a:
-            a["atm_valve"].setDigitalValue(False)
-        if "mech_pump" in a:
-            a["mech_pump"].setDigitalValue(True)
-        if "turbo_pump" in a:
-            a["turbo_pump"].setDigitalValue(True)
-        if "foreline_valve" in a:
-            a["foreline_valve"].setDigitalValue(True)
-        if "fusor_valve" in a:
-            a["fusor_valve"].setDigitalValue(False)
-        if "deuterium_valve" in a:
-            a["deuterium_valve"].setDigitalValue(False)
-        self._set_voltage_kv(0)
+        if self.command_handler and self.send_command:
+            cmd = self.command_handler.build_set_valve_command(1, 0)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_mechanical_pump_command(100)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_turbo_pump_command(100)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(2, 100)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(3, 0)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(4, 0)
+            if cmd:
+                self.send_command(cmd)
+            self._set_voltage_kv(0)
+            time.sleep(5)
+            self._enter_venting_foreline()
+        else:
+            a = self.actuators
+            if "atm_valve" in a:
+                a["atm_valve"].setDigitalValue(False)
+            if "mech_pump" in a:
+                a["mech_pump"].setDigitalValue(True)
+            if "turbo_pump" in a:
+                a["turbo_pump"].setDigitalValue(True)
+            if "foreline_valve" in a:
+                a["foreline_valve"].setDigitalValue(True)
+            if "fusor_valve" in a:
+                a["fusor_valve"].setDigitalValue(False)
+            if "deuterium_valve" in a:
+                a["deuterium_valve"].setDigitalValue(False)
+            self._set_voltage_kv(0)
 
     def _enter_venting_foreline(self):
-        a = self.actuators
-        if "atm_valve" in a:
-            a["atm_valve"].setDigitalValue(False)
-        if "mech_pump" in a:
-            a["mech_pump"].setDigitalValue(True)
-        if "turbo_pump" in a:
-            a["turbo_pump"].setDigitalValue(True)
-        if "foreline_valve" in a:
-            a["foreline_valve"].setDigitalValue(True)
-        if "fusor_valve" in a:
-            a["fusor_valve"].setDigitalValue(True)
-        if "deuterium_valve" in a:
-            a["deuterium_valve"].setDigitalValue(False)
-        self._set_voltage_kv(0)
-
+        if self.command_handler and self.send_command:
+            cmd = self.command_handler.build_set_valve_command(1, 0)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_mechanical_pump_command(100)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_turbo_pump_command(0)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(2, 100)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(3, 0)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(4, 0)
+            if cmd:
+                self.send_command(cmd)
+            self._set_voltage_kv(0)
+            time.sleep(5)
+            self._enter_venting_atm()
+        else:
+            a = self.actuators
+            if "atm_valve" in a:
+                a["atm_valve"].setDigitalValue(False)
+            if "mech_pump" in a:
+                a["mech_pump"].setDigitalValue(True)
+            if "turbo_pump" in a:
+                a["turbo_pump"].setDigitalValue(True)
+            if "foreline_valve" in a:
+                a["foreline_valve"].setDigitalValue(True)
+            if "fusor_valve" in a:
+                a["fusor_valve"].setDigitalValue(True)
+            if "deuterium_valve" in a:
+                a["deuterium_valve"].setDigitalValue(False)
+            self._set_voltage_kv(0)
+    
+    def _enter_venting_atm(self):
+        if self.command_handler and self.send_command:
+            cmd = self.command_handler.build_set_valve_command(1, 0)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_mechanical_pump_command(100)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_turbo_pump_command(0)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(2, 0)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(3, 0)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(4, 0)
+            if cmd:
+                self.send_command(cmd)
+            self._set_voltage_kv(0)
+            time.sleep(10)
+            self._enter_all_off()
+        else:
+            a = self.actuators
+            if "atm_valve" in a:
+                a["atm_valve"].setDigitalValue(False)
+            if "mech_pump" in a:
+                a["mech_pump"].setDigitalValue(True)
+            if "turbo_pump" in a:
+                a["turbo_pump"].setDigitalValue(True)
+            if "foreline_valve" in a:
+                a["foreline_valve"].setDigitalValue(True)
+            if "fusor_valve" in a:
+                a["fusor_valve"].setDigitalValue(True)
+            if "deuterium_valve" in a:
+                a["deuterium_valve"].setDigitalValue(False)
+            self._set_voltage_kv(0)
+        
 
 class TelemetryToEventMapper:
     def __init__(self, controller: AutoController):
@@ -554,6 +838,8 @@ class FusorHostApp:
             sensors=self.sensors,
             state_callback=self._auto_update_state_label,
             log_callback=self._auto_log_event,
+            command_handler=self.command_handler,
+            send_command_callback=self._send_command,
         )
         self.telemetry_mapper = TelemetryToEventMapper(self.auto_controller)
 

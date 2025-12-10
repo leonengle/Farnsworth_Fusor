@@ -17,12 +17,11 @@ class CommandHandler(CommandBuilderInterface):
 
     @staticmethod
     def build_set_voltage_command(voltage: int) -> Optional[str]:
-        if not isinstance(voltage, int):
-            try:
-                voltage = int(voltage)
-            except (ValueError, TypeError):
-                logger.error(f"Invalid voltage type: {type(voltage)}")
-                return None
+        try:
+            voltage = int(voltage)
+        except (ValueError, TypeError):
+            logger.error(f"Invalid voltage type: {type(voltage)}")
+            return None
 
         if voltage < 0 or voltage > 28000:
             logger.warning(f"Voltage out of range: {voltage} (expected 0-28000)")
@@ -32,12 +31,11 @@ class CommandHandler(CommandBuilderInterface):
 
     @staticmethod
     def build_set_pump_power_command(power: int) -> Optional[str]:
-        if not isinstance(power, int):
-            try:
-                power = int(power)
-            except (ValueError, TypeError):
-                logger.error(f"Invalid power type: {type(power)}")
-                return None
+        try:
+            power = int(power)
+        except (ValueError, TypeError):
+            logger.error(f"Invalid power type: {type(power)}")
+            return None
 
         if power < 0 or power > 100:
             logger.warning(f"Power out of range: {power} (expected 0-100)")
@@ -47,12 +45,11 @@ class CommandHandler(CommandBuilderInterface):
 
     @staticmethod
     def build_move_motor_command(steps: int) -> Optional[str]:
-        if not isinstance(steps, int):
-            try:
-                steps = int(steps)
-            except (ValueError, TypeError):
-                logger.error(f"Invalid steps type: {type(steps)}")
-                return None
+        try:
+            steps = int(steps)
+        except (ValueError, TypeError):
+            logger.error(f"Invalid steps type: {type(steps)}")
+            return None
 
         return f"MOVE_VAR:{steps}"
 
@@ -63,3 +60,50 @@ class CommandHandler(CommandBuilderInterface):
     @staticmethod
     def build_read_adc_command() -> str:
         return "READ_ADC"
+
+    @staticmethod
+    def build_set_valve_command(valve_id: int, position: int) -> Optional[str]:
+        try:
+            valve_id = int(valve_id)
+            position = int(position)
+        except (ValueError, TypeError):
+            logger.error(f"Invalid valve_id or position type")
+            return None
+
+        if valve_id < 1 or valve_id > 6:
+            logger.warning(f"Valve ID out of range: {valve_id} (expected 1-6)")
+            return None
+
+        if position < 0 or position > 100:
+            logger.warning(f"Valve position out of range: {position} (expected 0-100)")
+            return None
+
+        return f"SET_VALVE{valve_id}:{position}"
+
+    @staticmethod
+    def build_set_mechanical_pump_command(power: int) -> Optional[str]:
+        try:
+            power = int(power)
+        except (ValueError, TypeError):
+            logger.error(f"Invalid power type: {type(power)}")
+            return None
+
+        if power < 0 or power > 100:
+            logger.warning(f"Power out of range: {power} (expected 0-100)")
+            return None
+
+        return f"SET_MECHANICAL_PUMP:{power}"
+
+    @staticmethod
+    def build_set_turbo_pump_command(power: int) -> Optional[str]:
+        try:
+            power = int(power)
+        except (ValueError, TypeError):
+            logger.error(f"Invalid power type: {type(power)}")
+            return None
+
+        if power < 0 or power > 100:
+            logger.warning(f"Power out of range: {power} (expected 0-100)")
+            return None
+
+        return f"SET_TURBO_PUMP:{power}"
