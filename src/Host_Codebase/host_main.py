@@ -18,6 +18,15 @@ from actuator_object import ActuatorObject
 from sensor_object import SensorObject
 from tcp_client_object import TCPClientObject
 from udp_client_object import UDPClientObject
+import sys
+import os
+import importlib.util
+target_codebase_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'Target_Codebase'))
+target_base_classes_path = os.path.join(target_codebase_path, 'base_classes.py')
+spec = importlib.util.spec_from_file_location("target_base_classes", target_base_classes_path)
+target_base_classes = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(target_base_classes)
+ADCInterface = target_base_classes.ADCInterface
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("HostMain")
@@ -54,11 +63,11 @@ class State(Enum):
     TP_DOWN_MAIN = auto()
     SETTLE_STEADY_PRESSURE = auto()
     SETTLING_10KV = auto()
-    ADMIT_FUEL_TO_5MA = auto()
     NOMINAL_27KV = auto()
     DEENERGIZING = auto()
     CLOSING_MAIN = auto()
     VENTING_FORELINE = auto()
+    VENTING_ATM = auto()
 
 
 class Event(Enum):
@@ -73,9 +82,127 @@ class Event(Enum):
     STOP_CMD = auto()
     ZERO_KV_STEADY = auto()
     TIMEOUT_5S = auto()
+    TIMEOUT_10S = auto()
     APS_EQ_1_ATM = auto()
     FAULT_FORELINE_TURBO = auto()
     FAULT_MAIN_TURBO = auto()
+
+
+class RemoteADC(ADCInterface):
+    
+    def __init__(self, tcp_client, command_handler):
+        super().__init__(spi_port=0, spi_device=0)
+        self.tcp_client = tcp_client
+        self.command_handler = command_handler
+        self._is_initialized = True
+        self._cache = [None] * 8
+        self._cache_lock = threading.Lock()
+    
+    def initialize(self) -> bool:
+
+        self._is_initialized = True
+        return True
+    
+    def read_channel(self, channel: int) -> int:
+        if not self.validate_channel(channel):
+            return None
+        
+        with self._cache_lock:
+            cached = self._cache[channel]
+            if cached is not None and not isinstance(cached, str):
+                return cached
+        
+        try:
+            if self.tcp_client and self.tcp_client.is_connected():
+                command = f"READ_ADC_CHANNEL:{channel}"
+                response = self.tcp_client.send_command(command)
+                
+                if response:
+                    parts = response.split("|")
+                    for part in parts:
+                        if f"ADC_CH{channel}:" in part:
+                            try:
+                                value_str = part.split(":")[1].strip()
+                                if value_str.upper() in ["FLOATING", "UNUSED"]:
+                                    return None
+                                value = int(value_str)
+                                with self._cache_lock:
+                                    self._cache[channel] = value
+                                return value
+                            except (ValueError, IndexError):
+                                pass
+        except Exception as e:
+            logger.warning(f"Error reading ADC channel {channel} from target: {e}")
+        
+        return None
+    
+    def read_all_channels(self) -> list:
+        """Read all ADC channels from target."""
+        try:
+            if self.tcp_client and self.tcp_client.is_connected():
+                command = "READ_ACTIVE_ADC_CHANNELS"
+                response = self.tcp_client.send_command(command)
+                
+                if response:
+                    values = [None] * 8
+                    parts = response.split("|")
+                    
+                    for part in parts:
+                        if "ADC_DATA:" in part:
+                            try:
+                                data_str = part.split(":")[1].strip()
+                                data_list = [x.strip() for x in data_str.split(",")]
+                                for i, val in enumerate(data_list[:8]):
+                                    if val.upper() in ["FLOATING", "UNUSED"]:
+                                        values[i] = None
+                                    else:
+                                        try:
+                                            values[i] = int(val)
+                                        except ValueError:
+                                            values[i] = None
+                                with self._cache_lock:
+                                    self._cache = values.copy()
+                                return values
+                            except (ValueError, IndexError):
+                                pass
+                    
+                    for ch in range(8):
+                        for part in parts:
+                            if f"ADC_CH{ch}:" in part:
+                                try:
+                                    value_str = part.split(":")[1].strip()
+                                    if value_str.upper() in ["FLOATING", "UNUSED"]:
+                                        values[ch] = None
+                                    else:
+                                        values[ch] = int(value_str)
+                                except (ValueError, IndexError):
+                                    pass
+                    
+                    with self._cache_lock:
+                        self._cache = values.copy()
+                    return values
+        except Exception as e:
+            logger.warning(f"Error reading all ADC channels from target: {e}")
+        
+        return [None] * 8
+    
+    def cleanup(self):
+        """No cleanup needed for remote ADC."""
+        pass
+    
+    def update_cache(self, channel: int, value):
+        if 0 <= channel < 8:
+            with self._cache_lock:
+                if isinstance(value, str):
+                    if value.upper() in ["FLOATING", "UNUSED", "---"]:
+                        self._cache[channel] = None
+                    else:
+                        try:
+                            self._cache[channel] = int(value)
+                        except ValueError:
+                            self._cache[channel] = None
+                else:
+                    self._cache[channel] = value
 
 
 class AutoController:
@@ -87,6 +214,7 @@ class AutoController:
         log_callback=None,
         command_handler=None,
         send_command_callback=None,
+        tcp_client=None,
     ):
         self.actuators = actuators
         self.sensors = sensors or {}
@@ -95,7 +223,12 @@ class AutoController:
         self.log_callback = log_callback
         self.command_handler = command_handler
         self.send_command = send_command_callback
-        self._timeout_timer = None  # Timer for TIMEOUT_5S event
+        self._timeout_timer = None
+        self._venting_atm_timer = None
+        self._voltage_poll_timer = None
+        self._last_voltage_kv = None
+        
+        self.adc = RemoteADC(tcp_client, command_handler) if tcp_client else None
 
         self.FSM = {
             (State.ALL_OFF, Event.START): State.ROUGH_PUMP_DOWN,
@@ -109,11 +242,11 @@ class AutoController:
                 State.SETTLE_STEADY_PRESSURE,
                 Event.APS_MAIN_EQ_0_1_STEADY,
             ): State.SETTLING_10KV,
-            (State.SETTLING_10KV, Event.STEADY_STATE_VOLTAGE): State.ADMIT_FUEL_TO_5MA,
-            (State.ADMIT_FUEL_TO_5MA, Event.STEADY_STATE_CURRENT): State.NOMINAL_27KV,
+            (State.SETTLING_10KV, Event.STEADY_STATE_VOLTAGE): State.NOMINAL_27KV,
             (State.DEENERGIZING, Event.ZERO_KV_STEADY): State.CLOSING_MAIN,
             (State.CLOSING_MAIN, Event.TIMEOUT_5S): State.VENTING_FORELINE,
-            (State.VENTING_FORELINE, Event.APS_EQ_1_ATM): State.ALL_OFF,
+            (State.VENTING_FORELINE, Event.APS_EQ_1_ATM): State.VENTING_ATM,
+            (State.VENTING_ATM, Event.TIMEOUT_10S): State.ALL_OFF,
             # Emergency stop from any state - immediately go to ALL_OFF
             (State.ROUGH_PUMP_DOWN, Event.STOP_CMD): State.ALL_OFF,
             (State.RP_DOWN_TURBO, Event.STOP_CMD): State.ALL_OFF,
@@ -121,11 +254,11 @@ class AutoController:
             (State.TP_DOWN_MAIN, Event.STOP_CMD): State.ALL_OFF,
             (State.SETTLE_STEADY_PRESSURE, Event.STOP_CMD): State.ALL_OFF,
             (State.SETTLING_10KV, Event.STOP_CMD): State.ALL_OFF,
-            (State.ADMIT_FUEL_TO_5MA, Event.STOP_CMD): State.ALL_OFF,
             (State.NOMINAL_27KV, Event.STOP_CMD): State.ALL_OFF,
             (State.DEENERGIZING, Event.STOP_CMD): State.ALL_OFF,
             (State.CLOSING_MAIN, Event.STOP_CMD): State.ALL_OFF,
             (State.VENTING_FORELINE, Event.STOP_CMD): State.ALL_OFF,
+            (State.VENTING_ATM, Event.STOP_CMD): State.ALL_OFF,
         }
 
         self._state_entry_actions = {
@@ -136,11 +269,11 @@ class AutoController:
             State.TP_DOWN_MAIN: self._enter_tp_down_main,
             State.SETTLE_STEADY_PRESSURE: self._enter_settle_steady_pressure,
             State.SETTLING_10KV: self._enter_settling_10kv,
-            State.ADMIT_FUEL_TO_5MA: self._enter_admit_fuel_5ma,
             State.NOMINAL_27KV: self._enter_nominal_27kv,
             State.DEENERGIZING: self._enter_deenergizing,
             State.CLOSING_MAIN: self._enter_closing_main,
             State.VENTING_FORELINE: self._enter_venting_foreline,
+            State.VENTING_ATM: self._enter_venting_atm,
         }
 
         self._enter_state(State.ALL_OFF)
@@ -149,6 +282,12 @@ class AutoController:
         if self.log_callback:
             self.log_callback(message)
         logger.info(message)
+
+    def update_adc_values(self, adc_data: list):
+        if self.adc:
+            for i, value in enumerate(adc_data[:8]):
+                if value is not None and value != "---":
+                    self.adc.update_cache(i, value)
 
     def _set_voltage_kv(self, kv: float):
         if self.command_handler and self.send_command:
@@ -164,9 +303,23 @@ class AutoController:
             self.actuators["power_supply"].setAnalogValue(kv * 1000.0)
 
     def dispatch_event(self, event: Event):
-        # Emergency stop always goes to ALL_OFF from any state
         if event == Event.STOP_CMD:
-            self._enter_state(State.ALL_OFF)
+            if self._timeout_timer:
+                self._timeout_timer.cancel()
+                self._timeout_timer = None
+            if self._venting_atm_timer:
+                self._venting_atm_timer.cancel()
+                self._venting_atm_timer = None
+            if self._voltage_poll_timer:
+                self._voltage_poll_timer.cancel()
+                self._voltage_poll_timer = None
+            
+            key = (self.currentState, event)
+            next_state = self.FSM.get(key)
+            if next_state is not None:
+                self._enter_state(next_state)
+            else:
+                self._enter_state(State.ALL_OFF)
             return
         
         key = (self.currentState, event)
@@ -175,6 +328,26 @@ class AutoController:
             self._log(f"No transition for {event.name} in {self.currentState.name}")
             return
         self._enter_state(next_state)
+
+    def _dispatch_timeout_event(self):
+        if self.currentState == State.CLOSING_MAIN:
+            self.dispatch_event(Event.TIMEOUT_5S)
+
+    def _dispatch_venting_atm_timeout(self):
+        if self.currentState == State.VENTING_ATM:
+            self.dispatch_event(Event.TIMEOUT_10S)
+    
+    def _poll_voltage_for_deenergizing(self):
+        if self.currentState == State.DEENERGIZING and self.send_command:
+            try:
+                self.send_command("READ_NODE_VOLTAGE:3")
+            except Exception as e:
+                logger.warning(f"Error polling voltage: {e}")
+            
+            if self._voltage_poll_timer:
+                self._voltage_poll_timer.cancel()
+            self._voltage_poll_timer = threading.Timer(0.5, self._poll_voltage_for_deenergizing)
+            self._voltage_poll_timer.start()
 
     def _enter_state(self, new_state: State):
         self._log(f"Entering state {new_state.name}")
@@ -260,7 +433,7 @@ class AutoController:
                 a["deuterium_valve"].setDigitalValue(False)
             self._set_voltage_kv(0)
 
-    def _enter_evacuate_turbo(self):
+    def _enter_rp_down_turbo(self):
         if self.command_handler and self.send_command:
             cmd = self.command_handler.build_set_valve_command(1, 0)
             if cmd:
@@ -281,8 +454,6 @@ class AutoController:
             if cmd:
                 self.send_command(cmd)
             self._set_voltage_kv(0)
-            if (self.adc.read_channel(1) <= 300):
-                self._enter_turbo_pump_down()
         else:
             a = self.actuators
             if "atm_valve" in a:
@@ -320,8 +491,6 @@ class AutoController:
             if cmd:
                 self.send_command(cmd)
             self._set_voltage_kv(0)
-            if (self.adc.read_channel(1) <= 100):
-                self._enter_tp_down_main()
         else:
             a = self.actuators
             if "atm_valve" in a:
@@ -359,8 +528,6 @@ class AutoController:
             if cmd:
                 self.send_command(cmd)
             self._set_voltage_kv(0)
-            if (self.adc.read_channel(2) == 0):
-                self._enter_settle_steady_pressure()
         else:
             a = self.actuators
             if "atm_valve" in a:
@@ -399,8 +566,6 @@ class AutoController:
             if cmd:
                 self.send_command(cmd)
             self._set_voltage_kv(0)
-            if (self.adc.read_channel(2) == 50):
-                self._enter_settling_10kv()
         else:
             a = self.actuators
             if "atm_valve" in a:
@@ -438,8 +603,6 @@ class AutoController:
             if cmd:
                 self.send_command(cmd)
             self._set_voltage_kv(10)
-            if ((self.adc.read_channel(2) == 0) and self._enter_settling_10kv()):
-                self._enter_nominal_27kv()
         else:
             a = self.actuators
             if "atm_valve" in a:
@@ -514,8 +677,11 @@ class AutoController:
             if cmd:
                 self.send_command(cmd)
             self._set_voltage_kv(0)
-            if (self._set_voltage_kv(0)):
-                self._enter_closing_main()
+            
+            if self._voltage_poll_timer:
+                self._voltage_poll_timer.cancel()
+            self._voltage_poll_timer = threading.Timer(0.5, self._poll_voltage_for_deenergizing)
+            self._voltage_poll_timer.start()
         else:
             a = self.actuators
             if "atm_valve" in a:
@@ -592,8 +758,10 @@ class AutoController:
             if cmd:
                 self.send_command(cmd)
             self._set_voltage_kv(0)
-            time.sleep(5)
-            self._enter_venting_atm()
+            if self._timeout_timer:
+                self._timeout_timer.cancel()
+            self._timeout_timer = threading.Timer(5.0, self._dispatch_timeout_event)
+            self._timeout_timer.start()
         else:
             a = self.actuators
             if "atm_valve" in a:
@@ -605,7 +773,44 @@ class AutoController:
             if "foreline_valve" in a:
                 a["foreline_valve"].setDigitalValue(True)
             if "fusor_valve" in a:
-                a["fusor_valve"].setDigitalValue(True)
+                a["fusor_valve"].setDigitalValue(False)
+            if "deuterium_valve" in a:
+                a["deuterium_valve"].setDigitalValue(False)
+            self._set_voltage_kv(0)
+
+    def _enter_venting_foreline(self):
+        if self.command_handler and self.send_command:
+            cmd = self.command_handler.build_set_valve_command(1, 0)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_mechanical_pump_command(100)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_turbo_pump_command(0)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(2, 100)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(3, 0)
+            if cmd:
+                self.send_command(cmd)
+            cmd = self.command_handler.build_set_valve_command(4, 0)
+            if cmd:
+                self.send_command(cmd)
+            self._set_voltage_kv(0)
+        else:
+            a = self.actuators
+            if "atm_valve" in a:
+                a["atm_valve"].setDigitalValue(False)
+            if "mech_pump" in a:
+                a["mech_pump"].setDigitalValue(True)
+            if "turbo_pump" in a:
+                a["turbo_pump"].setDigitalValue(False)
+            if "foreline_valve" in a:
+                a["foreline_valve"].setDigitalValue(True)
+            if "fusor_valve" in a:
+                a["fusor_valve"].setDigitalValue(False)
             if "deuterium_valve" in a:
                 a["deuterium_valve"].setDigitalValue(False)
             self._set_voltage_kv(0)
@@ -631,8 +836,10 @@ class AutoController:
             if cmd:
                 self.send_command(cmd)
             self._set_voltage_kv(0)
-            time.sleep(10)
-            self._enter_all_off()
+            if self._venting_atm_timer:
+                self._venting_atm_timer.cancel()
+            self._venting_atm_timer = threading.Timer(10.0, self._dispatch_venting_atm_timeout)
+            self._venting_atm_timer.start()
         else:
             a = self.actuators
             if "atm_valve" in a:
@@ -656,26 +863,26 @@ class TelemetryToEventMapper:
 
     def handle_telemetry(self, telemetry: dict):
         aps_loc = telemetry.get("APS_location")
-        aps_p = telemetry.get("APS_pressure_mT")
+        aps_p = telemetry.get("APS_pressure_Torr")
         v_kv = telemetry.get("voltage_kV")
         i_mA = telemetry.get("current_mA")
         aps_atm_flag = telemetry.get("APS_atm_flag", False)
         s = self.controller.currentState
 
         if s == State.ROUGH_PUMP_DOWN and aps_loc == "Foreline" and aps_p is not None:
-            if aps_p < 100.0:
+            if aps_p <= 300.0:
                 self.controller.dispatch_event(Event.APS_FORELINE_LT_100MT)
 
         if s == State.RP_DOWN_TURBO and aps_loc == "Turbo" and aps_p is not None:
-            if aps_p < 100.0:
+            if aps_p <= 300.0:
                 self.controller.dispatch_event(Event.APS_TURBO_LT_100MT)
 
         if s == State.TURBO_PUMP_DOWN and aps_loc == "Turbo" and aps_p is not None:
-            if aps_p < 0.1:
+            if aps_p <= 100.0:
                 self.controller.dispatch_event(Event.APS_TURBO_LT_0_1MT)
 
         if s == State.TP_DOWN_MAIN and aps_loc == "Main" and aps_p is not None:
-            if aps_p < 0.1:
+            if abs(aps_p) < 0.001:
                 self.controller.dispatch_event(Event.APS_MAIN_LT_0_1MT)
 
         if (
@@ -683,23 +890,27 @@ class TelemetryToEventMapper:
             and aps_loc == "Main"
             and aps_p is not None
         ):
-            if 0.095 <= aps_p <= 0.105:
+            if 49.5 <= aps_p <= 50.5:
                 self.controller.dispatch_event(Event.APS_MAIN_EQ_0_1_STEADY)
 
-        if s == State.SETTLING_10KV and v_kv is not None:
-            if 9.8 <= v_kv <= 10.2:
+        if s == State.SETTLING_10KV and aps_loc == "Main" and aps_p is not None:
+            if abs(aps_p) < 0.001:
                 self.controller.dispatch_event(Event.STEADY_STATE_VOLTAGE)
 
-        if s == State.ADMIT_FUEL_TO_5MA and i_mA is not None:
-            if 4.8 <= i_mA <= 5.2:
-                self.controller.dispatch_event(Event.STEADY_STATE_CURRENT)
+        if s == State.DEENERGIZING:
+            if v_kv is not None:
+                if abs(v_kv) < 0.1:
+                    self.controller.dispatch_event(Event.ZERO_KV_STEADY)
+            elif self.controller._last_voltage_kv is not None:
+                if abs(self.controller._last_voltage_kv) < 0.1:
+                    self.controller.dispatch_event(Event.ZERO_KV_STEADY)
 
-        if s == State.DEENERGIZING and v_kv is not None:
-            if abs(v_kv) < 0.1:
-                self.controller.dispatch_event(Event.ZERO_KV_STEADY)
-
-        if s == State.VENTING_FORELINE and aps_atm_flag:
-            self.controller.dispatch_event(Event.APS_EQ_1_ATM)
+        if s == State.VENTING_FORELINE:
+            if aps_atm_flag:
+                self.controller.dispatch_event(Event.APS_EQ_1_ATM)
+            elif aps_loc == "Foreline" and aps_p is not None:
+                if aps_p >= 700.0:
+                    self.controller.dispatch_event(Event.APS_EQ_1_ATM)
 
 
 class FusorHostApp:
@@ -840,6 +1051,7 @@ class FusorHostApp:
             log_callback=self._auto_log_event,
             command_handler=self.command_handler,
             send_command_callback=self._send_command,
+            tcp_client=self.tcp_command_client,
         )
         self.telemetry_mapper = TelemetryToEventMapper(self.auto_controller)
 
@@ -896,7 +1108,6 @@ class FusorHostApp:
         auto_tab = self.tabview.add("Auto Control")
         log_reading_tab = self.tabview.add("Log Reading")
 
-        # Data Reading will be a popup window, not a tab
         self.data_reading_window = None
 
         title_label_manual = ctk.CTkLabel(
@@ -1057,7 +1268,6 @@ class FusorHostApp:
         self.vacsys_value_label = self.valve_value_labels.get("fusor_valve")
         self.deuterium_value_label = self.valve_value_labels.get("deuterium_valve")
 
-        # Button to open Data Reading popup window
         data_reading_button_frame = ctk.CTkFrame(left_column)
         data_reading_button_frame.pack(fill="x", padx=5, pady=10)
 
@@ -1088,7 +1298,6 @@ class FusorHostApp:
         )
         emergency_stop_button.pack(pady=10)
 
-        # Initialize data reading window widgets as None (will be created in popup)
         self.pressure_display1 = None
         self.pressure_display2 = None
         self.pressure_display3 = None
@@ -1212,7 +1421,6 @@ class FusorHostApp:
             return
 
         try:
-            # Ensure connected - try to connect if not connected
             if not self.tcp_command_client.is_connected():
                 self._update_status(
                     f"Connecting to {self.target_ip}:{self.target_tcp_command_port}...",
@@ -1245,14 +1453,11 @@ class FusorHostApp:
                     )
                     return
 
-            # Send command
             self._update_status(f"Sending command: {command}...", "blue")
             response = self.tcp_command_client.send_command(command)
 
-            # Process ADC data if this is an ADC read command
             if response and ("ADC_CH" in response or "ADC_DATA" in response):
                 try:
-                    # Parse the response similar to UDP data
                     parsed = {}
                     parts = response.split("|")
                     for part in parts:
@@ -1260,18 +1465,15 @@ class FusorHostApp:
                             key, value = part.split(":", 1)
                             parsed[key] = value
                     
-                    # Update ADC displays
                     adc_values = ["---"] * 8
                     for ch in range(8):
                         adc_key = f"ADC_CH{ch}"
                         if adc_key in parsed:
                             adc_values[ch] = parsed[adc_key]
                     
-                    # Update all ADC channel labels
                     if any(v != "---" for v in adc_values):
                         self._update_all_adc_channels(adc_values)
                     
-                    # Process ADC_DATA if present
                     adc_data = parsed.get("ADC_DATA")
                     if adc_data:
                         try:
@@ -1287,7 +1489,6 @@ class FusorHostApp:
                                         except ValueError:
                                             adc_list.append(x)
                                 
-                                # Update channels 0, 1, 2 with the parsed values
                                 for i, val in enumerate(adc_list[:3]):
                                     if i < len(adc_values):
                                         adc_values[i] = val
@@ -1298,7 +1499,6 @@ class FusorHostApp:
                 except Exception as e:
                     logger.warning(f"Error processing ADC response: {e}")
 
-            # Process voltage responses
             if response and "NODE_" in response and "_VOLTAGE:" in response:
                 try:
                     parts = response.split(":")
@@ -1306,11 +1506,18 @@ class FusorHostApp:
                         node_part = parts[0].replace("NODE_", "").replace("_VOLTAGE", "")
                         node_id = int(node_part)
                         voltage = float(parts[1])
+                        
+                        if node_id == 3:
+                            voltage_kv = voltage / 1000.0
+                            if self.auto_controller:
+                                self.auto_controller._last_voltage_kv = voltage_kv
+                                if self.auto_controller.currentState == State.DEENERGIZING:
+                                    if abs(voltage_kv) < 0.1:
+                                        self.auto_controller.dispatch_event(Event.ZERO_KV_STEADY)
                         self._update_voltage_display(node_id, voltage)
                 except (ValueError, IndexError) as e:
                     logger.warning(f"Error parsing voltage response: {e}")
 
-            # Process current responses
             if response and "NODE_" in response and "_CURRENT:" in response:
                 try:
                     parts = response.split(":")
@@ -1322,9 +1529,7 @@ class FusorHostApp:
                 except (ValueError, IndexError) as e:
                     logger.warning(f"Error parsing current response: {e}")
 
-            # Display response
             if response:
-                # Check for success/failure in response
                 if "SUCCESS" in response.upper():
                     self._update_status(
                         f"Command sent: {command} - Response: {response}", "green"
@@ -1334,11 +1539,9 @@ class FusorHostApp:
                         f"Command sent: {command} - Response: {response}", "red"
                     )
                     
-                    # Extract and display detailed error message
                     if ":" in response:
                         error_detail = response.split(":", 1)[1].strip()
                         
-                        # Comprehensive terminal logging for LED errors
                         if command in ["LED_ON", "LED_OFF"]:
                             print("\n" + "=" * 70, flush=True)
                             print(f"LED COMMAND FAILED: {command}", flush=True)
@@ -1431,7 +1634,6 @@ class FusorHostApp:
                                 "LED_ERROR", f"{command} failed: {error_detail}"
                             )
                         else:
-                            # Non-LED errors - standard logging
                             self._log_terminal_update(
                                 "COMMAND_ERROR", f"{command} -> {response}"
                             )
@@ -1440,7 +1642,6 @@ class FusorHostApp:
                             f"[ERROR] {command} failed: {error_detail}"
                         )
                     else:
-                        # No detailed error message
                         self._log_terminal_update(
                             "COMMAND_ERROR", f"{command} -> {response}"
                         )
@@ -1472,8 +1673,6 @@ class FusorHostApp:
     def _update_pump_label(self, value):
         if hasattr(self, "pump_value_label"):
             self.pump_value_label.configure(text=f"{int(value)}%")
-
-    # Removed _manual_slider_change and _update_turbo_pump_label - replaced with toggle switches
 
     def _update_valve_label(self, valve_key, idx, value):
         if valve_key and valve_key in self.valve_value_labels:
@@ -1892,7 +2091,6 @@ class FusorHostApp:
             self._update_data_display("[ERROR] Steps must be a number")
 
     def _handle_udp_data(self, data: str):
-        # Filter out ADC data from logging section (case-insensitive check)
         data_upper = data.upper()
         has_adc_data = (
             any(f"ADC_CH{ch}:" in data_upper or f"ADC_CH{ch}=" in data_upper for ch in range(8)) 
@@ -1903,12 +2101,10 @@ class FusorHostApp:
             self._update_data_display(f"[UDP Data] {data}")
         parsed = self._parse_periodic_packet(data)
         
-        # Debug: Log ADC channel data if present
         if any(f"ADC_CH{ch}" in parsed for ch in range(8)):
             adc_debug = {f"ADC_CH{ch}": parsed.get(f"ADC_CH{ch}") for ch in range(8)}
             logger.debug(f"Parsed ADC channels from UDP: {adc_debug}")
         
-        # Check for errors first (always log errors)
         has_error = any(
             "ERROR" in str(v).upper()
             or "NOT_AVAILABLE" in str(v).upper()
@@ -1918,34 +2114,28 @@ class FusorHostApp:
         )
         
         if parsed:
-            # Check if any values changed
             values_changed = False
             changed_items = []
             
             with self._previous_values_lock:
                 for key, value in parsed.items():
-                    # Skip TIME field for change detection (always changes)
                     if key == "TIME":
                         continue
                     
-                    # Skip ADC and pressure sensor fields from logging (only show communication logs)
                     is_adc_field = key.startswith("ADC_CH") or key == "ADC_DATA"
                     is_pressure_field = key.startswith("PRESSURE_SENSOR_")
                     
                     if is_adc_field or is_pressure_field:
-                        # Still track for display purposes but skip logging
                         self.previous_values[key] = value
                         continue
                     
                     prev_value = self.previous_values.get(key)
                     
-                    # For numeric values, compare as numbers
                     try:
                         if key == "Pressure_Sensor_1":
                             if str(value).upper() == "FLOATING":
                                 if prev_value != value:
                                     self.previous_values[key] = value
-                                    # Don't add ADC fields to changed_items for logging
                                     if not is_adc_field:
                                         values_changed = True
                                         changed_items.append(f"{key}={value}")
@@ -1955,44 +2145,35 @@ class FusorHostApp:
                                 if (
                                     prev_value_num is None
                                     or abs(value_num - prev_value_num) >= 5.0
-                                ):  # At least 5 unit change (noise filtering)
+                                ):
                                     self.previous_values[key] = value
-                                    # Don't add ADC fields to changed_items for logging
                                     if not is_adc_field:
                                         values_changed = True
                                         changed_items.append(f"{key}={value}")
                         else:
-                            # String comparison for non-numeric values
                             if prev_value != value:
                                 self.previous_values[key] = value
-                                # Don't add ADC fields to changed_items for logging
                                 if not is_adc_field:
                                     values_changed = True
                                     changed_items.append(f"{key}={value}")
                             elif key not in self.previous_values:
-                                # First time seeing this value
                                 self.previous_values[key] = value
-                                # Don't add ADC fields to changed_items for logging
                                 if not is_adc_field:
                                     values_changed = True
                                     changed_items.append(f"{key}={value}")
                     except (ValueError, TypeError):
-                        # Fallback to string comparison if conversion fails
                         is_adc_field = key.startswith("ADC_CH") or key == "ADC_DATA"
                         if prev_value != value:
                             self.previous_values[key] = value
-                            # Don't add ADC fields to changed_items for logging
                             if not is_adc_field:
                                 values_changed = True
                                 changed_items.append(f"{key}={value}")
                         elif key not in self.previous_values:
                             self.previous_values[key] = value
-                            # Don't add ADC fields to changed_items for logging
                             if not is_adc_field:
                                 values_changed = True
                                 changed_items.append(f"{key}={value}")
             
-            # Update ADC displays
             adc_values = []
             for ch in range(8):
                 adc_key = f"ADC_CH{ch}"
@@ -2003,7 +2184,9 @@ class FusorHostApp:
                 if ch == 0:
                     self._update_adc_display(adc_value)
             
-            # Always update all labels if we have any ADC data
+            if any(v != "---" for v in adc_values):
+                self.auto_controller.update_adc_values(adc_values)
+            
             if any(v != "---" for v in adc_values):
                 logger.debug(f"Updating ADC channels with values: {adc_values}")
                 self._update_all_adc_channels(adc_values)
@@ -2011,7 +2194,6 @@ class FusorHostApp:
                 logger.debug(f"ADC channels found in parsed data but all are None: {[parsed.get(f'ADC_CH{ch}') for ch in range(8)]}")
                 self._update_all_adc_channels(adc_values)
 
-            # Process pressure sensor values from periodic data
             for sensor_id in range(1, 4):
                 pressure_key = f"PRESSURE_SENSOR_{sensor_id}_VALUE"
                 pressure_value = parsed.get(pressure_key)
@@ -2045,14 +2227,84 @@ class FusorHostApp:
                     else:
                         adc_list = list(adc_data)
                     if len(adc_list) >= 8:
+                        self.auto_controller.update_adc_values(adc_list)
                         self._update_all_adc_channels(adc_list)
                 except (ValueError, TypeError) as e:
                     logger.warning(f"Error parsing ADC_DATA: {e}, data: {adc_data}")
                     pass
             
+            telemetry = {}
+            
+            pressure_sensor_1_value = parsed.get("PRESSURE_SENSOR_1_VALUE")
+            pressure_sensor_2_value = parsed.get("PRESSURE_SENSOR_2_VALUE")
+            pressure_sensor_3_value = parsed.get("PRESSURE_SENSOR_3_VALUE")
+            
+            if pressure_sensor_1_value:
+                try:
+                    pressure_mt = float(pressure_sensor_1_value.split("|")[0])
+                    pressure_torr = pressure_mt / 1000.0
+                    telemetry["APS_location"] = "Foreline"
+                    telemetry["APS_pressure_Torr"] = pressure_torr
+                except (ValueError, IndexError):
+                    pass
+            
+            if pressure_sensor_2_value:
+                try:
+                    pressure_mt = float(pressure_sensor_2_value.split("|")[0])
+                    pressure_torr = pressure_mt / 1000.0
+                    if "APS_location" not in telemetry or telemetry.get("APS_location") != "Main":
+                        telemetry["APS_location"] = "Turbo"
+                        telemetry["APS_pressure_Torr"] = pressure_torr
+                except (ValueError, IndexError):
+                    pass
+            
+            if pressure_sensor_3_value:
+                try:
+                    pressure_mt = float(pressure_sensor_3_value.split("|")[0])
+                    pressure_torr = pressure_mt / 1000.0
+                    telemetry["APS_location"] = "Main"
+                    telemetry["APS_pressure_Torr"] = pressure_torr
+                except (ValueError, IndexError):
+                    pass
+            
+            voltage_kv = parsed.get("VOLTAGE_KV") or parsed.get("voltage_kV") or parsed.get("VOLTAGE")
+            if voltage_kv:
+                try:
+                    if isinstance(voltage_kv, str):
+                        voltage_kv = float(voltage_kv.split("|")[0] if "|" in voltage_kv else voltage_kv)
+                    else:
+                        voltage_kv = float(voltage_kv)
+                    telemetry["voltage_kV"] = voltage_kv
+                except (ValueError, TypeError):
+                    pass
+            
+            current_ma = parsed.get("CURRENT_MA") or parsed.get("current_mA") or parsed.get("CURRENT")
+            if current_ma:
+                try:
+                    if isinstance(current_ma, str):
+                        current_ma = float(current_ma.split("|")[0] if "|" in current_ma else current_ma)
+                    else:
+                        current_ma = float(current_ma)
+                    telemetry["current_mA"] = current_ma
+                except (ValueError, TypeError):
+                    pass
+            
+            aps_atm_flag = parsed.get("APS_ATM_FLAG") or parsed.get("aps_atm_flag")
+            if aps_atm_flag:
+                try:
+                    if isinstance(aps_atm_flag, str):
+                        aps_atm_flag = aps_atm_flag.upper() in ["TRUE", "1", "YES"]
+                    else:
+                        aps_atm_flag = bool(aps_atm_flag)
+                    telemetry["APS_atm_flag"] = aps_atm_flag
+                except (ValueError, TypeError):
+                    pass
+            
+            if telemetry:
+                self.telemetry_mapper.handle_telemetry(telemetry)
+            
             if values_changed or has_error:
                 if changed_items:
-                    # Filter out ADC and pressure sensor items from logging (only show communication logs)
                     filtered_items = [
                         item for item in changed_items 
                         if not (item.startswith("ADC_CH") or item.startswith("ADC_DATA=") or "=ADC_CH" in item or "=ADC_DATA" in item
@@ -2082,7 +2334,6 @@ class FusorHostApp:
                             self._update_target_logs(f"[UDP Data] {summary}")
                             self._log_terminal_update("TARGET_ERROR", summary)
         else:
-            # Filter out ADC data even in the else branch (case-insensitive check)
             data_upper = data.upper()
             has_adc_data = (
                 any(f"ADC_CH{ch}:" in data_upper or f"ADC_CH{ch}=" in data_upper for ch in range(8)) 
@@ -2429,7 +2680,6 @@ class FusorHostApp:
 
         self.data_reading_window.protocol("WM_DELETE_WINDOW", self._close_data_reading_window)
         
-        # Send commands to read all data when window opens
         self._send_command("READ_ACTIVE_ADC_CHANNELS")
         self._send_command("READ_NODE_VOLTAGE:1")  # Rectifier
         self._send_command("READ_NODE_VOLTAGE:2")  # Transformer
@@ -2444,7 +2694,6 @@ class FusorHostApp:
             except:
                 pass
             self.data_reading_window = None
-            # Keep labels as None so updates don't crash
             self.pressure_display1 = None
             self.pressure_display2 = None
             self.pressure_display3 = None
@@ -2471,7 +2720,6 @@ class FusorHostApp:
         if not self.target_logs_display or not self.root:
             return
         
-        # Filter out any ADC or pressure sensor data (only show communication logs)
         log_upper = log_message.upper()
         if (any(f"ADC_CH{ch}" in log_upper for ch in range(8)) 
             or "ADC_DATA" in log_upper 
@@ -2487,7 +2735,6 @@ class FusorHostApp:
                         "end", f"[{timestamp}] {log_message}\n"
                     )
                     self.target_logs_display.see("end")
-                    # Limit log size to prevent memory issues (keep last 1000 lines)
                     lines = self.target_logs_display.get("1.0", "end").split("\n")
                     if len(lines) > 1000:
                         self.target_logs_display.delete("1.0", f"{len(lines) - 1000}.0")
@@ -2498,7 +2745,6 @@ class FusorHostApp:
         self._schedule_gui_update(_do_update)
 
     def _update_data_display(self, data: str):
-        # Filter out ADC data from data display
         data_upper = data.upper()
         if any(f"ADC_CH{ch}" in data_upper for ch in range(8)) or "ADC_DATA" in data_upper:
             return
