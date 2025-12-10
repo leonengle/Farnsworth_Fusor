@@ -245,7 +245,7 @@ class AutoController:
             (State.SETTLING_10KV, Event.STEADY_STATE_VOLTAGE): State.NOMINAL_27KV,
             (State.DEENERGIZING, Event.ZERO_KV_STEADY): State.CLOSING_MAIN,
             (State.CLOSING_MAIN, Event.TIMEOUT_5S): State.VENTING_FORELINE,
-            (State.VENTING_FORELINE, Event.APS_EQ_1_ATM): State.VENTING_ATM,
+            (State.VENTING_FORELINE, Event.TIMEOUT_5S): State.VENTING_ATM,
             (State.VENTING_ATM, Event.TIMEOUT_10S): State.ALL_OFF,
             # Emergency stop from any state - immediately go to ALL_OFF
             (State.ROUGH_PUMP_DOWN, Event.STOP_CMD): State.ALL_OFF,
@@ -331,6 +331,8 @@ class AutoController:
 
     def _dispatch_timeout_event(self):
         if self.currentState == State.CLOSING_MAIN:
+            self.dispatch_event(Event.TIMEOUT_5S)
+        elif self.currentState == State.VENTING_FORELINE:
             self.dispatch_event(Event.TIMEOUT_5S)
 
     def _dispatch_venting_atm_timeout(self):
@@ -777,43 +779,6 @@ class AutoController:
             if "deuterium_valve" in a:
                 a["deuterium_valve"].setDigitalValue(False)
             self._set_voltage_kv(0)
-
-    def _enter_venting_foreline(self):
-        if self.command_handler and self.send_command:
-            cmd = self.command_handler.build_set_valve_command(1, 0)
-            if cmd:
-                self.send_command(cmd)
-            cmd = self.command_handler.build_set_mechanical_pump_command(100)
-            if cmd:
-                self.send_command(cmd)
-            cmd = self.command_handler.build_set_turbo_pump_command(0)
-            if cmd:
-                self.send_command(cmd)
-            cmd = self.command_handler.build_set_valve_command(2, 100)
-            if cmd:
-                self.send_command(cmd)
-            cmd = self.command_handler.build_set_valve_command(3, 0)
-            if cmd:
-                self.send_command(cmd)
-            cmd = self.command_handler.build_set_valve_command(4, 0)
-            if cmd:
-                self.send_command(cmd)
-            self._set_voltage_kv(0)
-        else:
-            a = self.actuators
-            if "atm_valve" in a:
-                a["atm_valve"].setDigitalValue(False)
-            if "mech_pump" in a:
-                a["mech_pump"].setDigitalValue(True)
-            if "turbo_pump" in a:
-                a["turbo_pump"].setDigitalValue(False)
-            if "foreline_valve" in a:
-                a["foreline_valve"].setDigitalValue(True)
-            if "fusor_valve" in a:
-                a["fusor_valve"].setDigitalValue(False)
-            if "deuterium_valve" in a:
-                a["deuterium_valve"].setDigitalValue(False)
-            self._set_voltage_kv(0)
     
     def _enter_venting_atm(self):
         if self.command_handler and self.send_command:
@@ -905,12 +870,6 @@ class TelemetryToEventMapper:
                 if abs(self.controller._last_voltage_kv) < 0.1:
                     self.controller.dispatch_event(Event.ZERO_KV_STEADY)
 
-        if s == State.VENTING_FORELINE:
-            if aps_atm_flag:
-                self.controller.dispatch_event(Event.APS_EQ_1_ATM)
-            elif aps_loc == "Foreline" and aps_p is not None:
-                if aps_p >= 700.0:
-                    self.controller.dispatch_event(Event.APS_EQ_1_ATM)
 
 
 class FusorHostApp:
