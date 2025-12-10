@@ -254,7 +254,7 @@ class AutoController:
             (State.TP_DOWN_MAIN, Event.STOP_CMD): State.ALL_OFF,
             (State.SETTLE_STEADY_PRESSURE, Event.STOP_CMD): State.ALL_OFF,
             (State.SETTLING_10KV, Event.STOP_CMD): State.ALL_OFF,
-            (State.NOMINAL_27KV, Event.STOP_CMD): State.ALL_OFF,
+            (State.NOMINAL_27KV, Event.STOP_CMD): State.DEENERGIZING,
             (State.DEENERGIZING, Event.STOP_CMD): State.ALL_OFF,
             (State.CLOSING_MAIN, Event.STOP_CMD): State.ALL_OFF,
             (State.VENTING_FORELINE, Event.STOP_CMD): State.ALL_OFF,
@@ -721,8 +721,10 @@ class AutoController:
             if cmd:
                 self.send_command(cmd)
             self._set_voltage_kv(0)
-            time.sleep(5)
-            self._enter_venting_foreline()
+            if self._timeout_timer:
+                self._timeout_timer.cancel()
+            self._timeout_timer = threading.Timer(5.0, self._dispatch_timeout_event)
+            self._timeout_timer.start()
         else:
             a = self.actuators
             if "atm_valve" in a:
