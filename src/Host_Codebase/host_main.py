@@ -79,9 +79,12 @@ class Event(Enum):
     APS_MAIN_EQ_0_1_STEADY = auto()
     STEADY_STATE_VOLTAGE = auto()
     STEADY_STATE_CURRENT = auto()
+    CMF_EQ_0 = auto()
+    CMF_EQ_50 = auto()
     STOP_CMD = auto()
     ZERO_KV_STEADY = auto()
     TIMEOUT_5S = auto()
+    TIMEOUT_6S = auto()
     TIMEOUT_10S = auto()
     APS_EQ_1_ATM = auto()
     FAULT_FORELINE_TURBO = auto()
@@ -236,15 +239,15 @@ class AutoController:
             (State.RP_DOWN_TURBO, Event.APS_TURBO_LT_100MT): State.TURBO_PUMP_DOWN,
             (State.RP_DOWN_TURBO, Event.FAULT_FORELINE_TURBO): State.ALL_OFF,
             (State.TURBO_PUMP_DOWN, Event.APS_TURBO_LT_0_1MT): State.TP_DOWN_MAIN,
-            (State.TP_DOWN_MAIN, Event.APS_MAIN_LT_0_1MT): State.SETTLE_STEADY_PRESSURE,
+            (State.TP_DOWN_MAIN, Event.CMF_EQ_0): State.SETTLE_STEADY_PRESSURE,
             (State.TP_DOWN_MAIN, Event.FAULT_MAIN_TURBO): State.ALL_OFF,
             (
                 State.SETTLE_STEADY_PRESSURE,
-                Event.APS_MAIN_EQ_0_1_STEADY,
+                Event.CMF_EQ_50,
             ): State.SETTLING_10KV,
-            (State.SETTLING_10KV, Event.STEADY_STATE_VOLTAGE): State.NOMINAL_27KV,
+            (State.SETTLING_10KV, Event.CMF_EQ_0): State.NOMINAL_27KV,
             (State.DEENERGIZING, Event.ZERO_KV_STEADY): State.CLOSING_MAIN,
-            (State.CLOSING_MAIN, Event.TIMEOUT_5S): State.VENTING_FORELINE,
+            (State.CLOSING_MAIN, Event.TIMEOUT_6S): State.VENTING_FORELINE,
             (State.VENTING_FORELINE, Event.TIMEOUT_5S): State.VENTING_ATM,
             (State.VENTING_ATM, Event.TIMEOUT_10S): State.ALL_OFF,
             # Emergency stop from any state - immediately go to ALL_OFF
@@ -303,6 +306,7 @@ class AutoController:
             self.actuators["power_supply"].setAnalogValue(kv * 1000.0)
 
     def dispatch_event(self, event: Event):
+        logger.debug(f"[FSM] dispatch_event called: {event.name} from state {self.currentState.name}")
         if event == Event.STOP_CMD:
             if self._timeout_timer:
                 self._timeout_timer.cancel()
@@ -326,12 +330,14 @@ class AutoController:
         next_state = self.FSM.get(key)
         if next_state is None:
             self._log(f"No transition for {event.name} in {self.currentState.name}")
+            logger.warning(f"[FSM] No transition defined for ({self.currentState.name}, {event.name})")
             return
+        logger.info(f"[FSM] Transitioning from {self.currentState.name} to {next_state.name} on event {event.name}")
         self._enter_state(next_state)
 
     def _dispatch_timeout_event(self):
         if self.currentState == State.CLOSING_MAIN:
-            self.dispatch_event(Event.TIMEOUT_5S)
+            self.dispatch_event(Event.TIMEOUT_6S)
         elif self.currentState == State.VENTING_FORELINE:
             self.dispatch_event(Event.TIMEOUT_5S)
 
@@ -409,7 +415,7 @@ class AutoController:
             cmd = self.command_handler.build_set_turbo_pump_command(0)
             if cmd:
                 self.send_command(cmd)
-            cmd = self.command_handler.build_set_valve_command(2, 0)
+            cmd = self.command_handler.build_set_valve_command(2, 100)
             if cmd:
                 self.send_command(cmd)
             cmd = self.command_handler.build_set_valve_command(3, 0)
@@ -428,7 +434,7 @@ class AutoController:
             if "turbo_pump" in a:
                 a["turbo_pump"].setDigitalValue(False)
             if "foreline_valve" in a:
-                a["foreline_valve"].setDigitalValue(False)
+                a["foreline_valve"].setDigitalValue(True)
             if "fusor_valve" in a:
                 a["fusor_valve"].setDigitalValue(False)
             if "deuterium_valve" in a:
@@ -723,7 +729,7 @@ class AutoController:
             self._set_voltage_kv(0)
             if self._timeout_timer:
                 self._timeout_timer.cancel()
-            self._timeout_timer = threading.Timer(5.0, self._dispatch_timeout_event)
+            self._timeout_timer = threading.Timer(6.0, self._dispatch_timeout_event)
             self._timeout_timer.start()
         else:
             a = self.actuators
@@ -836,9 +842,16 @@ class TelemetryToEventMapper:
         aps_atm_flag = telemetry.get("APS_atm_flag", False)
         s = self.controller.currentState
 
+        # Log telemetry data for debugging
+        logger.debug(f"[FSM Telemetry] State: {s.name}, Location: {aps_loc}, Pressure: {aps_p} Torr, Voltage: {v_kv} kV, Current: {i_mA} mA")
+        
         if s == State.ROUGH_PUMP_DOWN and aps_loc == "Foreline" and aps_p is not None:
+            logger.debug(f"[FSM] ROUGH_PUMP_DOWN: Checking pressure {aps_p} Torr <= 300.0 Torr")
             if aps_p <= 300.0:
+                logger.info(f"[FSM] ROUGH_PUMP_DOWN: Pressure {aps_p} Torr <= 300.0 Torr, dispatching APS_FORELINE_LT_100MT")
                 self.controller.dispatch_event(Event.APS_FORELINE_LT_100MT)
+            else:
+                logger.debug(f"[FSM] ROUGH_PUMP_DOWN: Pressure {aps_p} Torr > 300.0 Torr, waiting...")
 
         if s == State.RP_DOWN_TURBO and aps_loc == "Turbo" and aps_p is not None:
             if aps_p <= 300.0:
@@ -849,20 +862,17 @@ class TelemetryToEventMapper:
                 self.controller.dispatch_event(Event.APS_TURBO_LT_0_1MT)
 
         if s == State.TP_DOWN_MAIN and aps_loc == "Main" and aps_p is not None:
-            if abs(aps_p) < 0.001:
-                self.controller.dispatch_event(Event.APS_MAIN_LT_0_1MT)
+            if abs(aps_p) < 0.0001:
+                self.controller.dispatch_event(Event.CMF_EQ_0)
 
-        if (
-            s == State.SETTLE_STEADY_PRESSURE
-            and aps_loc == "Main"
-            and aps_p is not None
-        ):
-            if 49.5 <= aps_p <= 50.5:
-                self.controller.dispatch_event(Event.APS_MAIN_EQ_0_1_STEADY)
+        if s == State.SETTLE_STEADY_PRESSURE and aps_loc == "Main" and aps_p is not None:
+            pressure_mtorr = aps_p * 1000.0
+            if 49.5 <= pressure_mtorr <= 50.5:
+                self.controller.dispatch_event(Event.CMF_EQ_50)
 
         if s == State.SETTLING_10KV and aps_loc == "Main" and aps_p is not None:
-            if abs(aps_p) < 0.001:
-                self.controller.dispatch_event(Event.STEADY_STATE_VOLTAGE)
+            if abs(aps_p) < 0.0001:
+                self.controller.dispatch_event(Event.CMF_EQ_0)
 
         if s == State.DEENERGIZING:
             if v_kv is not None:
@@ -2200,33 +2210,69 @@ class FusorHostApp:
             pressure_sensor_2_value = parsed.get("PRESSURE_SENSOR_2_VALUE")
             pressure_sensor_3_value = parsed.get("PRESSURE_SENSOR_3_VALUE")
             
+            # Debug: Log what pressure sensor values we received
+            if pressure_sensor_1_value or pressure_sensor_2_value or pressure_sensor_3_value:
+                logger.debug(f"[UDP] Pressure sensors - PS1: {pressure_sensor_1_value}, PS2: {pressure_sensor_2_value}, PS3: {pressure_sensor_3_value}")
+            
+            # Parse all pressure sensors and store them separately
+            # Then select the appropriate one based on current FSM state
+            pressure_foreline = None
+            pressure_turbo = None
+            pressure_main = None
+            
             if pressure_sensor_1_value:
                 try:
                     pressure_mt = float(pressure_sensor_1_value.split("|")[0])
-                    pressure_torr = pressure_mt / 1000.0
-                    telemetry["APS_location"] = "Foreline"
-                    telemetry["APS_pressure_Torr"] = pressure_torr
-                except (ValueError, IndexError):
-                    pass
+                    pressure_foreline = pressure_mt / 1000.0
+                    logger.debug(f"[UDP] Parsed PS1: {pressure_mt} mTorr = {pressure_foreline} Torr (Foreline)")
+                except (ValueError, IndexError) as e:
+                    logger.warning(f"[UDP] Error parsing PRESSURE_SENSOR_1_VALUE '{pressure_sensor_1_value}': {e}")
             
             if pressure_sensor_2_value:
                 try:
                     pressure_mt = float(pressure_sensor_2_value.split("|")[0])
-                    pressure_torr = pressure_mt / 1000.0
-                    if "APS_location" not in telemetry or telemetry.get("APS_location") != "Main":
-                        telemetry["APS_location"] = "Turbo"
-                        telemetry["APS_pressure_Torr"] = pressure_torr
-                except (ValueError, IndexError):
-                    pass
+                    pressure_turbo = pressure_mt / 1000.0
+                    logger.debug(f"[UDP] Parsed PS2: {pressure_mt} mTorr = {pressure_turbo} Torr (Turbo)")
+                except (ValueError, IndexError) as e:
+                    logger.warning(f"[UDP] Error parsing PRESSURE_SENSOR_2_VALUE '{pressure_sensor_2_value}': {e}")
             
             if pressure_sensor_3_value:
                 try:
                     pressure_mt = float(pressure_sensor_3_value.split("|")[0])
-                    pressure_torr = pressure_mt / 1000.0
+                    pressure_main = pressure_mt / 1000.0
+                    logger.debug(f"[UDP] Parsed PS3: {pressure_mt} mTorr = {pressure_main} Torr (Main)")
+                except (ValueError, IndexError) as e:
+                    logger.warning(f"[UDP] Error parsing PRESSURE_SENSOR_3_VALUE '{pressure_sensor_3_value}': {e}")
+            
+            # Select pressure sensor based on current FSM state priority
+            # This ensures the correct sensor is used for state transitions
+            current_state = self.auto_controller.currentState if self.auto_controller else None
+            
+            if current_state == State.ROUGH_PUMP_DOWN and pressure_foreline is not None:
+                telemetry["APS_location"] = "Foreline"
+                telemetry["APS_pressure_Torr"] = pressure_foreline
+            elif current_state == State.RP_DOWN_TURBO and pressure_turbo is not None:
+                telemetry["APS_location"] = "Turbo"
+                telemetry["APS_pressure_Torr"] = pressure_turbo
+            elif current_state in [State.TURBO_PUMP_DOWN, State.TP_DOWN_MAIN, State.SETTLE_STEADY_PRESSURE, State.SETTLING_10KV]:
+                # For these states, prefer Main, fallback to Turbo
+                if pressure_main is not None:
                     telemetry["APS_location"] = "Main"
-                    telemetry["APS_pressure_Torr"] = pressure_torr
-                except (ValueError, IndexError):
-                    pass
+                    telemetry["APS_pressure_Torr"] = pressure_main
+                elif pressure_turbo is not None:
+                    telemetry["APS_location"] = "Turbo"
+                    telemetry["APS_pressure_Torr"] = pressure_turbo
+            else:
+                # Default: use Main if available, otherwise Turbo, otherwise Foreline
+                if pressure_main is not None:
+                    telemetry["APS_location"] = "Main"
+                    telemetry["APS_pressure_Torr"] = pressure_main
+                elif pressure_turbo is not None:
+                    telemetry["APS_location"] = "Turbo"
+                    telemetry["APS_pressure_Torr"] = pressure_turbo
+                elif pressure_foreline is not None:
+                    telemetry["APS_location"] = "Foreline"
+                    telemetry["APS_pressure_Torr"] = pressure_foreline
             
             voltage_kv = parsed.get("VOLTAGE_KV") or parsed.get("voltage_kV") or parsed.get("VOLTAGE")
             if voltage_kv:
@@ -2262,7 +2308,12 @@ class FusorHostApp:
                     pass
             
             if telemetry:
+                logger.debug(f"[UDP] Sending telemetry to mapper: {telemetry}")
                 self.telemetry_mapper.handle_telemetry(telemetry)
+            else:
+                # Log when telemetry is empty to help debug
+                if self.auto_controller and self.auto_controller.currentState != State.ALL_OFF:
+                    logger.debug(f"[UDP] Telemetry empty - no pressure sensor values found in parsed data. Keys: {list(parsed.keys())[:10]}")
             
             if values_changed or has_error:
                 if changed_items:
