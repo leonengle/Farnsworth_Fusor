@@ -1,89 +1,193 @@
 <!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Welcome to Firebase Hosting</title>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Farnsworth Fusor Control Panel</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Main Title -->
+        <div class="title-bar">
+            <h1>Farnsworth Fusor Control Panel (Manual + FSM)</h1>
+            <div class="status-label" id="statusLabel">Ready - Waiting for commands</div>
+        </div>
 
-    <!-- update the version number as needed -->
-    <script defer src="/__/firebase/12.7.0/firebase-app-compat.js"></script>
-    <!-- include only the Firebase features as you need -->
-    <script defer src="/__/firebase/12.7.0/firebase-auth-compat.js"></script>
-    <script defer src="/__/firebase/12.7.0/firebase-database-compat.js"></script>
-    <script defer src="/__/firebase/12.7.0/firebase-firestore-compat.js"></script>
-    <script defer src="/__/firebase/12.7.0/firebase-functions-compat.js"></script>
-    <script defer src="/__/firebase/12.7.0/firebase-messaging-compat.js"></script>
-    <script defer src="/__/firebase/12.7.0/firebase-storage-compat.js"></script>
-    <script defer src="/__/firebase/12.7.0/firebase-analytics-compat.js"></script>
-    <script defer src="/__/firebase/12.7.0/firebase-remote-config-compat.js"></script>
-    <script defer src="/__/firebase/12.7.0/firebase-performance-compat.js"></script>
-    <!-- 
-      initialize the SDK after all desired features are loaded, set useEmulator to false
-      to avoid connecting the SDK to running emulators.
-    -->
-    <script defer src="/__/firebase/init.js?useEmulator=true"></script>
+        <!-- Tab Navigation -->
+        <div class="tab-container">
+            <button class="tab-button active" data-tab="manual">Manual Control</button>
+            <button class="tab-button" data-tab="auto">Auto Control</button>
+            <button class="tab-button" data-tab="logs">Log Reading</button>
+        </div>
 
-    <style media="screen">
-      body { background: #ECEFF1; color: rgba(0,0,0,0.87); font-family: Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 0; }
-      #message { background: white; max-width: 360px; margin: 100px auto 16px; padding: 32px 24px; border-radius: 3px; }
-      #message h2 { color: #ffa100; font-weight: bold; font-size: 16px; margin: 0 0 8px; }
-      #message h1 { font-size: 22px; font-weight: 300; color: rgba(0,0,0,0.6); margin: 0 0 16px;}
-      #message p { line-height: 140%; margin: 16px 0 24px; font-size: 14px; }
-      #message a { display: block; text-align: center; background: #039be5; text-transform: uppercase; text-decoration: none; color: white; padding: 16px; border-radius: 4px; }
-      #message, #message a { box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24); }
-      #load { color: rgba(0,0,0,0.4); text-align: center; font-size: 13px; }
-      @media (max-width: 600px) {
-        body, #message { margin-top: 0; background: white; box-shadow: none; }
-        body { border-top: 16px solid #ffa100; }
-      }
-    </style>
-  </head>
-  <body>
-    <div id="message">
-      <h2>Welcome</h2>
-      <h1>Firebase Hosting Setup Complete</h1>
-      <p>You're seeing this because you've successfully setup Firebase Hosting. Now it's time to go build something extraordinary!</p>
-      <a target="_blank" href="https://firebase.google.com/docs/hosting/">Open Hosting Documentation</a>
+        <!-- Manual Control Tab -->
+        <div id="manualTab" class="tab-content active">
+            <h2 class="tab-title">Fusor Manual Control Panel</h2>
+            
+            <div class="main-container">
+                <!-- Left Column -->
+                <div class="left-column">
+                    <!-- Power Supply Section -->
+                    <div class="control-section">
+                        <h3>Voltage Output Slider</h3>
+                        <div class="slider-container">
+                            <input type="range" id="voltageSlider" min="0" max="28000" value="0" class="slider">
+                            <div class="slider-value" id="voltageValue">0 V</div>
+                            <button class="btn btn-primary" id="setVoltageBtn">Set Voltage</button>
+                        </div>
+                    </div>
+
+                    <!-- Pump Controls Section -->
+                    <div class="control-section">
+                        <h3>Pump Controls</h3>
+                        <div class="pump-row">
+                            <div class="pump-control">
+                                <label>Mechanical Vacuum</label>
+                                <label class="switch">
+                                    <input type="checkbox" id="mechPumpSwitch">
+                                    <span class="slider-switch"></span>
+                                </label>
+                                <span class="switch-label" id="mechPumpLabel">OFF</span>
+                            </div>
+                            <div class="pump-control">
+                                <label>Turbo Vacuum</label>
+                                <label class="switch">
+                                    <input type="checkbox" id="turboPumpSwitch">
+                                    <span class="slider-switch"></span>
+                                </label>
+                                <span class="switch-label" id="turboPumpLabel">OFF</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Valve Controls Section -->
+                    <div class="control-section">
+                        <h3>Valve Controls</h3>
+                        <div class="valve-row">
+                            <div class="valve-control" data-valve="atm_valve">
+                                <label>ATM/Depressure</label>
+                                <input type="range" min="0" max="100" value="0" class="valve-slider">
+                                <div class="valve-value">0%</div>
+                                <button class="btn btn-small" data-valve-set="atm_valve">Set</button>
+                            </div>
+                            <div class="valve-control" data-valve="foreline_valve">
+                                <label>Foreline</label>
+                                <input type="range" min="0" max="100" value="0" class="valve-slider">
+                                <div class="valve-value">0%</div>
+                                <button class="btn btn-small" data-valve-set="foreline_valve">Set</button>
+                            </div>
+                            <div class="valve-control" data-valve="fusor_valve">
+                                <label>Vacsys</label>
+                                <input type="range" min="0" max="100" value="0" class="valve-slider">
+                                <div class="valve-value">0%</div>
+                                <button class="btn btn-small" data-valve-set="fusor_valve">Set</button>
+                            </div>
+                            <div class="valve-control" data-valve="deuterium_valve">
+                                <label>Deuterium</label>
+                                <input type="range" min="0" max="100" value="0" class="valve-slider">
+                                <div class="valve-value">0%</div>
+                                <button class="btn btn-small" data-valve-set="deuterium_valve">Set</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Data Reading Button -->
+                    <div class="control-section">
+                        <button class="btn btn-success btn-large" id="openDataReadingBtn">Open Data Reading Window</button>
+                    </div>
+
+                    <!-- Emergency Stop Button -->
+                    <div class="control-section">
+                        <button class="btn btn-danger btn-emergency" id="emergencyStopBtn">EMERGENCY STOP</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Auto Control Tab -->
+        <div id="autoTab" class="tab-content">
+            <div class="auto-section">
+                <h2>Finite State Machine Control</h2>
+                
+                <div class="auto-button-group">
+                    <button class="btn btn-primary" id="autoStartBtn">Start Auto Sequence</button>
+                    <button class="btn btn-danger" id="autoStopBtn">Stop / Emergency</button>
+                </div>
+
+                <div class="auto-state-display">
+                    <div class="state-label" id="autoStateLabel">Current State: ALL_OFF</div>
+                </div>
+
+                <div class="auto-log-container">
+                    <textarea id="autoLogDisplay" class="log-display" readonly>[FSM] Ready.</textarea>
+                </div>
+            </div>
+        </div>
+
+        <!-- Log Reading Tab -->
+        <div id="logsTab" class="tab-content">
+            <div class="logs-section">
+                <h2>Target Logs (Live from Raspberry Pi)</h2>
+                
+                <div class="logs-container">
+                    <div class="logs-header">
+                        <h3>Live Target Logs</h3>
+                    </div>
+                    <textarea id="targetLogsDisplay" class="log-display" readonly>[Target Logs] Waiting for logs from Raspberry Pi...</textarea>
+                    <div class="logs-controls">
+                        <button class="btn btn-primary" id="clearTargetLogsBtn">Clear Target Logs</button>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
-    <p id="load">Firebase SDK Loading&hellip;</p>
 
-    <script>
-      document.addEventListener('DOMContentLoaded', function() {
-        const loadEl = document.querySelector('#load');
-        // // 🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥
-        // // The Firebase SDK is initialized and available here!
-        //
-        // firebase.auth().onAuthStateChanged(user => { });
-        // firebase.database().ref('/path/to/ref').on('value', snapshot => { });
-        // firebase.firestore().doc('/foo/bar').get().then(() => { });
-        // firebase.functions().httpsCallable('yourFunction')().then(() => { });
-        // firebase.messaging().requestPermission().then(() => { });
-        // firebase.storage().ref('/path/to/ref').getDownloadURL().then(() => { });
-        // firebase.analytics(); // call to activate
-        // firebase.analytics().logEvent('tutorial_completed');
-        // firebase.performance(); // call to activate
-        //
-        // // 🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥
+    <!-- Data Reading Modal -->
+    <div id="dataReadingModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Sensor Data Readouts</h2>
+                <button class="modal-close" id="closeDataReadingBtn">&times;</button>
+            </div>
+            
+            <div class="modal-body">
+                <!-- Voltage Reading Section -->
+                <div class="readout-section">
+                    <h3>Voltage Reading</h3>
+                    <div class="readout-row">
+                        <div class="readout-item" id="rectifierVoltage">Rectifier: --- V</div>
+                        <div class="readout-item" id="transformerVoltage">Transformer: --- V</div>
+                        <div class="readout-item" id="vmultiplierVoltage">V-Multiplier: --- V</div>
+                    </div>
+                </div>
 
-        try {
-          let app = firebase.app();
-          let features = [
-            'auth', 
-            'database', 
-            'firestore',
-            'functions',
-            'messaging', 
-            'storage', 
-            'analytics', 
-            'remoteConfig',
-            'performance',
-          ].filter(feature => typeof app[feature] === 'function');
-          loadEl.textContent = `Firebase SDK loaded with ${features.join(', ')}`;
-        } catch (e) {
-          console.error(e);
-          loadEl.textContent = 'Error loading the Firebase SDK, check the console.';
-        }
-      });
-    </script>
-  </body>
+                <!-- Current Reading Section -->
+                <div class="readout-section">
+                    <h3>Current Reading</h3>
+                    <div class="readout-row">
+                        <div class="readout-item" id="rectifierCurrent">Rectifier: --- A</div>
+                        <div class="readout-item" id="vmultiplierCurrent">V-Multiplier: --- A</div>
+                    </div>
+                </div>
+
+                <!-- Pressure Reading Section -->
+                <div class="readout-section">
+                    <h3>Pressure Reading</h3>
+                    <div class="readout-row">
+                        <div class="readout-item" id="pressureDisplay1">TC Gauge 1 [ADC CH0]: ---</div>
+                    </div>
+                    <div class="readout-row">
+                        <div class="readout-item" id="pressureDisplay2">TC Gauge 2 [ADC CH1]: ---</div>
+                    </div>
+                    <div class="readout-row">
+                        <div class="readout-item" id="pressureDisplay3">Manometer 1 [ADC CH2]: ---</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
 </html>
