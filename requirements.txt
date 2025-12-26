@@ -1,17 +1,10 @@
 # Farnsworth Fusor TCP/UDP Communication System
-# Requirements for both Host and Target codebases
+# Common requirements for Host and Target codebases (cross-platform)
 
 # GUI dependencies (Host side)
-customtkinter==5.2.0
+setuptools>=65.0.0  # Provides distutils compatibility for Python 3.12+
+customtkinter>=5.2.2
 # tkinter - Built-in with Python
-
-# Raspberry Pi GPIO and hardware control (Target side only)
-lgpio>=0.2.0.0
-pigpio==1.78
-Adafruit-GPIO==1.0.3
-Adafruit-MCP3008==1.0.2
-Adafruit-PureIO==1.1.11
-spidev==3.8
 
 # Arduino USB serial communication (Target side)
 pyserial==3.5
