@@ -13,15 +13,38 @@ Codebase which implements an automated startup & shutdown sequence, data acquisi
 
 **This project will NOT run on Windows, macOS, or other Linux distributions** due to these hardware-specific dependencies. However, the host application can run on any system with Python.
 
-## Quick Start (Recommended)
+## Quick Local Development (Web Interface)
+
+**Want to run the web interface locally?** It's easy!
+
+1. **Start the API server:**
+
+   ```powershell
+   .\start-api-server.ps1
+   ```
+
+2. **Start the web interface (in another terminal):**
+   ```powershell
+   .\start-web-interface.ps1
+   ```
+
+The web interface will open in your browser automatically at `http://localhost:8080`.
+
+📖 **See [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md) for detailed instructions and troubleshooting.**
+
+---
+
+## Quick Start (Recommended) - Original Python GUI
 
 **First, clone and enter the project:**
+
 ```
 git clone https://github.com/leonengle/Farnsworth_Fusor/
 cd Farnsworth_Fusor
 ```
 
 **Verify setup:**
+
 ```
 # Check Python version
 python --version
@@ -51,12 +74,14 @@ black --check src/ && pylint src/  # Check code quality
 ## Complete Setup Guide
 
 ### 1. Clone the Repository
+
 ```
 git clone https://github.com/leonengle/Farnsworth_Fusor/
 cd Farnsworth_Fusor
 ```
 
 **Verify you're in the right directory:**
+
 ```
 # You should see the src directory
 ls src/
@@ -65,11 +90,13 @@ ls src/
 ```
 
 ### 2. Create Virtual Environment
+
 ```
 python3 -m venv venv
 ```
 
 ### 3. Activate Virtual Environment
+
 ```
 # Windows
 venv\Scripts\activate
@@ -79,11 +106,13 @@ source venv/bin/activate
 ```
 
 ### 4. Install Dependencies
+
 ```
 pip install -r requirements.txt
 ```
 
 ### 5. Set Up Pre-commit Hooks (Optional)
+
 ```
 pre-commit install
 ```
@@ -91,6 +120,7 @@ pre-commit install
 This will enable automatic code quality checks before each commit.
 
 ### 6. Run the Application
+
 ```
 # Run the host application (GUI + FSM)
 python src/Host_Codebase/host_main.py
@@ -106,33 +136,38 @@ The control panel should open with all buttons available. If you see connection 
 This project uses several Python libraries for different functionalities. Here's what each dependency does:
 
 ### **Hardware Control Libraries** (Raspberry Pi Only)
-| Library | Version | Purpose | Required On |
-|---------|---------|---------|-------------|
-| `lgpio` | >=0.2.0.0 | Modern GPIO control for Raspberry Pi pins | Raspberry Pi only |
-| `Adafruit-GPIO` | 1.0.3 | GPIO abstraction layer for hardware control | Raspberry Pi only |
-| `Adafruit-MCP3008` | 1.0.2 | MCP3008 ADC (Analog-to-Digital Converter) interface | Raspberry Pi only |
-| `Adafruit-PureIO` | 1.1.11 | Pure Python I/O operations for hardware | Raspberry Pi only |
+
+| Library            | Version   | Purpose                                             | Required On       |
+| ------------------ | --------- | --------------------------------------------------- | ----------------- |
+| `lgpio`            | >=0.2.0.0 | Modern GPIO control for Raspberry Pi pins           | Raspberry Pi only |
+| `Adafruit-GPIO`    | 1.0.3     | GPIO abstraction layer for hardware control         | Raspberry Pi only |
+| `Adafruit-MCP3008` | 1.0.2     | MCP3008 ADC (Analog-to-Digital Converter) interface | Raspberry Pi only |
+| `Adafruit-PureIO`  | 1.1.11    | Pure Python I/O operations for hardware             | Raspberry Pi only |
 
 ### **Communication Libraries**
-| Library | Version | Purpose | Required On |
-|---------|---------|---------|-------------|
-| `socket` | Built-in | TCP/UDP communication | All systems |
+
+| Library     | Version  | Purpose                     | Required On |
+| ----------- | -------- | --------------------------- | ----------- |
+| `socket`    | Built-in | TCP/UDP communication       | All systems |
 | `threading` | Built-in | Multithreaded communication | All systems |
 
 ### **User Interface** (Host Only)
-| Library | Version | Purpose | Required On |
-|---------|---------|---------|-------------|
-| `tkinter` | Built-in | GUI framework for the control interface | Host systems |
-| `customtkinter` | 5.2.0 | Modern tkinter extension | Host systems |
+
+| Library         | Version  | Purpose                                 | Required On  |
+| --------------- | -------- | --------------------------------------- | ------------ |
+| `tkinter`       | Built-in | GUI framework for the control interface | Host systems |
+| `customtkinter` | 5.2.0    | Modern tkinter extension                | Host systems |
 
 ### **Development Tools**
-| Library | Version | Purpose | Required On |
-|---------|---------|---------|-------------|
-| `pylint` | 3.0.3 | Code linting and style checking | Development only |
-| `black` | 23.12.1 | Automatic code formatting | Development only |
-| `pre-commit` | 3.6.0 | Git hooks for automated code quality checks | Development only |
+
+| Library      | Version | Purpose                                     | Required On      |
+| ------------ | ------- | ------------------------------------------- | ---------------- |
+| `pylint`     | 3.0.3   | Code linting and style checking             | Development only |
+| `black`      | 23.12.1 | Automatic code formatting                   | Development only |
+| `pre-commit` | 3.6.0   | Git hooks for automated code quality checks | Development only |
 
 ### **Installation Notes**
+
 - **Raspberry Pi**: Hardware libraries require system packages (`sudo apt install python3-lgpio python3-dev`)
 - **Development Tools**: Only needed for code development, not for running the application
 - **Communication**: Uses built-in Python socket library for TCP/UDP communication
@@ -142,18 +177,18 @@ This project uses several Python libraries for different functionalities. Here's
 
 **Common development tasks:**
 
-| Task | Command | What it does |
-|------|---------|--------------|
-| Install dependencies | `pip install -r requirements.txt` | Install Python dependencies |
-| Set up pre-commit | `pre-commit install` | Set up pre-commit hooks (optional) |
-| Run host application | `python src/Host_Codebase/host_main.py` | Start unified GUI (manual + FSM) |
-| Run target application | `python src/Target_Codebase/target_main.py` | Start target system (RPi) |
-| Run tests | `python src/Test_Cases/target_test_cases/run_all_tests.py` | Run all test suites |
-| Format code | `black src/` | Format code with black |
-| Run linting | `pylint src/` | Check code quality |
-| Run all checks | `black --check src/ && pylint src/` | Run all checks |
-| Quick check | `black src/ && pylint src/` | Quick code check |
-| Clean up | `find . -name "*.pyc" -delete && rm -rf logs/` | Clean generated files |
+| Task                   | Command                                                    | What it does                       |
+| ---------------------- | ---------------------------------------------------------- | ---------------------------------- |
+| Install dependencies   | `pip install -r requirements.txt`                          | Install Python dependencies        |
+| Set up pre-commit      | `pre-commit install`                                       | Set up pre-commit hooks (optional) |
+| Run host application   | `python src/Host_Codebase/host_main.py`                    | Start unified GUI (manual + FSM)   |
+| Run target application | `python src/Target_Codebase/target_main.py`                | Start target system (RPi)          |
+| Run tests              | `python src/Test_Cases/target_test_cases/run_all_tests.py` | Run all test suites                |
+| Format code            | `black src/`                                               | Format code with black             |
+| Run linting            | `pylint src/`                                              | Check code quality                 |
+| Run all checks         | `black --check src/ && pylint src/`                        | Run all checks                     |
+| Quick check            | `black src/ && pylint src/`                                | Quick code check                   |
+| Clean up               | `find . -name "*.pyc" -delete && rm -rf logs/`             | Clean generated files              |
 
 ## Daily Development Workflow
 
@@ -218,6 +253,7 @@ Farnsworth_Fusor/
 ## Features
 
 ### **Finite State Machine (FSM) Control**
+
 - 11-state automated control sequence for fusor operation
 - States include: All Off, Rough Pump Down, Turbo Pump Down, Main Chamber Pump Down, Settling, 10kV Operation, Fuel Admission, 27kV Nominal Operation, De-energizing, Closing Main, Venting Foreline
 - Event-driven state transitions based on sensor readings and user commands
@@ -225,6 +261,7 @@ Farnsworth_Fusor/
 - TelemetryToEventMapper monitors UDP data and triggers state transitions automatically
 
 ### **Hardware Control**
+
 - **Power Supply Control**: Enable/disable and voltage setting (0-28000V / 0-28kV)
 - **Valve Control**: 6 valves with proportional control (0-100%)
 - **Pump Control**: Mechanical pump and turbo pump with power control (0-100%)
@@ -237,12 +274,14 @@ Farnsworth_Fusor/
 - **Emergency Shutdown**: Immediate shutdown of all systems
 
 ### **Professional GUI**
+
 - Modern customtkinter interface with real-time status updates
 - Unified `host_main.py` window featuring both manual controls and the 12-state FSM workflow (selectable via tabs)
 - Live data display with safety indicators
 - FSM state visualization and control
 
 ### **Communication**
+
 - **TCP Command Communication**: Host sends commands to target on port 2222 (reliable, bidirectional)
 - **UDP Data/Telemetry**: Target sends sensor data to host on port 12345 (efficient, unidirectional)
 - **UDP Status/Heartbeat**: Bidirectional status messages on ports 8888/8889 (non-critical updates)
@@ -252,6 +291,7 @@ Farnsworth_Fusor/
 - Change detection: Only sends telemetry when sensor values change significantly (noise filtering)
 
 ### **Network Configuration**
+
 - **Host IP**: 192.168.0.1 (default)
 - **Target IP**: 192.168.0.2 (default)
 - **Subnet**: 255.255.255.0
@@ -260,12 +300,14 @@ Farnsworth_Fusor/
 - **UDP Status Ports**: 8888 (RPi → Host), 8889 (Host → RPi)
 
 ### **Logging & Monitoring**
+
 - Multi-level logging (console, file, error-specific)
 - Log rotation with size limits
 - Session-based logging for debugging
 - Structured logging format with timestamps
 
 ### **Testing & Validation**
+
 - **Automated Testing**: Built-in test suite for environment validation
 - **Unit Tests**: GPIO handler, command processor, ADC interface
 - **Datalink Coverage**: `test_command_processor.py` verifies analog commands are labeled and forwarded to the Arduino USB interface
@@ -275,22 +317,23 @@ Farnsworth_Fusor/
 
 ## System Architecture Overview
 
-The system is organized in four layers so the host laptop treats the Raspberry Pi as a "bundled interface" that aggregates every hardware interface.  
-1. **Communication Layer** – Three dedicated channels keep traffic separated: the TCP Command Server listens on `192.168.0.2:2222` for reliable command/response, the UDP Data Server pushes structured telemetry on `:12345` (only when values change), and bidirectional UDP status links operate on host `8888` / target `8889` for lightweight heartbeats.  
-2. **Processing Layer** – `CommandProcessor` parses every host command, validates arguments, and routes work to the correct subsystem. It converts voltage commands (0-28000V) to motor 5 (VARIAC) position (0-300°), and routes motor commands (Motors 1-5) directly to the Arduino. Pump commands are forwarded to Arduino as well.  
-3. **Hardware Abstraction Layer** – The `BundledInterface` unifies GPIO, ADC (MCP3008 over SPI), and Arduino USB interface, each exposing clean Python APIs. The Arduino Nano handles Stepper Controllers 1‑5 via USB serial communication (9600 baud).  
+The system is organized in four layers so the host laptop treats the Raspberry Pi as a "bundled interface" that aggregates every hardware interface.
+
+1. **Communication Layer** – Three dedicated channels keep traffic separated: the TCP Command Server listens on `192.168.0.2:2222` for reliable command/response, the UDP Data Server pushes structured telemetry on `:12345` (only when values change), and bidirectional UDP status links operate on host `8888` / target `8889` for lightweight heartbeats.
+2. **Processing Layer** – `CommandProcessor` parses every host command, validates arguments, and routes work to the correct subsystem. It converts voltage commands (0-28000V) to motor 5 (VARIAC) position (0-300°), and routes motor commands (Motors 1-5) directly to the Arduino. Pump commands are forwarded to Arduino as well.
+3. **Hardware Abstraction Layer** – The `BundledInterface` unifies GPIO, ADC (MCP3008 over SPI), and Arduino USB interface, each exposing clean Python APIs. The Arduino Nano handles Stepper Controllers 1‑5 via USB serial communication (9600 baud).
 4. **Hardware Layer** – SPI wiring to the MCP3008, USB serial connection to Arduino Nano, and the actual motors, valves, and sensors.
 
 **Arduino Datalink:** The Arduino Nano receives motor and pump commands via USB serial. Motor commands use the format `MOTOR_X:degree` where X is the motor ID (1-5) and degree is the target position.
 
 ### Arduino Command Datalink
 
-| Trigger on Host | Pi CommandProcessor Action | USB Payload → Arduino | Target Hardware |
-|-----------------|---------------------------|------------------------|-----------------|
-| `SET_VOLTAGE:X` | Convert voltage (0-28000V) to percentage, then to degrees (0-300°) | `MOTOR_5:{degree}` | Motor 5 (VARIAC) - Power supply control |
-| `SET_MECHANICAL_PUMP:Y` | Forward to Arduino | `SET_MECHANICAL_PUMP:Y` | Mechanical pump (0-100%) |
-| `SET_TURBO_PUMP:Y` | Forward to Arduino | `SET_TURBO_PUMP:Y` | Turbo pump (0-100%) |
-| Motor position commands | Convert percentage to degrees | `MOTOR_X:{degree}` | Stepper motors 1-5 |
+| Trigger on Host         | Pi CommandProcessor Action                                         | USB Payload → Arduino   | Target Hardware                         |
+| ----------------------- | ------------------------------------------------------------------ | ----------------------- | --------------------------------------- |
+| `SET_VOLTAGE:X`         | Convert voltage (0-28000V) to percentage, then to degrees (0-300°) | `MOTOR_5:{degree}`      | Motor 5 (VARIAC) - Power supply control |
+| `SET_MECHANICAL_PUMP:Y` | Forward to Arduino                                                 | `SET_MECHANICAL_PUMP:Y` | Mechanical pump (0-100%)                |
+| `SET_TURBO_PUMP:Y`      | Forward to Arduino                                                 | `SET_TURBO_PUMP:Y`      | Turbo pump (0-100%)                     |
+| Motor position commands | Convert percentage to degrees                                      | `MOTOR_X:{degree}`      | Stepper motors 1-5                      |
 
 - **Motor Command Format:** `MOTOR_X:degree` where:
   - X = 1-5 (motor ID)
@@ -316,6 +359,7 @@ Pre-commit hooks will automatically run when you commit changes. If any checks f
 ## Troubleshooting
 
 ### **Check Everything First**
+
 ```
 # Verify Python version
 python --version
@@ -329,6 +373,7 @@ black --check src/ && pylint src/
 ```
 
 **Expected results:**
+
 - **Python version**: Should be 3.7 or higher
 - **Dependencies**: All required packages installed
 - **Code quality**: No formatting or linting errors
@@ -336,6 +381,7 @@ black --check src/ && pylint src/
 ### **Common Errors**
 
 #### **1) Raspberry Pi Installation Issues**
+
 **CRITICAL: This project ONLY works on Raspberry Pi for the target application!**
 
 **NOTE: To install any library on RPi, don't use pip because you will get errors.**
@@ -343,12 +389,14 @@ black --check src/ && pylint src/
 **Use "sudo apt install..." to install any external libraries.**
 
 For hardware libraries:
+
 ```
 sudo apt update
 sudo apt install python3-rpi.gpio python3-dev
 ```
 
 **If you're trying to run this on Windows/macOS/Linux (non-RPi):**
+
 - The target application will fail with import errors for lgpio and Adafruit libraries
 - These libraries are Raspberry Pi-specific and cannot be installed on other systems
 - You must use a Raspberry Pi to run the target application
@@ -357,6 +405,7 @@ sudo apt install python3-rpi.gpio python3-dev
 #### **2) Network Connection Issues**
 
 **Basic Connectivity:**
+
 - Verify IP addresses: Host (192.168.0.1) and Target (192.168.0.2)
 - Check network configuration: Subnet mask 255.255.255.0
 - Ensure firewall allows TCP ports 2222, 12345 and UDP ports 8888, 8889
@@ -364,13 +413,16 @@ sudo apt install python3-rpi.gpio python3-dev
 
 **Windows Host Firewall:**
 If ping fails on Windows, run this command in PowerShell (as Administrator):
+
 ```powershell
 netsh advfirewall firewall add rule name="Allow ICMPv4-In" protocol=icmpv4:any,any dir=in action=allow
 ```
 
 **Network Interface Configuration on Windows:**
+
 - Ensure Ethernet adapter is named "Ethernet" (adjust commands if different)
 - Verify IP forwarding is enabled:
+
 ```powershell
 Set-NetIPInterface -InterfaceAlias "Ethernet" -Forwarding Enabled
 Set-NetIPInterface -InterfaceAlias "Wi-Fi" -Forwarding Enabled
@@ -378,6 +430,7 @@ Set-NetIPInterface -InterfaceAlias "Wi-Fi" -Forwarding Enabled
 
 **NAT Configuration (Windows Host):**
 If RPi needs internet access through host, set up NAT:
+
 ```powershell
 if (-not (Get-NetNat | Where-Object Name -eq "PiNat")) {
     New-NetNat -Name "PiNat" -InternalIPInterfaceAddressPrefix 192.168.0.0/24
@@ -386,12 +439,16 @@ Get-NetNat
 ```
 
 **Raspberry Pi Network Configuration:**
+
 - Ensure NetworkManager is installed: `sudo apt install network-manager`
 - Verify network interface name (may be "eth0" or "enp1s0" instead of "Wired connection 1"):
+
 ```bash
 nmcli con show
 ```
+
 - Set static IP (adjust interface name if different):
+
 ```bash
 sudo nmcli con mod "Wired connection 1" ipv4.address 192.168.0.2/24
 sudo nmcli con mod "Wired connection 1" ipv4.gateway ""
@@ -400,16 +457,19 @@ sudo nmcli con up "Wired connection 1"
 ```
 
 **IP Address Conflicts:**
+
 - Ensure no other devices on the network use 192.168.0.1 or 192.168.0.2
 - Check for duplicate IP addresses: `ipconfig` (Windows) or `ip addr` (Linux)
 - Verify both machines are on the same physical network segment
 
 **Port Blocking:**
+
 - Windows Firewall may block TCP/UDP ports - add exceptions for ports 2222, 12345, 8888, 8889
 - Check if antivirus software is blocking connections
 - Verify router/firewall settings if using additional network hardware
 
 #### **3) Dependency Issues**
+
 ```
 # Clean install
 find . -name "*.pyc" -delete && rm -rf logs/
@@ -422,14 +482,18 @@ pip install -r requirements.txt
 #### **4) Service Management Issues (Raspberry Pi)**
 
 **Service Not Starting:**
+
 - Verify service name matches your installation (may be `fusor-target` or `farnsworth-fusor.service`)
 - Check service status:
+
 ```bash
 sudo systemctl status fusor-target
 # or
 sudo systemctl status farnsworth-fusor.service
 ```
+
 - View service logs:
+
 ```bash
 sudo journalctl -u fusor-target -f
 # or
@@ -438,6 +502,7 @@ sudo journalctl -u farnsworth-fusor.service -f
 
 **Updating Target Codebase:**
 If you need to update the code on RPi:
+
 ```bash
 # Stop the service
 sudo systemctl stop fusor-target
@@ -453,16 +518,19 @@ sudo systemctl status fusor-target
 ```
 
 **Service Permissions:**
+
 - Ensure service user has access to GPIO (usually requires `pi` user or `gpio` group)
 - Check file permissions: `ls -l /home/pi/Farnsworth_Fusor/src/Target_Codebase/`
 - Verify Python path in service file matches installed location
 
 **Service Not Auto-Starting:**
+
 - Verify service is enabled: `sudo systemctl enable fusor-target`
 - Check if service is masked: `sudo systemctl unmask fusor-target`
 - Ensure service file paths are absolute and correct
 
 #### **5) Pre-commit Issues**
+
 ```
 # Run pre-commit manually
 pre-commit run --all-files
@@ -476,11 +544,13 @@ pylint src/   # Check linting issues
 
 **RPi Needs Internet Access:**
 If RPi needs internet access for git/pip commands while connected to host:
+
 - Ensure Windows host has IP forwarding enabled (see Network Connection Issues above)
 - Verify NAT is configured correctly (see Network Connection Issues above)
 - Test internet access from RPi: `ping 8.8.8.8`
 
 **Network Interface Names:**
+
 - Windows: Network interface may be named differently (e.g., "Ethernet 2", "Local Area Connection")
   - Check actual name: `Get-NetAdapter | Select-Object Name, InterfaceAlias`
   - Adjust PowerShell commands accordingly
@@ -491,11 +561,13 @@ If RPi needs internet access for git/pip commands while connected to host:
 ## Running the Application
 
 ### **Host Application** (Control Computer - Your Laptop)
+
 ```bash
 python src/Host_Codebase/host_main.py
 ```
 
 Or with custom IP addresses:
+
 ```bash
 python src/Host_Codebase/host_main.py
 # IP addresses can be configured in the GUI or via command-line arguments
@@ -504,11 +576,13 @@ python src/Host_Codebase/host_main.py
 ### **Target Application** (Raspberry Pi)
 
 **For Development/Testing:**
+
 ```bash
 python3 src/Target_Codebase/target_main.py
 ```
 
 Or with custom settings:
+
 ```bash
 python3 src/Target_Codebase/target_main.py --host 192.168.0.1 --tcp-command-port 2222 --use-adc
 ```
@@ -520,12 +594,14 @@ The RPi should run `target_main.py` automatically at boot. You have two options:
 **Option 1: Systemd Service (Recommended)**
 
 **Quick Setup (Automated):**
+
 ```bash
 # Run the setup script (automatically installs and configures the service)
 sudo bash setup_service.sh
 ```
 
 **Manual Setup:**
+
 ```bash
 # Copy the service file
 sudo cp farnsworth-fusor.service /etc/systemd/system/
@@ -545,6 +621,7 @@ sudo systemctl status farnsworth-fusor.service
 ```
 
 **Service Management:**
+
 ```bash
 # View logs (real-time)
 sudo journalctl -u farnsworth-fusor.service -f
@@ -560,6 +637,7 @@ sudo systemctl disable farnsworth-fusor.service
 ```
 
 **Option 2: Add to rc.local**
+
 ```bash
 # Edit rc.local
 sudo nano /etc/rc.local
@@ -574,6 +652,7 @@ exit 0
 **Note:** The RPi doesn't need a Makefile - it just needs `target_main.py` to run automatically at boot.
 
 ### **Running Tests**
+
 ```bash
 # Run all target tests
 python src/Test_Cases/target_test_cases/run_all_tests.py

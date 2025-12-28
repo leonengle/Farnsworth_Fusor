@@ -25,16 +25,6 @@ You can customize the host and port:
 python web_api_server.py --host 0.0.0.0 --port 5000
 ```
 
-**For Production/Remote Access:**
-
-```bash
-# Allow connections from any IP address
-python web_api_server.py --host 0.0.0.0 --port 5000
-
-# Or bind to a specific IP address
-python web_api_server.py --host 192.168.1.100 --port 5000
-```
-
 3. Open the web interface:
 
 - Open `index.html` in a web browser, or
@@ -75,7 +65,7 @@ python web_api_server.py
 # Custom API server port
 python web_api_server.py --port 8080
 
-# Production setup with specific host
+# Allow connections from other machines on your network
 python web_api_server.py --host 0.0.0.0 --port 5000
 ```
 
@@ -88,25 +78,13 @@ The web interface **automatically detects** the API URL based on your environmen
 
 **Manual Override (if needed):**
 
-If your API server is on a different host/domain, edit `index.html` and set:
+If your API server is on a different host/port, edit `index.html` and set:
 
 ```html
 <script>
-  window.API_BASE_URL = "https://your-api-server.com/api";
+  window.API_BASE_URL = "http://localhost:5001/api"; // Example: different port
 </script>
 ```
-
-**Using a Reverse Proxy (Recommended for Production):**
-
-If using nginx or Apache to serve both web interface and API on the same domain, set:
-
-```html
-<script>
-  window.API_BASE_URL = "/api"; // Relative URL - same domain
-</script>
-```
-
-Then configure your web server to proxy `/api/*` requests to `http://localhost:5000/api/*`
 
 ## API Endpoints
 
@@ -130,20 +108,10 @@ Then configure your web server to proxy `/api/*` requests to `http://localhost:5
 - **Data Monitoring**: View sensor readings and logs
 - **Emergency Stop**: Immediately shut down all systems
 
-## Firebase Hosting Deployment
-
-For production deployment to Firebase Hosting, see [`../FIREBASE_DEPLOYMENT.md`](../FIREBASE_DEPLOYMENT.md).
-
-**Quick Summary:**
-
-1. Set `window.API_BASE_URL` in `index.html` to your API server URL
-2. Deploy: `firebase deploy --only hosting`
-3. Ensure your Python API server is running and accessible (see deployment guide)
-
 ## Troubleshooting
 
 - If the web interface can't connect, ensure the API server is running on port 5000
-- Check browser console for API errors
+- Check browser console for API errors (F12 → Console tab)
 - Verify the Raspberry Pi target is running and accessible
 - Check firewall settings for TCP/UDP ports
-- **CORS errors**: Ensure API server allows requests from your Firebase domain
+- **CORS errors**: Check that API server is running and accessible at `http://localhost:5000`

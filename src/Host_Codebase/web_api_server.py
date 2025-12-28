@@ -32,10 +32,11 @@ logger = logging.getLogger("WebAPIServer")
 app = Flask(__name__)
 
 # CORS Configuration
-# Allow specific origins for production, or all origins for development
+# Allow localhost origins for local development
+# Can be customized via CORS_ORIGINS environment variable
 CORS_ORIGINS = os.getenv(
     "CORS_ORIGINS",
-    "http://localhost:8080,http://localhost:3000,http://localhost:5000,https://lab-automation-web.web.app,https://lab-automation-web.firebaseapp.com"
+    "http://localhost:8080,http://localhost:3000,http://localhost:5000"
 ).split(",")
 
 CORS(app, resources={
