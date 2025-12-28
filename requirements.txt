@@ -12,6 +12,10 @@ pyserial==3.5
 # Legacy GUI (if needed)
 PySimpleGUI==5.0.8.3
 
+# Web API Server
+flask==3.0.0
+flask-cors==4.0.0
+
 # Development and documentation tools
 pylint==3.0.3
 black==23.12.1

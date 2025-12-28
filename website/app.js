@@ -1,3 +1,29 @@
+// API Configuration - Auto-detect based on current host
+// In development: uses localhost:5000
+// In production: uses same host/port as the web page, or configure via window.API_BASE_URL
+const API_BASE_URL = (() => {
+    // Allow manual override via global variable (set in HTML)
+    if (typeof window !== 'undefined' && window.API_BASE_URL) {
+        return window.API_BASE_URL;
+    }
+    
+    // Auto-detect: use same host as current page, but different port for API
+    const hostname = window.location.hostname;
+    const port = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
+    
+    // If running on localhost/127.0.0.1, assume dev mode with API on port 5000
+    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '') {
+        return 'http://localhost:5000/api';
+    }
+    
+    // In production, assume API is on same host but port 5000, or use proxy
+    // Option 1: Same host, different port
+    return `${window.location.protocol}//${hostname}:5000/api`;
+    
+    // Option 2: If using a reverse proxy (uncomment this instead):
+    // return '/api';
+})();
+
 // Application State
 const appState = {
     voltage: 0,
@@ -10,7 +36,8 @@ const appState = {
         deuterium_valve: 0
     },
     autoState: 'ALL_OFF',
-    isAutoModeActive: false
+    isAutoModeActive: false,
+    connected: false
 };
 
 // DOM Elements
@@ -65,7 +92,76 @@ function init() {
     setupAutoControls();
     setupModal();
     setupLogControls();
+    startPolling();
+    checkConnection();
     updateStatus('Ready - Waiting for commands', 'blue');
+}
+
+// API Helper Functions
+async function apiCall(endpoint, method = 'GET', data = null) {
+    try {
+        const options = {
+            method: method,
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        };
+        
+        if (data && method !== 'GET') {
+            options.body = JSON.stringify(data);
+        }
+        
+        const response = await fetch(`${API_BASE_URL}${endpoint}`, options);
+        const result = await response.json();
+        return result;
+    } catch (error) {
+        console.error(`API call failed: ${error}`);
+        return { success: false, error: error.message };
+    }
+}
+
+// Connection and Status Polling
+async function checkConnection() {
+    const status = await apiCall('/status');
+    if (status.connected !== undefined) {
+        appState.connected = status.connected;
+        appState.autoState = status.auto_state || 'ALL_OFF';
+        appState.isAutoModeActive = status.auto_mode_active || false;
+        
+        updateAutoState(appState.autoState);
+        
+        if (status.connected) {
+            updateStatus('Connected to target', 'green');
+        } else {
+            updateStatus('Disconnected from target', 'red');
+        }
+    }
+}
+
+function startPolling() {
+    // Poll status every 2 seconds
+    setInterval(checkConnection, 2000);
+    
+    // Poll telemetry every 1 second
+    setInterval(pollTelemetry, 1000);
+    
+    // Poll logs every 3 seconds
+    setInterval(pollLogs, 3000);
+}
+
+async function pollTelemetry() {
+    const result = await apiCall('/telemetry');
+    if (result.success && result.telemetry) {
+        updateSensorReadings(result.telemetry);
+    }
+}
+
+async function pollLogs() {
+    const result = await apiCall('/logs?limit=50');
+    if (result.success && result.logs) {
+        elements.targetLogsDisplay.value = result.logs.join('\n');
+        elements.targetLogsDisplay.scrollTop = elements.targetLogsDisplay.scrollHeight;
+    }
 }
 
 // Tab Navigation
@@ -93,7 +189,7 @@ function setupVoltageControls() {
         elements.voltageValue.textContent = `${value} V`;
     });
     
-    elements.setVoltageBtn.addEventListener('click', () => {
+    elements.setVoltageBtn.addEventListener('click', async () => {
         const voltage = appState.voltage;
         if (voltage < 0 || voltage > 28000) {
             updateStatus(`Voltage out of range: ${voltage}V (must be 0-28000V)`, 'red');
@@ -103,14 +199,21 @@ function setupVoltageControls() {
         
         updateStatus(`Setting voltage to ${voltage}V...`, 'blue');
         addLogEntry(`[POWER] Setting voltage to ${voltage}V`);
-        // TODO: Send command to backend
-        console.log(`Set voltage: ${voltage}V`);
+        
+        const result = await apiCall('/voltage/set', 'POST', { voltage });
+        if (result.success) {
+            updateStatus(`Voltage set to ${voltage}V`, 'green');
+            addAutoLog(`[POWER] Voltage set to ${voltage}V`);
+        } else {
+            updateStatus(`Failed to set voltage: ${result.error}`, 'red');
+            addAutoLog(`[ERROR] Failed to set voltage: ${result.error}`);
+        }
     });
 }
 
 // Pump Controls
 function setupPumpControls() {
-    elements.mechPumpSwitch.addEventListener('change', (e) => {
+    elements.mechPumpSwitch.addEventListener('change', async (e) => {
         const isOn = e.target.checked;
         appState.mechPump = isOn;
         elements.mechPumpLabel.textContent = isOn ? 'ON' : 'OFF';
@@ -120,15 +223,21 @@ function setupPumpControls() {
             const power = isOn ? 100 : 0;
             updateStatus(`Setting mechanical pump to ${power}%`, 'blue');
             addLogEntry(`[PUMP] Setting mechanical pump to ${power}%`);
-            // TODO: Send command to backend
-            console.log(`Mechanical pump: ${power}%`);
+            
+            const result = await apiCall('/pump/mechanical', 'POST', { power });
+            if (result.success) {
+                updateStatus(`Mechanical pump set to ${power}%`, 'green');
+            } else {
+                updateStatus(`Failed: ${result.error}`, 'red');
+                e.target.checked = !isOn; // Revert switch
+            }
         } else {
             e.target.checked = !isOn;
             updateStatus('Cannot control manually while auto mode is active', 'red');
         }
     });
     
-    elements.turboPumpSwitch.addEventListener('change', (e) => {
+    elements.turboPumpSwitch.addEventListener('change', async (e) => {
         const isOn = e.target.checked;
         appState.turboPump = isOn;
         elements.turboPumpLabel.textContent = isOn ? 'ON' : 'OFF';
@@ -138,8 +247,14 @@ function setupPumpControls() {
             const power = isOn ? 100 : 0;
             updateStatus(`Setting turbo pump to ${power}%`, 'blue');
             addLogEntry(`[PUMP] Setting turbo pump to ${power}%`);
-            // TODO: Send command to backend
-            console.log(`Turbo pump: ${power}%`);
+            
+            const result = await apiCall('/pump/turbo', 'POST', { power });
+            if (result.success) {
+                updateStatus(`Turbo pump set to ${power}%`, 'green');
+            } else {
+                updateStatus(`Failed: ${result.error}`, 'red');
+                e.target.checked = !isOn; // Revert switch
+            }
         } else {
             e.target.checked = !isOn;
             updateStatus('Cannot control manually while auto mode is active', 'red');
@@ -170,7 +285,7 @@ function setupValveControls() {
             appState.valves[valveKey] = value;
         });
         
-        setButton.addEventListener('click', () => {
+        setButton.addEventListener('click', async () => {
             const value = parseInt(slider.value);
             
             if (appState.isAutoModeActive) {
@@ -186,8 +301,13 @@ function setupValveControls() {
             appState.valves[valveKey] = value;
             updateStatus(`Setting ${valveKey} to ${value}%...`, 'blue');
             addLogEntry(`[VALVE] Setting ${valveKey} to ${value}%`);
-            // TODO: Send command to backend
-            console.log(`Set ${valveKey}: ${value}%`);
+            
+            const result = await apiCall('/valve/set', 'POST', { valve: valveKey, position: value });
+            if (result.success) {
+                updateStatus(`${valveKey} set to ${value}%`, 'green');
+            } else {
+                updateStatus(`Failed: ${result.error}`, 'red');
+            }
         });
     });
 }
@@ -263,36 +383,35 @@ function addLogEntry(message) {
 }
 
 // Auto Sequence Functions
-function startAutoSequence() {
+async function startAutoSequence() {
     if (appState.isAutoModeActive) {
         updateStatus('Auto sequence already running', 'yellow');
         return;
     }
     
-    appState.isAutoModeActive = true;
-    appState.autoState = 'ROUGH_PUMP_DOWN';
-    updateAutoState('ROUGH_PUMP_DOWN');
-    addAutoLog('[FSM] Auto sequence started');
-    updateStatus('Auto sequence started', 'green');
-    
-    // TODO: Send start command to backend
-    console.log('Starting auto sequence');
+    const result = await apiCall('/auto/start', 'POST');
+    if (result.success) {
+        appState.isAutoModeActive = true;
+        appState.autoState = result.state;
+        updateAutoState(result.state);
+        addAutoLog('[FSM] Auto sequence started');
+        updateStatus('Auto sequence started', 'green');
+    } else {
+        updateStatus(`Failed to start auto sequence: ${result.error}`, 'red');
+    }
 }
 
-function stopAutoSequence() {
-    if (!appState.isAutoModeActive) {
-        updateStatus('No active auto sequence', 'yellow');
-        return;
+async function stopAutoSequence() {
+    const result = await apiCall('/auto/stop', 'POST');
+    if (result.success) {
+        appState.isAutoModeActive = false;
+        appState.autoState = result.state;
+        updateAutoState(result.state);
+        addAutoLog('[FSM] Auto sequence stopped');
+        updateStatus('Auto sequence stopped', 'yellow');
+    } else {
+        updateStatus(`Failed to stop auto sequence: ${result.error}`, 'red');
     }
-    
-    appState.isAutoModeActive = false;
-    appState.autoState = 'ALL_OFF';
-    updateAutoState('ALL_OFF');
-    addAutoLog('[FSM] Auto sequence stopped');
-    updateStatus('Auto sequence stopped', 'yellow');
-    
-    // TODO: Send stop command to backend
-    console.log('Stopping auto sequence');
 }
 
 function updateAutoState(state) {
@@ -336,8 +455,10 @@ function addTargetLog(message) {
 }
 
 // Emergency Stop
-function emergencyStop() {
+async function emergencyStop() {
     if (confirm('Are you sure you want to execute an EMERGENCY STOP? This will immediately shut down all systems.')) {
+        const result = await apiCall('/emergency/stop', 'POST');
+        if (result.success) {
         appState.isAutoModeActive = false;
         appState.autoState = 'ALL_OFF';
         updateAutoState('ALL_OFF');
@@ -365,52 +486,89 @@ function emergencyStop() {
             if (valueLabel) valueLabel.textContent = '0%';
         });
         
-        updateStatus('EMERGENCY STOP ACTIVATED', 'red');
-        addAutoLog('[FSM] EMERGENCY STOP activated - All systems shut down');
-        addTargetLog('[EMERGENCY] Emergency stop activated');
-        
-        // TODO: Send emergency stop command to backend
-        console.log('EMERGENCY STOP activated');
+            updateStatus('EMERGENCY STOP ACTIVATED', 'red');
+            addAutoLog('[FSM] EMERGENCY STOP activated - All systems shut down');
+            addTargetLog('[EMERGENCY] Emergency stop activated');
+        } else {
+            updateStatus(`Failed to execute emergency stop: ${result.error}`, 'red');
+        }
     }
 }
 
 // Data Reading Modal
-function openDataReadingModal() {
+async function openDataReadingModal() {
     elements.dataReadingModal.classList.add('active');
-    // TODO: Request current sensor readings
-    console.log('Opening data reading window');
+    
+    // Request current sensor readings
+    const result = await apiCall('/sensors/read', 'GET');
+    if (result.success && result.sensors) {
+        parseSensorData(result.sensors);
+    }
+}
+
+function parseSensorData(sensorData) {
+    // Parse voltage readings
+    for (const [cmd, response] of Object.entries(sensorData)) {
+        if (cmd.includes('NODE_') && cmd.includes('_VOLTAGE')) {
+            const match = response.match(/NODE_(\d+)_VOLTAGE:([\d.]+)/);
+            if (match) {
+                const nodeId = parseInt(match[1]);
+                const voltage = parseFloat(match[2]);
+                if (nodeId === 1) {
+                    document.getElementById('rectifierVoltage').textContent = `Rectifier: ${voltage.toFixed(2)} V`;
+                } else if (nodeId === 2) {
+                    document.getElementById('transformerVoltage').textContent = `Transformer: ${voltage.toFixed(2)} V`;
+                } else if (nodeId === 3) {
+                    document.getElementById('vmultiplierVoltage').textContent = `V-Multiplier: ${voltage.toFixed(2)} V`;
+                }
+            }
+        } else if (cmd.includes('NODE_') && cmd.includes('_CURRENT')) {
+            const match = response.match(/NODE_(\d+)_CURRENT:([\d.]+)/);
+            if (match) {
+                const nodeId = parseInt(match[1]);
+                const current = parseFloat(match[2]);
+                if (nodeId === 1) {
+                    document.getElementById('rectifierCurrent').textContent = `Rectifier: ${current.toFixed(3)} A`;
+                } else if (nodeId === 3) {
+                    document.getElementById('vmultiplierCurrent').textContent = `V-Multiplier: ${current.toFixed(3)} A`;
+                }
+            }
+        } else if (cmd.includes('ADC')) {
+            // Parse ADC data
+            const parts = response.split('|');
+            for (const part of parts) {
+                if (part.includes('ADC_CH0')) {
+                    const value = part.split(':')[1];
+                    document.getElementById('pressureDisplay1').textContent = `TC Gauge 1 [ADC CH0]: ${value}`;
+                } else if (part.includes('ADC_CH1')) {
+                    const value = part.split(':')[1];
+                    document.getElementById('pressureDisplay2').textContent = `TC Gauge 2 [ADC CH1]: ${value}`;
+                } else if (part.includes('ADC_CH2')) {
+                    const value = part.split(':')[1];
+                    document.getElementById('pressureDisplay3').textContent = `Manometer 1 [ADC CH2]: ${value}`;
+                }
+            }
+        }
+    }
 }
 
 function closeDataReadingModal() {
     elements.dataReadingModal.classList.remove('active');
 }
 
-// Update sensor readings in modal
-function updateSensorReadings(data) {
-    if (data.rectifierVoltage !== undefined) {
-        document.getElementById('rectifierVoltage').textContent = `Rectifier: ${data.rectifierVoltage.toFixed(2)} V`;
+// Update sensor readings from telemetry
+function updateSensorReadings(telemetry) {
+    // Update from telemetry dict (parsed UDP data)
+    if (telemetry.ADC_CH0) {
+        document.getElementById('pressureDisplay1').textContent = `TC Gauge 1 [ADC CH0]: ${telemetry.ADC_CH0}`;
     }
-    if (data.transformerVoltage !== undefined) {
-        document.getElementById('transformerVoltage').textContent = `Transformer: ${data.transformerVoltage.toFixed(2)} V`;
+    if (telemetry.ADC_CH1) {
+        document.getElementById('pressureDisplay2').textContent = `TC Gauge 2 [ADC CH1]: ${telemetry.ADC_CH1}`;
     }
-    if (data.vmultiplierVoltage !== undefined) {
-        document.getElementById('vmultiplierVoltage').textContent = `V-Multiplier: ${data.vmultiplierVoltage.toFixed(2)} V`;
+    if (telemetry.ADC_CH2) {
+        document.getElementById('pressureDisplay3').textContent = `Manometer 1 [ADC CH2]: ${telemetry.ADC_CH2}`;
     }
-    if (data.rectifierCurrent !== undefined) {
-        document.getElementById('rectifierCurrent').textContent = `Rectifier: ${data.rectifierCurrent.toFixed(3)} A`;
-    }
-    if (data.vmultiplierCurrent !== undefined) {
-        document.getElementById('vmultiplierCurrent').textContent = `V-Multiplier: ${data.vmultiplierCurrent.toFixed(3)} A`;
-    }
-    if (data.pressure1 !== undefined) {
-        document.getElementById('pressureDisplay1').textContent = `TC Gauge 1 [ADC CH0]: ${data.pressure1}`;
-    }
-    if (data.pressure2 !== undefined) {
-        document.getElementById('pressureDisplay2').textContent = `TC Gauge 2 [ADC CH1]: ${data.pressure2}`;
-    }
-    if (data.pressure3 !== undefined) {
-        document.getElementById('pressureDisplay3').textContent = `Manometer 1 [ADC CH2]: ${data.pressure3}`;
-    }
+    // Update other sensor readings as they come in
 }
 
 // Initialize when DOM is ready
