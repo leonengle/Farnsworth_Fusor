@@ -90,7 +90,7 @@ Then open your browser to: `http://localhost:8080`
 
 ## Connecting to Raspberry Pi
 
-The API server tries to connect to your Raspberry Pi automatically. Make sure:
+If you have a Raspberry Pi, the API server will try to connect automatically. Make sure:
 
 1. **Raspberry Pi is running** the target application:
 

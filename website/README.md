@@ -2,6 +2,10 @@
 
 Web-based control interface for the Farnsworth Fusor Control System.
 
+## Developer notes
+
+This directory was initally made to support a production website that runs using local rasperberry pi data. Due to the misconfig between a web production server and a local connection - more work will need to be done to figure out a proper soultion
+
 ## Setup
 
 1. Install Python dependencies:
