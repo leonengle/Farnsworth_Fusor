@@ -30,7 +30,23 @@ logging.basicConfig(
 logger = logging.getLogger("WebAPIServer")
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for web interface
+
+# CORS Configuration
+# Allow specific origins for production, or all origins for development
+CORS_ORIGINS = os.getenv(
+    "CORS_ORIGINS",
+    "http://localhost:8080,http://localhost:3000,http://localhost:5000,https://lab-automation-web.web.app,https://lab-automation-web.firebaseapp.com"
+).split(",")
+
+CORS(app, resources={
+    r"/api/*": {
+        "origins": CORS_ORIGINS,
+        "methods": ["GET", "POST", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"]
+    }
+})
+
+logger.info(f"CORS enabled for origins: {CORS_ORIGINS}")
 
 # Configuration
 TARGET_IP = os.getenv("TARGET_IP", "192.168.0.2")
@@ -452,9 +468,18 @@ init_clients()
 
 
 if __name__ == '__main__':
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Farnsworth Fusor Web API Server')
+    parser.add_argument('--host', default='0.0.0.0', help='Host to bind to (default: 0.0.0.0)')
+    parser.add_argument('--port', type=int, default=5000, help='Port to bind to (default: 5000)')
+    parser.add_argument('--debug', action='store_true', help='Enable debug mode')
+    args = parser.parse_args()
+    
     logger.info("Starting Web API Server...")
+    logger.info(f"API Server: http://{args.host}:{args.port}")
     logger.info(f"Target IP: {TARGET_IP}, TCP Port: {TCP_COMMAND_PORT}")
     logger.info(f"UDP Data Port: {UDP_DATA_PORT}, UDP Status Port: {UDP_STATUS_PORT}")
     
     # Run Flask app
-    app.run(host='0.0.0.0', port=5000, debug=True, threaded=True)
+    app.run(host=args.host, port=args.port, debug=args.debug, threaded=True)
