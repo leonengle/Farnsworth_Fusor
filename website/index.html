@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Farnsworth Fusor Control Panel</title>
+    <link rel="stylesheet" href="styles.css">
+    <script>
+        // Configure API base URL (optional)
+        // 
+        // For local development: Leave commented - auto-detects localhost:5000
+        // 
+        // To override (if API is on different host/port):
+        // window.API_BASE_URL = 'http://localhost:5000/api';
+    </script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Main Title -->
+        <div class="title-bar">
+            <h1>Farnsworth Fusor Control Panel (Manual + FSM)</h1>
+            <div class="status-label" id="statusLabel">Ready - Waiting for commands</div>
+        </div>
+
+        <!-- Tab Navigation -->
+        <div class="tab-container">
+            <button class="tab-button active" data-tab="control">Control</button>
+        </div>
+
+        <!-- Control Tab (Manual + Auto) -->
+        <div id="controlTab" class="tab-content active">
+            <!-- Log Reading Link -->
+            <div class="logs-link-container">
+                <a href="logs.html" target="_blank" class="btn-logs-link">Open Logs in New Tab</a>
+            </div>
+
+            <!-- Mode Switch -->
+            <div class="mode-switch-container">
+                <label class="mode-switch-label">Manual</label>
+                <label class="switch mode-switch">
+                    <input type="checkbox" id="modeSwitch">
+                    <span class="slider-switch"></span>
+                </label>
+                <label class="mode-switch-label">Auto</label>
+            </div>
+
+            <!-- Manual Control Section -->
+            <div id="manualSection" class="control-mode-section active">
+                <h2 class="tab-title">Fusor Manual Control Panel</h2>
+                
+                <div class="main-container">
+                    <!-- Left Column -->
+                    <div class="left-column">
+                        <!-- Power Supply Section -->
+                        <div class="control-section">
+                            <h3>Voltage Output Slider</h3>
+                            <div class="slider-container">
+                                <input type="range" id="voltageSlider" min="0" max="28000" value="0" class="slider">
+                                <div class="slider-value" id="voltageValue">0 V</div>
+                                <button class="btn btn-primary" id="setVoltageBtn">Set Voltage</button>
+                            </div>
+                        </div>
+
+                        <!-- Pump Controls Section -->
+                        <div class="control-section">
+                            <h3>Pump Controls</h3>
+                            <div class="pump-row">
+                                <div class="pump-control">
+                                    <label>Mechanical Vacuum</label>
+                                    <label class="switch">
+                                        <input type="checkbox" id="mechPumpSwitch">
+                                        <span class="slider-switch"></span>
+                                    </label>
+                                    <span class="switch-label" id="mechPumpLabel">OFF</span>
+                                </div>
+                                <div class="pump-control">
+                                    <label>Turbo Vacuum</label>
+                                    <label class="switch">
+                                        <input type="checkbox" id="turboPumpSwitch">
+                                        <span class="slider-switch"></span>
+                                    </label>
+                                    <span class="switch-label" id="turboPumpLabel">OFF</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Valve Controls Section -->
+                        <div class="control-section">
+                            <h3>Valve Controls</h3>
+                            <div class="valve-row">
+                                <div class="valve-control" data-valve="atm_valve">
+                                    <label>ATM/Depressure</label>
+                                    <input type="range" min="0" max="100" value="0" class="valve-slider">
+                                    <div class="valve-value">0%</div>
+                                    <button class="btn btn-small" data-valve-set="atm_valve">Set</button>
+                                </div>
+                                <div class="valve-control" data-valve="foreline_valve">
+                                    <label>Foreline</label>
+                                    <input type="range" min="0" max="100" value="0" class="valve-slider">
+                                    <div class="valve-value">0%</div>
+                                    <button class="btn btn-small" data-valve-set="foreline_valve">Set</button>
+                                </div>
+                                <div class="valve-control" data-valve="fusor_valve">
+                                    <label>Vacsys</label>
+                                    <input type="range" min="0" max="100" value="0" class="valve-slider">
+                                    <div class="valve-value">0%</div>
+                                    <button class="btn btn-small" data-valve-set="fusor_valve">Set</button>
+                                </div>
+                                <div class="valve-control" data-valve="deuterium_valve">
+                                    <label>Deuterium</label>
+                                    <input type="range" min="0" max="100" value="0" class="valve-slider">
+                                    <div class="valve-value">0%</div>
+                                    <button class="btn btn-small" data-valve-set="deuterium_valve">Set</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Data Reading Button -->
+                        <div class="control-section">
+                            <button class="btn btn-success btn-large" id="openDataReadingBtn">Open Data Reading Window</button>
+                        </div>
+
+                        <!-- Emergency Stop Button -->
+                        <div class="control-section">
+                            <button class="btn btn-danger btn-emergency" id="emergencyStopBtn">EMERGENCY STOP</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Auto Control Section -->
+            <div id="autoSection" class="control-mode-section">
+                <div class="auto-section">
+                    <h2>Finite State Machine Control</h2>
+                    
+                    <div class="auto-button-group">
+                        <button class="btn btn-primary" id="autoStartBtn">Start Auto Sequence</button>
+                        <button class="btn btn-danger" id="autoStopBtn">Stop / Emergency</button>
+                    </div>
+
+                    <div class="auto-state-display">
+                        <div class="state-label" id="autoStateLabel">Current State: ALL_OFF</div>
+                    </div>
+
+                    <div class="auto-log-container">
+                        <textarea id="autoLogDisplay" class="log-display" readonly>[FSM] Ready.</textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Data Reading Modal -->
+    <div id="dataReadingModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Sensor Data Readouts</h2>
+                <button class="modal-close" id="closeDataReadingBtn">&times;</button>
+            </div>
+            
+            <div class="modal-body">
+                <!-- Voltage Reading Section -->
+                <div class="readout-section">
+                    <h3>Voltage Reading</h3>
+                    <div class="readout-row">
+                        <div class="readout-item" id="rectifierVoltage">Rectifier: --- V</div>
+                        <div class="readout-item" id="transformerVoltage">Transformer: --- V</div>
+                        <div class="readout-item" id="vmultiplierVoltage">V-Multiplier: --- V</div>
+                    </div>
+                </div>
+
+                <!-- Current Reading Section -->
+                <div class="readout-section">
+                    <h3>Current Reading</h3>
+                    <div class="readout-row">
+                        <div class="readout-item" id="rectifierCurrent">Rectifier: --- A</div>
+                        <div class="readout-item" id="vmultiplierCurrent">V-Multiplier: --- A</div>
+                    </div>
+                </div>
+
+                <!-- Pressure Reading Section -->
+                <div class="readout-section">
+                    <h3>Pressure Reading</h3>
+                    <div class="readout-row">
+                        <div class="readout-item" id="pressureDisplay1">TC Gauge 1 [ADC CH0]: ---</div>
+                    </div>
+                    <div class="readout-row">
+                        <div class="readout-item" id="pressureDisplay2">TC Gauge 2 [ADC CH1]: ---</div>
+                    </div>
+                    <div class="readout-row">
+                        <div class="readout-item" id="pressureDisplay3">Manometer 1 [ADC CH2]: ---</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
