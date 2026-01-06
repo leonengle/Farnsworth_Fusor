@@ -46,6 +46,11 @@ const elements = {
     tabButtons: document.querySelectorAll('.tab-button'),
     tabContents: document.querySelectorAll('.tab-content'),
     
+    // Mode Switch
+    modeSwitch: document.getElementById('modeSwitch'),
+    manualSection: document.getElementById('manualSection'),
+    autoSection: document.getElementById('autoSection'),
+    
     // Status
     statusLabel: document.getElementById('statusLabel'),
     
@@ -85,6 +90,7 @@ const elements = {
 // Initialize Application
 function init() {
     setupTabNavigation();
+    setupModeSwitch();
     setupVoltageControls();
     setupPumpControls();
     setupValveControls();
@@ -178,6 +184,21 @@ function setupTabNavigation() {
             button.classList.add('active');
             document.getElementById(`${tabName}Tab`).classList.add('active');
         });
+    });
+}
+
+// Mode Switch (Manual/Auto)
+function setupModeSwitch() {
+    elements.modeSwitch.addEventListener('change', (e) => {
+        const isAutoMode = e.target.checked;
+        
+        if (isAutoMode) {
+            elements.manualSection.classList.remove('active');
+            elements.autoSection.classList.add('active');
+        } else {
+            elements.manualSection.classList.add('active');
+            elements.autoSection.classList.remove('active');
+        }
     });
 }
 

@@ -107,6 +107,54 @@ body {
     text-align: center;
 }
 
+/* Mode Switch Container */
+.mode-switch-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 15px;
+    padding: 20px;
+    background: var(--bg-tertiary);
+    border-bottom: 2px solid var(--border-color);
+    margin-bottom: 20px;
+}
+
+.mode-switch-label {
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.mode-switch {
+    width: 70px;
+    height: 35px;
+}
+
+.mode-switch .slider-switch {
+    width: 70px;
+    height: 35px;
+}
+
+.mode-switch .slider-switch:before {
+    height: 27px;
+    width: 27px;
+    left: 4px;
+    bottom: 4px;
+}
+
+.mode-switch input:checked + .slider-switch:before {
+    transform: translateX(35px);
+}
+
+/* Control Mode Sections */
+.control-mode-section {
+    display: none;
+}
+
+.control-mode-section.active {
+    display: block;
+}
+
 /* Main Container */
 .main-container {
     display: flex;
