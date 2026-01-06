@@ -82,18 +82,13 @@ const elements = {
     targetLogsDisplay: document.getElementById('targetLogsDisplay'),
     clearTargetLogsBtn: document.getElementById('clearTargetLogsBtn'),
     
-    // Modal
+    // Modallo
     dataReadingModal: document.getElementById('dataReadingModal'),
     closeDataReadingBtn: document.getElementById('closeDataReadingBtn')
 };
 
 // Initialize Application
 function init() {
-    // Automatically open logs in new tab
-    if (window.location.pathname.endsWith('index.html') || window.location.pathname.endsWith('/') || window.location.pathname === '') {
-        window.open('logs.html', '_blank');
-    }
-    
     setupTabNavigation();
     if (elements.modeSwitch) {
         setupModeSwitch();
@@ -219,6 +214,15 @@ function setupTabNavigation() {
 
 // Mode Switch (Manual/Auto)
 function setupModeSwitch() {
+    if (!elements.modeSwitch || !elements.manualSection || !elements.autoSection) {
+        console.error('Mode switch elements not found');
+        return;
+    }
+    
+    // Ensure initial state: manual is active, auto is hidden
+    elements.manualSection.classList.add('active');
+    elements.autoSection.classList.remove('active');
+    
     elements.modeSwitch.addEventListener('change', (e) => {
         const isAutoMode = e.target.checked;
         

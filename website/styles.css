@@ -182,11 +182,11 @@ body {
 
 /* Control Mode Sections */
 .control-mode-section {
-    display: none;
+    display: none !important;
 }
 
 .control-mode-section.active {
-    display: block;
+    display: block !important;
 }
 
 /* Main Container */
