@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Target Logs - Farnsworth Fusor Control Panel</title>
+    <link rel="stylesheet" href="styles.css">
+    <script>
+        // Configure API base URL (optional)
+        // 
+        // For local development: Leave commented - auto-detects localhost:5000
+        // 
+        // To override (if API is on different host/port):
+        // window.API_BASE_URL = 'http://localhost:5000/api';
+    </script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Main Title -->
+        <div class="title-bar">
+            <h1>Target Logs (Live from Raspberry Pi)</h1>
+            <div class="status-label" id="statusLabel">Logs Window</div>
+        </div>
+
+        <!-- Logs Section -->
+        <div class="tab-content active" style="display: block;">
+            <div class="logs-section">
+                <div class="logs-container">
+                    <div class="logs-header">
+                        <h3>Live Target Logs</h3>
+                    </div>
+                    <textarea id="targetLogsDisplay" class="log-display" readonly>[Target Logs] Waiting for logs from Raspberry Pi...</textarea>
+                    <div class="logs-controls">
+                        <button class="btn btn-primary" id="clearTargetLogsBtn">Clear Target Logs</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+    <script>
+        // Initialize logs page
+        const API_BASE_URL = (() => {
+            if (typeof window !== 'undefined' && window.API_BASE_URL) {
+                return window.API_BASE_URL;
+            }
+            
+            const hostname = window.location.hostname;
+            const port = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
+            
+            if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '') {
+                return 'http://localhost:5000/api';
+            }
+            
+            return `${window.location.protocol}//${hostname}:5000/api`;
+        })();
+
+        const targetLogsDisplay = document.getElementById('targetLogsDisplay');
+        const clearTargetLogsBtn = document.getElementById('clearTargetLogsBtn');
+
+        // Poll logs every 3 seconds
+        async function pollLogs() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/logs?limit=50`);
+                const result = await response.json();
+                if (result.success && result.logs) {
+                    targetLogsDisplay.value = result.logs.join('\n');
+                    targetLogsDisplay.scrollTop = targetLogsDisplay.scrollHeight;
+                }
+            } catch (error) {
+                console.error('Failed to fetch logs:', error);
+            }
+        }
+
+        clearTargetLogsBtn.addEventListener('click', () => {
+            targetLogsDisplay.value = '[Target Logs] Logs cleared.\n';
+        });
+
+        // Start polling
+        setInterval(pollLogs, 3000);
+        pollLogs(); // Initial poll
+    </script>
+</body>
+</html>
+

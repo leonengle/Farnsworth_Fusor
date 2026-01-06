@@ -78,7 +78,7 @@ const elements = {
     autoStateLabel: document.getElementById('autoStateLabel'),
     autoLogDisplay: document.getElementById('autoLogDisplay'),
     
-    // Logs
+    // Logs (may not exist if on logs.html page)
     targetLogsDisplay: document.getElementById('targetLogsDisplay'),
     clearTargetLogsBtn: document.getElementById('clearTargetLogsBtn'),
     
@@ -89,18 +89,41 @@ const elements = {
 
 // Initialize Application
 function init() {
+    // Automatically open logs in new tab
+    if (window.location.pathname.endsWith('index.html') || window.location.pathname.endsWith('/') || window.location.pathname === '') {
+        window.open('logs.html', '_blank');
+    }
+    
     setupTabNavigation();
-    setupModeSwitch();
-    setupVoltageControls();
-    setupPumpControls();
-    setupValveControls();
-    setupButtons();
-    setupAutoControls();
-    setupModal();
-    setupLogControls();
-    startPolling();
-    checkConnection();
-    updateStatus('Ready - Waiting for commands', 'blue');
+    if (elements.modeSwitch) {
+        setupModeSwitch();
+    }
+    if (elements.voltageSlider) {
+        setupVoltageControls();
+    }
+    if (elements.mechPumpSwitch) {
+        setupPumpControls();
+    }
+    if (elements.valveControls.length > 0) {
+        setupValveControls();
+    }
+    if (elements.openDataReadingBtn) {
+        setupButtons();
+    }
+    if (elements.autoStartBtn) {
+        setupAutoControls();
+    }
+    if (elements.dataReadingModal) {
+        setupModal();
+    }
+    if (elements.clearTargetLogsBtn) {
+        setupLogControls();
+    }
+    if (elements.statusLabel) {
+        startPolling();
+        checkConnection();
+        updateStatus('Ready - Waiting for commands', 'blue');
+    }
 }
 
 // API Helper Functions
@@ -146,13 +169,19 @@ async function checkConnection() {
 
 function startPolling() {
     // Poll status every 2 seconds
-    setInterval(checkConnection, 2000);
+    if (elements.statusLabel) {
+        setInterval(checkConnection, 2000);
+    }
     
     // Poll telemetry every 1 second
-    setInterval(pollTelemetry, 1000);
+    if (elements.dataReadingModal) {
+        setInterval(pollTelemetry, 1000);
+    }
     
-    // Poll logs every 3 seconds
-    setInterval(pollLogs, 3000);
+    // Poll logs every 3 seconds (only if logs display exists)
+    if (elements.targetLogsDisplay) {
+        setInterval(pollLogs, 3000);
+    }
 }
 
 async function pollTelemetry() {
@@ -163,6 +192,7 @@ async function pollTelemetry() {
 }
 
 async function pollLogs() {
+    if (!elements.targetLogsDisplay) return;
     const result = await apiCall('/logs?limit=50');
     if (result.success && result.logs) {
         elements.targetLogsDisplay.value = result.logs.join('\n');
@@ -378,6 +408,7 @@ function setupModal() {
 
 // Log Controls
 function setupLogControls() {
+    if (!elements.clearTargetLogsBtn || !elements.targetLogsDisplay) return;
     elements.clearTargetLogsBtn.addEventListener('click', () => {
         elements.targetLogsDisplay.value = '[Target Logs] Logs cleared.\n';
     });
@@ -463,6 +494,7 @@ function addAutoLog(message) {
 }
 
 function addTargetLog(message) {
+    if (!elements.targetLogsDisplay) return;
     const timestamp = new Date().toLocaleTimeString();
     const logEntry = `[${timestamp}] ${message}\n`;
     elements.targetLogsDisplay.value += logEntry;

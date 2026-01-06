@@ -65,6 +65,10 @@ body {
     border-bottom: 2px solid var(--border-color);
 }
 
+.tab-container:has(.tab-button:only-child) {
+    display: none;
+}
+
 .tab-button {
     flex: 1;
     padding: 15px 20px;
@@ -105,6 +109,36 @@ body {
     font-weight: bold;
     margin-bottom: 20px;
     text-align: center;
+}
+
+/* Logs Link Container */
+.logs-link-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 15px 20px;
+    background: var(--bg-tertiary);
+    border-bottom: 2px solid var(--border-color);
+}
+
+.btn-logs-link {
+    padding: 8px 16px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    text-decoration: none;
+    display: inline-block;
+}
+
+.btn-logs-link:hover {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
 }
 
 /* Mode Switch Container */

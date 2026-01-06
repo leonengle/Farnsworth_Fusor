@@ -25,11 +25,15 @@
         <!-- Tab Navigation -->
         <div class="tab-container">
             <button class="tab-button active" data-tab="control">Control</button>
-            <button class="tab-button" data-tab="logs">Log Reading</button>
         </div>
 
         <!-- Control Tab (Manual + Auto) -->
         <div id="controlTab" class="tab-content active">
+            <!-- Log Reading Link -->
+            <div class="logs-link-container">
+                <a href="logs.html" target="_blank" class="btn-logs-link">Open Logs in New Tab</a>
+            </div>
+
             <!-- Mode Switch -->
             <div class="mode-switch-container">
                 <label class="mode-switch-label">Manual</label>
@@ -140,23 +144,6 @@
 
                     <div class="auto-log-container">
                         <textarea id="autoLogDisplay" class="log-display" readonly>[FSM] Ready.</textarea>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Log Reading Tab -->
-        <div id="logsTab" class="tab-content">
-            <div class="logs-section">
-                <h2>Target Logs (Live from Raspberry Pi)</h2>
-                
-                <div class="logs-container">
-                    <div class="logs-header">
-                        <h3>Live Target Logs</h3>
-                    </div>
-                    <textarea id="targetLogsDisplay" class="log-display" readonly>[Target Logs] Waiting for logs from Raspberry Pi...</textarea>
-                    <div class="logs-controls">
-                        <button class="btn btn-primary" id="clearTargetLogsBtn">Clear Target Logs</button>
                     </div>
                 </div>
             </div>
